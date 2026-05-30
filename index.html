@@ -2196,6 +2196,94 @@
 
   /* ===== 改修12: 実績タブ(Stats) ===== */
   .stats-intro{padding:18px 22px;margin-bottom:14px}
+
+  /* ===== 改修31: 実績サブタブ(レゴ/タイパ/学習時間) ===== */
+  .stats-subtabs{display:flex;gap:4px;margin-bottom:12px;border-bottom:1px solid var(--line)}
+  .stats-subtab{
+    padding:8px 16px;font-size:13px;border:none;background:none;cursor:pointer;
+    color:var(--ink-muted);font-family:inherit;border-bottom:2px solid transparent;
+    margin-bottom:-1px;transition:color .15s,border-color .15s;
+  }
+  .stats-subtab:hover{color:var(--ink)}
+  .stats-subtab.active{color:var(--indigo);border-bottom-color:var(--indigo);font-weight:600}
+
+  /* ===== 改修31: 予定ボックスの計測タイマー ===== */
+  .plan-timer{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;
+    padding:6px 8px;border-radius:6px;background:var(--bg);border:1px solid var(--line);
+  }
+  .plan-timer.is-running{background:rgba(46,160,67,.10);border-color:rgba(46,160,67,.35)}
+  .plan-timer.is-paused{background:rgba(201,141,0,.10);border-color:rgba(201,141,0,.35)}
+  .plan-timer-clock{font-size:15px;font-weight:700;font-feature-settings:"tnum";color:var(--ink)}
+  .plan-timer-state{font-size:11px;color:var(--ink-muted)}
+  .plan-timer-hint{font-size:11px;color:var(--ink-muted)}
+  .plan-timer-btn{
+    padding:4px 10px;font-size:12px;border-radius:5px;border:1px solid var(--line);
+    background:var(--paper);color:var(--ink-soft);cursor:pointer;font-family:inherit;
+  }
+  .plan-timer-btn.start{background:var(--green);color:#fff;border-color:var(--green);font-weight:600}
+  .plan-timer-btn.pause{background:#c98d00;color:#fff;border-color:#c98d00}
+  .plan-timer-btn.resume{background:var(--green);color:#fff;border-color:var(--green)}
+  .plan-timer-btn.finish{background:var(--indigo);color:#fff;border-color:var(--indigo)}
+  .plan-timer-btn.cancel{color:var(--accent)}
+  .plan-timer-btn:hover{opacity:.88}
+
+  /* ===== 改修31: タイパ タイムテーブル ===== */
+  .taipa-summary-empty,.taipa-summary{margin:4px 0 14px 0}
+  .taipa-summary-empty{padding:18px;text-align:center;color:var(--ink-muted);font-size:13px;
+    background:var(--bg);border:1px dashed var(--line);border-radius:8px;line-height:1.7}
+  .taipa-sumcards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+  .taipa-sumcard{background:var(--paper);border:1px solid var(--line);border-radius:8px;
+    padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+  .taipa-sumcard.accent{border-color:var(--indigo);background:rgba(75,85,180,.06)}
+  .taipa-sumcard .label{font-size:11px;color:var(--ink-muted);letter-spacing:.04em}
+  .taipa-sumcard .value{font-size:19px;font-weight:700;color:var(--ink);font-feature-settings:"tnum"}
+  .taipa-sumcard .sub{font-size:11px;color:var(--ink-muted);font-feature-settings:"tnum"}
+  .taipa-tbl-title{font-size:13px;font-weight:600;margin:12px 0 6px 0;color:var(--ink)}
+  .taipa-tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+  .taipa-tbl{width:100%;border-collapse:collapse;font-size:12px}
+  .taipa-tbl th,.taipa-tbl td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+  .taipa-tbl th{background:var(--bg);font-weight:600;color:var(--ink-soft);font-size:11px}
+  .taipa-tbl td{font-feature-settings:"tnum"}
+  .taipa-tbl tr:last-child td{border-bottom:none}
+
+  /* タイムテーブル本体 */
+  .taipa-tt-wrap{max-height:70vh;overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--paper);margin-top:8px}
+  .taipa-tt{display:grid;grid-template-columns:46px 1fr 1fr;position:relative;min-width:300px}
+  .taipa-colhead{
+    position:sticky;top:0;z-index:3;background:var(--bg);
+    font-size:11px;font-weight:600;color:var(--ink-soft);text-align:center;
+    padding:6px 0;border-bottom:1px solid var(--line);border-right:1px solid var(--line);
+  }
+  .taipa-col-time{position:sticky;left:0;z-index:4;background:var(--paper);border-right:1px solid var(--line)}
+  .taipa-col-time .taipa-colhead{z-index:5}
+  .taipa-time-inner{position:relative}
+  .taipa-hour{position:absolute;left:0;right:0;font-size:9.5px;color:var(--ink-muted);text-align:right;padding-right:5px;transform:translateY(-1px);font-feature-settings:"tnum"}
+  .taipa-col{position:relative}
+  .taipa-grid{position:relative;border-right:1px solid var(--line)}
+  .taipa-hline{position:absolute;left:0;right:0;height:0;border-top:1px dashed var(--line-soft,rgba(0,0,0,.06))}
+  .taipa-block{
+    position:absolute;left:2px;right:2px;border-left:3px solid #999;border-radius:3px;
+    padding:1px 4px;overflow:hidden;font-size:9.5px;line-height:1.15;
+    box-shadow:0 1px 2px rgba(0,0,0,.06);
+  }
+  .taipa-block.plan{border-style:dashed;border-left-style:solid}
+  .taipa-block.plan.done{opacity:.5}
+  .taipa-block-sub{font-weight:700;color:var(--ink);display:flex;align-items:center;gap:3px}
+  .taipa-block-frame{color:var(--ink-soft);font-size:9px}
+  .taipa-mini-badge{font-size:8px;padding:0 3px;border-radius:3px;background:var(--ink-muted);color:#fff;font-weight:600}
+  .taipa-mini-badge.first{background:var(--green)}
+  .taipa-mini-badge.act{background:var(--indigo)}
+  .taipa-tiny{margin-top:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--line);border-radius:8px}
+  .taipa-tiny-title{font-size:12px;font-weight:600;margin-bottom:6px;color:var(--ink-soft)}
+  .taipa-tiny-item{display:flex;align-items:center;gap:6px;font-size:12px;padding:3px 0}
+  .taipa-tiny-meta{margin-left:auto;color:var(--ink-muted);font-size:11px;font-feature-settings:"tnum"}
+  @media(max-width:640px){
+    .taipa-sumcards{grid-template-columns:1fr}
+    .taipa-tt{grid-template-columns:40px 1fr 1fr}
+    .stats-subtab{padding:8px 11px;font-size:12px}
+  }
+
   .stats-h2{margin:0 0 6px 0;font-size:20px;font-weight:600;display:flex;align-items:center;gap:8px}
   .stats-sub{font-size:12px;color:var(--ink-muted);font-weight:400;letter-spacing:.05em;margin-left:6px}
   .stats-desc{font-size:12.5px;color:var(--ink-muted);margin:6px 0 0 0;line-height:1.6}
@@ -4469,6 +4557,14 @@ function loadState(){
       //   studyPlans: { "科目|フレーム番号": {startDate, startTime, endTime, durationMin, reviewOffsets:[], done:{}} }
       s.studyPlans ||= {};
       s.planView ||= {date:null};
+      // 改修31: タイパ(実績タイムテーブル)機能の追加 (後方互換)
+      //   studySessions: 計測した学習セッションの配列。各要素:
+      //     { id, planKey|null, subject, frameRef, dateKey,
+      //       startTs, endTs, segments:[{start,end,mode:'A'|'B'}],
+      //       status:'running'|'paused'|'done'|'canceled', answered, correct }
+      s.studySessions = Array.isArray(s.studySessions) ? s.studySessions : [];
+      // 進行中セッションの id (running/paused のもの)。null=計測なし。
+      if(typeof s.activeSessionId === 'undefined') s.activeSessionId = null;
       // 事例問題機能の追加 (後方互換)
       if(!s.cases || !s.cases.length){
         s.cases = SAMPLE_CASES.slice();
@@ -4489,6 +4585,10 @@ function loadState(){
       s.statsView.range ||= '7d';
       s.statsView.kindMode ||= 'pastA';
       s.statsView.openDates ||= {};
+      // 改修31: 実績タブのサブタブ('lego'=従来の解答数グラフ / 'taipa'=実績タイムテーブル)
+      s.statsView.subTab ||= 'lego';
+      // 改修31: タイパ タイムテーブルで表示中の日(null=今日)
+      if(typeof s.statsView.taipaDate === 'undefined') s.statsView.taipaDate = null;
       // 条文・解説機能の追加 (後方互換)
       s.articles ||= {};
       s.articleView ||= {mode:'subjects', subject:null, frameNo:null, indexId:null};
@@ -4634,13 +4734,16 @@ function loadState(){
     figuresView: {filterSubject:'',filterFrame:''},
     studyPlans: {},
     planView: {date:null},
+    // 改修31: タイパ(実績タイムテーブル)
+    studySessions: [],
+    activeSessionId: null,
     cases: SAMPLE_CASES.slice(),
     caseHistory: [],
     caseView: {mode:'list', selectedCaseId:null, filterSubject:'', filterFrame:''},
     caseSession: {currentSubIdx:0, answered:{}, userAnswers:{}},
     progressView: {mode:'subjects', subject:null, kindMode:'pastA', tab:'kind', ganttMode:'all', ganttSubject:'労働基準法', ganttKindMode:'pastA'},
     // 改修12: 実績タブ用ビュー状態
-    statsView: {range:'7d', kindMode:'pastA', openDates:{}},
+    statsView: {range:'7d', kindMode:'pastA', openDates:{}, subTab:'lego', taipaDate:null},
     articles: {},
     articleView: {mode:'subjects', subject:null, frameNo:null, indexId:null, subFrameKey:null},
     whys: {},
@@ -10818,6 +10921,173 @@ function planDateLabel(dateKey){
   return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}(${w})`;
 }
 
+/* ============================================================
+   改修31: タイパ(実績タイムテーブル)— 学習セッションの計測エンジン
+   - 予定ボックスの「開始/中断/終了/キャンセル」で時刻を取得
+   - 解答数は state.history を [startTs, endTs] の時刻窓で自動集計
+   - segments[].mode: 'A'=通常演習(タイパ計算対象) / 'B'=ロックオン中断(時間は計上するがタイパ計算からは除外)
+   - 中断は「停止」ではないため、トータル学習時間には計上する
+   ============================================================ */
+
+// 進行中(running/paused)のセッションを返す。なければ null。
+function getActiveSession(){
+  if(!state.activeSessionId) return null;
+  const arr = state.studySessions || [];
+  const s = arr.find(x=>x.id===state.activeSessionId);
+  if(!s) { state.activeSessionId = null; return null; }
+  if(s.status!=='running' && s.status!=='paused'){ state.activeSessionId = null; return null; }
+  return s;
+}
+
+// セッションの「Aモード(通常演習)実時間」をミリ秒で返す(タイパ計算用)
+function sessionActiveMs(sess, nowTs){
+  let ms = 0;
+  const segs = Array.isArray(sess.segments) ? sess.segments : [];
+  for(const sg of segs){
+    if(sg.mode!=='A') continue;
+    const end = sg.end!=null ? sg.end : (nowTs!=null ? nowTs : Date.now());
+    if(end>sg.start) ms += (end - sg.start);
+  }
+  return ms;
+}
+// セッションの「トータル学習時間」をミリ秒で返す(中断=Bモードも含む)
+function sessionTotalMs(sess, nowTs){
+  let ms = 0;
+  const segs = Array.isArray(sess.segments) ? sess.segments : [];
+  for(const sg of segs){
+    const end = sg.end!=null ? sg.end : (nowTs!=null ? nowTs : Date.now());
+    if(end>sg.start) ms += (end - sg.start);
+  }
+  return ms;
+}
+
+// セッションの時刻窓 [startTs, endTs] に入る history を集計して {answered, correct} を返す。
+//   endTs が未確定(進行中)の場合は現在時刻まで。
+function sessionAnswerStats(sess, nowTs){
+  const start = sess.startTs;
+  const end = (sess.endTs!=null) ? sess.endTs : (nowTs!=null ? nowTs : Date.now());
+  let answered=0, correct=0;
+  for(const h of (state.history||[])){
+    if(h.ts>=start && h.ts<=end){
+      answered++;
+      if(h.correct) correct++;
+    }
+  }
+  return {answered, correct};
+}
+
+// 新規セッション開始(予定ボックスから)。既存の進行中があれば自動で終了確定。
+function startStudySession(subject, frameRef, dateKey){
+  // 既存の進行中セッションがあれば、まず確定(終了)する
+  const prev = getActiveSession();
+  if(prev){
+    if(!confirm('別の学習セッションが進行中です。\nそれを「終了」して新しいセッションを開始しますか?')) return;
+    finishStudySession(prev.id, {silent:true});
+  }
+  const now = Date.now();
+  const sess = {
+    id: 'ss_' + now + '_' + Math.random().toString(36).slice(2,7),
+    planKey: planKey(subject, frameRef),
+    subject, frameRef, dateKey,
+    startTs: now,
+    endTs: null,
+    segments: [{start: now, end: null, mode:'A'}],
+    status: 'running',
+    answered: 0, correct: 0
+  };
+  state.studySessions ||= [];
+  state.studySessions.push(sess);
+  state.activeSessionId = sess.id;
+  saveState();
+  renderProgress();
+}
+
+// 中断(Bモードへ): 現在のAセグメントを閉じ、Bセグメントを開く。時間は計上継続。
+function pauseStudySession(id){
+  const sess = (state.studySessions||[]).find(x=>x.id===id);
+  if(!sess || sess.status!=='running') return;
+  const now = Date.now();
+  const segs = sess.segments;
+  const last = segs[segs.length-1];
+  if(last && last.end==null) last.end = now;
+  segs.push({start: now, end: null, mode:'B'});
+  sess.status = 'paused';
+  saveState();
+  renderProgress();
+}
+// 再開(Aモードへ): 現在のBセグメントを閉じ、Aセグメントを開く。
+function resumeStudySession(id){
+  const sess = (state.studySessions||[]).find(x=>x.id===id);
+  if(!sess || sess.status!=='paused') return;
+  const now = Date.now();
+  const segs = sess.segments;
+  const last = segs[segs.length-1];
+  if(last && last.end==null) last.end = now;
+  segs.push({start: now, end: null, mode:'A'});
+  sess.status = 'running';
+  saveState();
+  renderProgress();
+}
+// 終了: 最後のセグメントを閉じ、endTs を確定。解答数を時刻窓から集計して保存。予定も完了に。
+function finishStudySession(id, opts){
+  opts = opts || {};
+  const sess = (state.studySessions||[]).find(x=>x.id===id);
+  if(!sess || (sess.status!=='running' && sess.status!=='paused')) return;
+  const now = Date.now();
+  const segs = sess.segments;
+  const last = segs[segs.length-1];
+  if(last && last.end==null) last.end = now;
+  sess.endTs = now;
+  sess.status = 'done';
+  const st = sessionAnswerStats(sess);
+  sess.answered = st.answered;
+  sess.correct = st.correct;
+  if(state.activeSessionId===id) state.activeSessionId = null;
+  // 予定の完了フラグも立てる(その発生日に対して)
+  if(sess.planKey && state.studyPlans && state.studyPlans[sess.planKey]){
+    const plan = state.studyPlans[sess.planKey];
+    plan.done ||= {};
+    plan.done[sess.dateKey] = true;
+  }
+  saveState();
+  if(!opts.silent) renderProgress();
+}
+// キャンセル: セッションを破棄(記録に残さない)。
+function cancelStudySession(id){
+  const arr = state.studySessions || [];
+  const idx = arr.findIndex(x=>x.id===id);
+  if(idx<0) return;
+  if(!confirm('この計測をキャンセルしますか?(記録は残りません)')) return;
+  arr.splice(idx,1);
+  if(state.activeSessionId===id) state.activeSessionId = null;
+  saveState();
+  renderProgress();
+}
+
+// 経過時間 ms を "M分" / "H時間M分" の文字列に
+function fmtDurationMs(ms){
+  const totalMin = Math.floor(ms/60000);
+  if(totalMin<60) return totalMin+'分';
+  const h = Math.floor(totalMin/60), m = totalMin%60;
+  return m>0 ? `${h}時間${m}分` : `${h}時間`;
+}
+// 経過時間 ms を "MM:SS"(進行中表示用)
+function fmtClockMs(ms){
+  const totalSec = Math.max(0, Math.floor(ms/1000));
+  const m = Math.floor(totalSec/60), s = totalSec%60;
+  return String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+}
+// ts → "HH:MM"
+function fmtHM(ts){
+  const d = new Date(ts);
+  return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+
+// 指定日 dateKey の「完了したセッション」を返す(タイムテーブル/集計用)
+function getSessionsForDate(dateKey){
+  return (state.studySessions||[]).filter(s=> s.dateKey===dateKey && s.status==='done' && s.startTs!=null && s.endTs!=null);
+}
+
 /* ===== 予定編集モーダル ===== */
 let _planEditKey = null;
 function openPlanEditModal(subject, frameRef){
@@ -10962,6 +11232,27 @@ function renderProgressPlan(root){
       // 中分類名は label に含まれるため、content が label 末尾と重複する場合は省略
       const showContent = content && !label.endsWith(content);
       const itemsHtml = showContent ? `<div class="plan-box-items">${escapeHtml(content)}</div>` : '';
+      // 改修31: 計測UI — このボックス(科目・フレーム・日)に対応する進行中セッションを探す
+      const activeSess = (state.studySessions||[]).find(ss=>
+        ss.planKey===o.key && ss.dateKey===dateKey && (ss.status==='running'||ss.status==='paused'));
+      let timerHtml = '';
+      if(activeSess){
+        const running = activeSess.status==='running';
+        timerHtml = `<div class="plan-timer ${running?'is-running':'is-paused'}" data-sessid="${activeSess.id}">
+          <span class="plan-timer-clock" data-sessclock="${activeSess.id}" data-sessstart="${activeSess.startTs}">${fmtClockMs(sessionTotalMs(activeSess))}</span>
+          <span class="plan-timer-state">${running?'計測中':'中断中(ロックオン)'}</span>
+          ${running
+            ? `<button class="plan-timer-btn pause" data-sesspause="${activeSess.id}">中断</button>`
+            : `<button class="plan-timer-btn resume" data-sessresume="${activeSess.id}">再開</button>`}
+          <button class="plan-timer-btn finish" data-sessfinish="${activeSess.id}">終了</button>
+          <button class="plan-timer-btn cancel" data-sesscancel="${activeSess.id}">キャンセル</button>
+        </div>`;
+      }else if(!o.done){
+        timerHtml = `<div class="plan-timer is-idle">
+          <button class="plan-timer-btn start" data-sessstart-subj="${escapeHtml(o.subject)}" data-sessstart-fref="${escapeHtml(String(o.frameRef))}" data-sessstart-date="${dateKey}">▶ 開始</button>
+          <span class="plan-timer-hint">学習を始めるときに押すと、時間と解答数を自動で計測します</span>
+        </div>`;
+      }
       html += `<div class="plan-box ${o.done?'done':''}" style="border-left-color:${subjCol}">
         <div class="plan-box-main">
           <div class="plan-box-top">
@@ -10969,6 +11260,7 @@ function renderProgressPlan(root){
           </div>
           <div class="plan-box-title"><span class="plan-subj-dot" style="background:${subjCol}"></span>${escapeHtml(o.subject)}　${escapeHtml(label)}</div>
           ${itemsHtml}
+          ${timerHtml}
         </div>
         <div class="plan-box-action">
           ${o.done?'<span class="plan-done-mark">✓ 完了</span>':''}
@@ -10995,6 +11287,45 @@ function renderProgressPlan(root){
       if(subj && ref) openPlanEditModal(subj, ref);
     });
   });
+  // 改修31: 計測ボタンの配線
+  root.querySelectorAll('button[data-sessstart-subj]').forEach(b=>{
+    b.addEventListener('click', ()=> startStudySession(b.dataset.sessstartSubj, b.dataset.sessstartFref, b.dataset.sessstartDate));
+  });
+  root.querySelectorAll('button[data-sesspause]').forEach(b=>{
+    b.addEventListener('click', ()=> pauseStudySession(b.dataset.sesspause));
+  });
+  root.querySelectorAll('button[data-sessresume]').forEach(b=>{
+    b.addEventListener('click', ()=> resumeStudySession(b.dataset.sessresume));
+  });
+  root.querySelectorAll('button[data-sessfinish]').forEach(b=>{
+    b.addEventListener('click', ()=>{ if(confirm('この学習セッションを終了します。よろしいですか?')) finishStudySession(b.dataset.sessfinish); });
+  });
+  root.querySelectorAll('button[data-sesscancel]').forEach(b=>{
+    b.addEventListener('click', ()=> cancelStudySession(b.dataset.sesscancel));
+  });
+  // 進行中セッションがあれば、1秒ごとに経過時間を更新(再レンダリングはしない)
+  _startPlanClockTicker(root);
+}
+
+// 進行中セッションの経過時間を毎秒更新するタイマー(予定タブ表示中のみ)
+let _planClockTimer = null;
+function _startPlanClockTicker(root){
+  if(_planClockTimer){ clearInterval(_planClockTimer); _planClockTimer = null; }
+  const clocks = root.querySelectorAll('[data-sessclock]');
+  if(!clocks.length) return;
+  const tick = ()=>{
+    let anyAlive = false;
+    root.querySelectorAll('[data-sessclock]').forEach(el=>{
+      const id = el.getAttribute('data-sessclock');
+      const sess = (state.studySessions||[]).find(x=>x.id===id);
+      if(sess && (sess.status==='running'||sess.status==='paused')){
+        el.textContent = fmtClockMs(sessionTotalMs(sess));
+        anyAlive = true;
+      }
+    });
+    if(!anyAlive && _planClockTimer){ clearInterval(_planClockTimer); _planClockTimer = null; }
+  };
+  _planClockTimer = setInterval(tick, 1000);
 }
 
 // 予定タブ共通の配線(サブタブ・日付ナビ)
@@ -12476,6 +12807,32 @@ function renderStats(){
   state.statsView.range ||= '7d';
   state.statsView.kindMode ||= 'pastA';
   state.statsView.openDates ||= {};
+  state.statsView.subTab ||= 'lego';
+  if(typeof state.statsView.taipaDate === 'undefined') state.statsView.taipaDate = null;
+
+  // 改修31: サブタブ(レゴ / タイパ)
+  const subTab = state.statsView.subTab;
+  const subTabsHtml = `<div class="stats-subtabs">
+    <button class="stats-subtab ${subTab==='lego'?'active':''}" data-statssub="lego">🧱 レゴ</button>
+    <button class="stats-subtab ${subTab==='taipa'?'active':''}" data-statssub="taipa">⏱ タイパ</button>
+    <button class="stats-subtab ${subTab==='time'?'active':''}" data-statssub="time">📈 学習時間</button>
+  </div>`;
+
+  // タイパ / 学習時間 サブタブはそれぞれ専用描画へ
+  if(subTab==='taipa'){
+    root.innerHTML = subTabsHtml + renderTaipaView();
+    _wireStatsSubTabs(root);
+    _wireTaipaView(root);
+    return;
+  }
+  if(subTab==='time'){
+    root.innerHTML = subTabsHtml + renderStudyTimeView();
+    _wireStatsSubTabs(root);
+    _wireStudyTimeView(root);
+    return;
+  }
+
+  // === 以下、レゴ(従来の解答数グラフ)===
   const range = state.statsView.range;
   const kindMode = state.statsView.kindMode;
   const kindLbl = statsKindLabel(kindMode);
@@ -12507,8 +12864,9 @@ function renderStats(){
 
   // イントロ + サブタブ + 期間切替
   html += `<div class="card stats-intro">
-    <h2 class="stats-h2">📊 実績 <span class="stats-sub">フレーム演習(進捗管理モード)の日別集計</span></h2>
-    <p class="stats-desc">トップページの「今日の実績」は単発の択一演習も含みますが、こちらは<strong>進捗管理モードのフレーム演習のみ</strong>を集計しています。過去のフレーム演習も自動的に反映されます。</p>
+    ${subTabsHtml}
+    <h2 class="stats-h2">🧱 レゴ <span class="stats-sub">フレーム演習(進捗管理モード)の日別解答数</span></h2>
+    <p class="stats-desc">科目の積み上がり具合を「レゴ」に見立てた日別の解答数グラフです。トップページの「今日の実績」は単発の択一演習も含みますが、こちらは<strong>進捗管理モードのフレーム演習のみ</strong>を集計しています。</p>
   </div>`;
 
   html += `<div class="stats-controls">
@@ -12599,6 +12957,418 @@ function renderStats(){
       const row = h.closest('.stats-day-row');
       if(row) row.classList.toggle('open');
     });
+  });
+  _wireStatsSubTabs(root);
+}
+
+// 改修31: 実績タブのサブタブ(レゴ/タイパ/学習時間)の切替配線
+function _wireStatsSubTabs(root){
+  root.querySelectorAll('.stats-subtab').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const v = b.dataset.statssub;
+      if(!v || state.statsView.subTab===v) return;
+      state.statsView.subTab = v;
+      saveState();
+      renderStats();
+    });
+  });
+}
+
+/* ============================================================
+   改修31: タイパ(実績タイムテーブル)ビュー
+   - 縦軸=24時間(5分刻み)、上→下
+   - 1日分を表示(日付ナビで移動)。左に予定、右に実績。
+   - 予定: getPlanOccurrencesForDate(startTime/endTime/durationMin)
+   - 実績: getSessionsForDate(完了セッション)。startTs/endTs から配置。
+   - 5分(=1行)未満や5分未満の実績はタイムテーブルには帯表示せず、別途リストで「実施済み」表記。
+   ============================================================ */
+
+const TAIPA_SLOT_MIN = 5;           // 1スロット=5分
+const TAIPA_ROW_PX = 14;            // 1スロットの高さ(px)
+const TAIPA_SLOTS_PER_DAY = (24*60)/TAIPA_SLOT_MIN; // 288
+
+// "HH:MM" → その日の0時からの分。失敗時 null。
+function _taipaHmToMin(hm){
+  if(!hm || typeof hm!=='string') return null;
+  const m = hm.match(/^(\d{1,2}):(\d{2})$/);
+  if(!m) return null;
+  const h = parseInt(m[1],10), mi = parseInt(m[2],10);
+  if(h<0||h>23||mi<0||mi>59) return null;
+  return h*60+mi;
+}
+// ts → その日の0時からの経過分(同一日内)。
+function _taipaTsToMin(ts, dateKey){
+  const base = _gParseKey(dateKey);
+  if(!base) return null;
+  const start0 = new Date(base.getFullYear(), base.getMonth(), base.getDate()).getTime();
+  return Math.round((ts - start0)/60000);
+}
+
+function renderTaipaView(){
+  const todayKey = _gDateKey(_gTodayDate());
+  state.statsView ||= {};
+  let dateKey = state.statsView.taipaDate || todayKey;
+  if(!_gParseKey(dateKey)) dateKey = todayKey;
+  const tomorrowKey = _gDateKey(_gAddDays(_gTodayDate(),1));
+  const isToday = dateKey===todayKey;
+  const isTomorrow = dateKey===tomorrowKey;
+
+  // データ
+  const plans = getPlanOccurrencesForDate(dateKey);
+  const sessions = getSessionsForDate(dateKey);
+
+  let html = `<div class="card stats-intro">
+    <h2 class="stats-h2">⏱ タイパ <span class="stats-sub">${planDateLabel(dateKey)} の予定と実績</span></h2>
+    <p class="stats-desc">左に<strong>予定</strong>(予定タブで設定した学習計画)、右に<strong>実績</strong>(予定ボックスで計測した学習)を、24時間の5分刻みタイムテーブルに重ねて表示します。<br>実績は「終了」した計測のうち5分以上のものを帯で表示し、それ未満は下部に「実施済み」として記録します。</p>
+  </div>`;
+
+  // 日付ナビ
+  html += `<div class="card" style="padding-bottom:8px">
+    <div class="plan-toolbar">
+      <button class="plan-daybtn ${isToday?'active':''}" id="taipa-today">今日</button>
+      <button class="plan-daybtn ${isTomorrow?'active':''}" id="taipa-tomorrow">明日</button>
+      <button class="plan-daybtn" id="taipa-prev">‹ 前日</button>
+      <button class="plan-daybtn" id="taipa-next">翌日 ›</button>
+      <input type="date" id="taipa-datepick" value="${dateKey}">
+      <span class="plan-date-label">${planDateLabel(dateKey)}${isToday?' 〈今日〉':(isTomorrow?' 〈明日〉':'')}</span>
+    </div>`;
+
+  // 集計サマリー(タイムテーブルの上に表示)
+  html += renderTaipaSummary(dateKey, sessions);
+
+  // タイムテーブル本体
+  html += `<div class="taipa-tt-wrap">${renderTaipaTimetable(dateKey, plans, sessions)}</div>`;
+
+  // 5分未満などタイムテーブルに乗らなかった実績
+  const tinyList = sessions.filter(s=> sessionTotalMs(s) < TAIPA_SLOT_MIN*60000);
+  if(tinyList.length){
+    html += `<div class="taipa-tiny">
+      <div class="taipa-tiny-title">短時間で実施(5分未満・タイムテーブル非表示分)</div>`;
+    for(const s of tinyList){
+      const col = statsSubjectColor(s.subject);
+      const lbl = frameOrSubFrameLabel(s.subject, s.frameRef);
+      html += `<div class="taipa-tiny-item">
+        <span class="plan-subj-dot" style="background:${col}"></span>
+        <span>${escapeHtml(s.subject)}　${escapeHtml(lbl)}</span>
+        <span class="taipa-tiny-meta">${fmtHM(s.startTs)} / 解答${s.answered}問</span>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+
+  html += `</div>`; // card close
+  return html;
+}
+
+// タイムテーブル(5分刻み)。左=時刻軸+予定、右=実績。
+function renderTaipaTimetable(dateKey, plans, sessions){
+  // 表示範囲を、予定・実績がある時間帯に絞ると見やすい(無ければ 6:00〜24:00)
+  let minMin = 6*60, maxMin = 24*60;
+  const marks = [];
+  for(const p of plans){
+    const s = _taipaHmToMin(p.startTime);
+    if(s!=null){ marks.push(s); const e = _taipaHmToMin(p.endTime); if(e!=null) marks.push(e); else if(p.durationMin) marks.push(s+p.durationMin); }
+  }
+  for(const ss of sessions){
+    const s = _taipaTsToMin(ss.startTs, dateKey); const e = _taipaTsToMin(ss.endTs, dateKey);
+    if(s!=null) marks.push(s); if(e!=null) marks.push(e);
+  }
+  if(marks.length){
+    minMin = Math.min(minMin, Math.floor(Math.min(...marks)/60)*60);
+    maxMin = Math.max(maxMin, Math.ceil(Math.max(...marks)/60)*60);
+  }
+  minMin = Math.max(0, Math.min(minMin, 6*60));
+  maxMin = Math.min(24*60, Math.max(maxMin, 24*60));
+  // 実際に描く範囲(余白1時間)
+  minMin = Math.max(0, minMin);
+  const startSlot = Math.floor(minMin/TAIPA_SLOT_MIN);
+  const endSlot = Math.ceil(maxMin/TAIPA_SLOT_MIN);
+  const nSlots = endSlot - startSlot;
+  const gridH = nSlots * TAIPA_ROW_PX;
+
+  // 左の時刻ラベル(1時間ごと)
+  let hourLabels = '';
+  for(let mn=Math.ceil(minMin/60)*60; mn<=maxMin; mn+=60){
+    const top = ((mn/TAIPA_SLOT_MIN) - startSlot) * TAIPA_ROW_PX;
+    hourLabels += `<div class="taipa-hour" style="top:${top}px">${String(Math.floor(mn/60)).padStart(2,'0')}時</div>`;
+  }
+  // 1時間ごとの横罫線
+  let hourLines = '';
+  for(let mn=Math.ceil(minMin/60)*60; mn<=maxMin; mn+=60){
+    const top = ((mn/TAIPA_SLOT_MIN) - startSlot) * TAIPA_ROW_PX;
+    hourLines += `<div class="taipa-hline" style="top:${top}px"></div>`;
+  }
+
+  // 予定ブロック(左カラム)
+  let planBlocks = '';
+  for(const p of plans){
+    const s = _taipaHmToMin(p.startTime);
+    if(s==null) continue;
+    let e = _taipaHmToMin(p.endTime);
+    if(e==null) e = s + (p.durationMin && p.durationMin>0 ? p.durationMin : TAIPA_SLOT_MIN);
+    if(e<=s) e = s + TAIPA_SLOT_MIN;
+    const top = ((s/TAIPA_SLOT_MIN) - startSlot) * TAIPA_ROW_PX;
+    const h = Math.max(TAIPA_ROW_PX, ((e-s)/TAIPA_SLOT_MIN) * TAIPA_ROW_PX);
+    const col = statsSubjectColor(p.subject);
+    const lbl = frameOrSubFrameLabel(p.subject, p.frameRef);
+    const kindB = p.kind==='review' ? `<span class="taipa-mini-badge">復${p.offset}</span>` : `<span class="taipa-mini-badge first">初</span>`;
+    planBlocks += `<div class="taipa-block plan ${p.done?'done':''}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.10)}">
+      <div class="taipa-block-sub">${escapeHtml(shortSubject(p.subject))}${kindB}</div>
+      <div class="taipa-block-frame">${escapeHtml(_taipaFrameShort(p.subject,p.frameRef))}</div>
+    </div>`;
+  }
+
+  // 実績ブロック(右カラム)— 5分以上のみ
+  let actBlocks = '';
+  for(const ss of sessions){
+    if(sessionTotalMs(ss) < TAIPA_SLOT_MIN*60000) continue;
+    const s = _taipaTsToMin(ss.startTs, dateKey);
+    const e = _taipaTsToMin(ss.endTs, dateKey);
+    if(s==null||e==null||e<=s) continue;
+    const top = ((s/TAIPA_SLOT_MIN) - startSlot) * TAIPA_ROW_PX;
+    const h = Math.max(TAIPA_ROW_PX, ((e-s)/TAIPA_SLOT_MIN) * TAIPA_ROW_PX);
+    const col = statsSubjectColor(ss.subject);
+    const totMin = Math.round(sessionTotalMs(ss)/60000);
+    actBlocks += `<div class="taipa-block act" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.20)}" title="${escapeHtml(ss.subject)} ${escapeHtml(frameOrSubFrameLabel(ss.subject,ss.frameRef))} / ${fmtHM(ss.startTs)}〜${fmtHM(ss.endTs)} / ${totMin}分 / 解答${ss.answered}問">
+      <div class="taipa-block-sub">${escapeHtml(shortSubject(ss.subject))}<span class="taipa-mini-badge act">${ss.answered}問</span></div>
+      <div class="taipa-block-frame">${escapeHtml(_taipaFrameShort(ss.subject,ss.frameRef))}</div>
+    </div>`;
+  }
+
+  return `<div class="taipa-tt" style="--taipa-h:${gridH}px">
+    <div class="taipa-col-time">
+      <div class="taipa-colhead">時刻</div>
+      <div class="taipa-time-inner" style="height:${gridH}px">${hourLabels}</div>
+    </div>
+    <div class="taipa-col taipa-col-plan">
+      <div class="taipa-colhead">予定</div>
+      <div class="taipa-grid" style="height:${gridH}px">${hourLines}${planBlocks}</div>
+    </div>
+    <div class="taipa-col taipa-col-act">
+      <div class="taipa-colhead">実績</div>
+      <div class="taipa-grid" style="height:${gridH}px">${hourLines}${actBlocks}</div>
+    </div>
+  </div>`;
+}
+
+// 色を薄くした背景色(rgba 風)を hsl から作る
+function _taipaTint(hsl, alpha){
+  // hsl は "hsl(h, s%, l%)" 形式。アルファ付き hsla に変換。
+  const m = hsl.match(/hsl\(([^,]+),\s*([^,]+)%,\s*([^)]+)%\)/);
+  if(!m) return hsl;
+  return `hsla(${m[1].trim()}, ${m[2].trim()}%, ${m[3].trim()}%, ${alpha})`;
+}
+// 科目名の短縮(タイムテーブルの狭い帯用)
+function shortSubject(subject){
+  const map = {
+    '労働基準法':'労基','労働安全衛生法':'安衛','労働者災害補償保険法':'労災',
+    '雇用保険法':'雇用','労働保険徴収法':'徴収','労務管理その他の労働に関する一般常識':'労一',
+    '健康保険法':'健保','国民年金法':'国年','厚生年金保険法':'厚年','社会保険に関する一般常識':'社一'
+  };
+  return map[subject] || subject;
+}
+// フレームラベルの短縮("F4" / "F2_1")
+function _taipaFrameShort(subject, frameRef){
+  const r = resolveFrameRef(subject, frameRef);
+  if(r.isSubFrame && r.subFrameKey) return 'F'+r.subFrameKey.replace('.', '_');
+  if(r.frameNo!=null) return 'F'+r.frameNo;
+  return String(frameRef);
+}
+
+// タイパ集計サマリー(総合計・科目別・タイパ評価)
+function renderTaipaSummary(dateKey, sessions){
+  // 総合計
+  let totalMs=0, activeMs=0, totalAns=0, totalCorrect=0;
+  // 科目別: subject -> {totalMs, activeMs, ans, correct, frames:Set}
+  const bySubject = {};
+  // フレーム別: "subject|frameRef" -> {subject, frameRef, totalMs, activeMs, ans, correct}
+  const byFrame = {};
+  for(const s of sessions){
+    const tMs = sessionTotalMs(s), aMs = sessionActiveMs(s);
+    totalMs += tMs; activeMs += aMs; totalAns += s.answered; totalCorrect += s.correct;
+    const subj = s.subject;
+    bySubject[subj] ||= {totalMs:0, activeMs:0, ans:0, correct:0, frames:new Set()};
+    bySubject[subj].totalMs += tMs; bySubject[subj].activeMs += aMs;
+    bySubject[subj].ans += s.answered; bySubject[subj].correct += s.correct;
+    bySubject[subj].frames.add(String(s.frameRef));
+    const fk = s.subject+'|'+s.frameRef;
+    byFrame[fk] ||= {subject:s.subject, frameRef:s.frameRef, totalMs:0, activeMs:0, ans:0, correct:0};
+    byFrame[fk].totalMs += tMs; byFrame[fk].activeMs += aMs;
+    byFrame[fk].ans += s.answered; byFrame[fk].correct += s.correct;
+  }
+
+  const perQ = (ms, ans)=> ans>0 ? (ms/60000/ans) : null; // 1問あたり分
+  const fmtPerQ = (v)=> v==null ? '—' : (v>=1 ? v.toFixed(1)+'分/問' : Math.round(v*60)+'秒/問');
+  const pct = (c,a)=> a>0 ? Math.round(c/a*100)+'%' : '—';
+
+  if(!sessions.length){
+    return `<div class="taipa-summary-empty">この日の計測実績はありません。<br>「予定」タブの予定ボックスで「▶ 開始」→学習→「終了」を押すと、ここに集計が表示されます。</div>`;
+  }
+
+  let html = `<div class="taipa-summary">`;
+  // 総合計カード
+  html += `<div class="taipa-sumcards">
+    <div class="taipa-sumcard">
+      <span class="label">トータル学習時間</span>
+      <span class="value">${fmtDurationMs(totalMs)}</span>
+      <span class="sub">うち通常演習(A) ${fmtDurationMs(activeMs)}</span>
+    </div>
+    <div class="taipa-sumcard">
+      <span class="label">トータル解答数</span>
+      <span class="value">${totalAns}<span style="font-size:12px;font-weight:400">問</span></span>
+      <span class="sub">正答 ${totalCorrect} (${pct(totalCorrect,totalAns)})</span>
+    </div>
+    <div class="taipa-sumcard accent">
+      <span class="label">タイパ(A基準・1問あたり)</span>
+      <span class="value">${fmtPerQ(perQ(activeMs, totalAns))}</span>
+      <span class="sub">通常演習時間 ÷ 解答数</span>
+    </div>
+  </div>`;
+
+  // 科目別
+  const subjKeys = Object.keys(bySubject).sort((a,b)=>{
+    const ia=SUBJECTS_ORDER.indexOf(a), ib=SUBJECTS_ORDER.indexOf(b);
+    return (ia<0?999:ia)-(ib<0?999:ib);
+  });
+  html += `<div class="taipa-tbl-title">科目別</div>
+    <div class="taipa-tbl-wrap"><table class="taipa-tbl">
+    <thead><tr><th>科目</th><th>学習時間</th><th>解答</th><th>正答率</th><th>タイパ(A)</th></tr></thead><tbody>`;
+  for(const subj of subjKeys){
+    const d = bySubject[subj];
+    const col = statsSubjectColor(subj);
+    html += `<tr>
+      <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(subj)}</td>
+      <td>${fmtDurationMs(d.totalMs)}</td>
+      <td>${d.ans}</td>
+      <td>${pct(d.correct,d.ans)}</td>
+      <td>${fmtPerQ(perQ(d.activeMs,d.ans))}</td>
+    </tr>`;
+  }
+  html += `</tbody></table></div>`;
+
+  // フレーム別(解答率も併記)
+  const frameKeys = Object.keys(byFrame).sort((a,b)=>{
+    const da=byFrame[a], db=byFrame[b];
+    const ia=SUBJECTS_ORDER.indexOf(da.subject), ib=SUBJECTS_ORDER.indexOf(db.subject);
+    if((ia<0?999:ia)!==(ib<0?999:ib)) return (ia<0?999:ia)-(ib<0?999:ib);
+    const sa=planSortIndex(da.subject,da.frameRef), sb=planSortIndex(db.subject,db.frameRef);
+    if(sa.fno!==sb.fno) return sa.fno-sb.fno; return sa.sub-sb.sub;
+  });
+  html += `<div class="taipa-tbl-title">フレーム別</div>
+    <div class="taipa-tbl-wrap"><table class="taipa-tbl">
+    <thead><tr><th>科目 / フレーム</th><th>学習時間</th><th>解答</th><th>正答率</th><th>タイパ(A)</th></tr></thead><tbody>`;
+  for(const fk of frameKeys){
+    const d = byFrame[fk];
+    const col = statsSubjectColor(d.subject);
+    html += `<tr>
+      <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(shortSubject(d.subject))} ${escapeHtml(frameOrSubFrameLabel(d.subject,d.frameRef))}</td>
+      <td>${fmtDurationMs(d.totalMs)}</td>
+      <td>${d.ans}</td>
+      <td>${pct(d.correct,d.ans)}</td>
+      <td>${fmtPerQ(perQ(d.activeMs,d.ans))}</td>
+    </tr>`;
+  }
+  html += `</tbody></table></div>`;
+  html += `</div>`;
+  return html;
+}
+
+// タイパビューの配線(日付ナビ)
+function _wireTaipaView(root){
+  const todayKey = _gDateKey(_gTodayDate());
+  const setDate = (dk)=>{ state.statsView.taipaDate = dk; saveState(); renderStats(); };
+  const cur = state.statsView.taipaDate || todayKey;
+  const t = root.querySelector('#taipa-today'); if(t) t.addEventListener('click', ()=> setDate(todayKey));
+  const tm = root.querySelector('#taipa-tomorrow'); if(tm) tm.addEventListener('click', ()=> setDate(_gDateKey(_gAddDays(_gTodayDate(),1))));
+  const pv = root.querySelector('#taipa-prev'); if(pv) pv.addEventListener('click', ()=>{ const d=_gParseKey(cur)||_gTodayDate(); setDate(_gDateKey(_gAddDays(d,-1))); });
+  const nx = root.querySelector('#taipa-next'); if(nx) nx.addEventListener('click', ()=>{ const d=_gParseKey(cur)||_gTodayDate(); setDate(_gDateKey(_gAddDays(d,1))); });
+  const pk = root.querySelector('#taipa-datepick'); if(pk) pk.addEventListener('change', ()=>{ if(pk.value) setDate(pk.value); });
+}
+
+/* ============================================================
+   改修31: 学習時間サブタブ — 日別トータル学習時間の棒グラフ
+   ============================================================ */
+function renderStudyTimeView(){
+  const range = state.statsView.range || '7d';
+  // 完了セッションを日別に集計
+  const byDay = {}; // dateKey -> {totalMs, activeMs}
+  for(const s of (state.studySessions||[])){
+    if(s.status!=='done') continue;
+    const dk = s.dateKey;
+    if(!dk) continue;
+    byDay[dk] ||= {totalMs:0, activeMs:0};
+    byDay[dk].totalMs += sessionTotalMs(s);
+    byDay[dk].activeMs += sessionActiveMs(s);
+  }
+  const allKeys = Object.keys(byDay).sort();
+  const targetKeys = statsRangeDateKeys(range, allKeys);
+
+  const rangeLbl = range==='7d' ? '直近7日' : (range==='30d' ? '直近30日' : '全期間');
+  let html = `<div class="card stats-intro">
+    <h2 class="stats-h2">📈 学習時間 <span class="stats-sub">日別トータル学習時間</span></h2>
+    <p class="stats-desc">計測した学習セッションの<strong>トータル学習時間</strong>(中断=ロックオン時間も含む)を日別に集計した棒グラフです。濃い部分が通常演習(Aモード)の時間です。</p>
+  </div>`;
+  html += `<div class="stats-controls">
+    <span style="flex:1"></span>
+    <span class="stats-control-label">期間</span>
+    <button class="stats-range-btn ${range==='7d'?'active':''}" data-range="7d">7日</button>
+    <button class="stats-range-btn ${range==='30d'?'active':''}" data-range="30d">30日</button>
+    <button class="stats-range-btn ${range==='all'?'active':''}" data-range="all">全期間</button>
+  </div>`;
+  html += `<div class="stats-chart-card"><div class="stats-chart-title"><span>日別 学習時間(${rangeLbl})</span></div>
+    <div class="stats-chart-svg-wrap">${renderStudyTimeChart(byDay, targetKeys)}</div></div>`;
+  return html;
+}
+
+function renderStudyTimeChart(byDay, dateKeys){
+  if(!dateKeys.length){
+    return `<div class="stats-chart-empty">表示する学習時間データがありません</div>`;
+  }
+  const W = Math.max(320, dateKeys.length*44 + 60), H = 260;
+  const padL=46, padR=14, padT=14, padB=44;
+  const plotW = W-padL-padR, plotH = H-padT-padB;
+  let maxMin = 0;
+  for(const dk of dateKeys){ maxMin = Math.max(maxMin, (byDay[dk]?byDay[dk].totalMs:0)/60000); }
+  if(maxMin<=0) maxMin = 60;
+  // 上限を「きりのよい時間」に
+  const stepMin = maxMin>240 ? 120 : (maxMin>120 ? 60 : 30);
+  const topMin = Math.ceil(maxMin/stepMin)*stepMin;
+  const y = (min)=> padT + plotH - (min/topMin)*plotH;
+  const bw = Math.min(28, plotW/dateKeys.length*0.6);
+  const slot = plotW/dateKeys.length;
+
+  let grid='', bars='', labels='';
+  for(let v=0; v<=topMin; v+=stepMin){
+    const yy=y(v);
+    grid += `<line x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}" stroke="var(--line)" stroke-width="1"/>`;
+    grid += `<text x="${padL-6}" y="${yy+3}" text-anchor="end" font-size="9" fill="var(--ink-muted)">${v>=60?(v/60)+'h':v+'m'}</text>`;
+  }
+  for(let i=0;i<dateKeys.length;i++){
+    const dk=dateKeys[i];
+    const d=byDay[dk]||{totalMs:0,activeMs:0};
+    const cx = padL + slot*i + slot/2;
+    const totMin=d.totalMs/60000, actMin=d.activeMs/60000;
+    const yTot=y(totMin), yAct=y(actMin);
+    // トータル(薄)
+    bars += `<rect x="${cx-bw/2}" y="${yTot}" width="${bw}" height="${padT+plotH-yTot}" rx="2" fill="var(--green)" opacity="0.30"/>`;
+    // A(濃)
+    bars += `<rect x="${cx-bw/2}" y="${yAct}" width="${bw}" height="${padT+plotH-yAct}" rx="2" fill="var(--green)" opacity="0.85"/>`;
+    if(totMin>0){
+      bars += `<text x="${cx}" y="${yTot-3}" text-anchor="middle" font-size="8.5" fill="var(--ink-muted)">${Math.round(totMin)}m</text>`;
+    }
+    const [yy,mm,dd]=dk.split('-');
+    labels += `<text x="${cx}" y="${H-padB+14}" text-anchor="middle" font-size="9" fill="var(--ink-muted)">${parseInt(mm)}/${parseInt(dd)}</text>`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" style="max-width:${W}px">
+    ${grid}${bars}${labels}
+    <line x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}" stroke="var(--ink-muted)" stroke-width="1"/>
+  </svg>
+  <div class="stats-legend-note" style="margin-top:8px">・薄い棒 = トータル学習時間(中断含む)／濃い棒 = 通常演習(Aモード)時間</div>`;
+}
+
+function _wireStudyTimeView(root){
+  root.querySelectorAll('.stats-range-btn').forEach(b=>{
+    b.addEventListener('click', ()=>{ state.statsView.range = b.dataset.range; saveState(); renderStats(); });
   });
 }
 
