@@ -2227,6 +2227,7 @@
   .plan-timer-btn.rest{background:#6b7280;color:#fff;border-color:#6b7280}
   .plan-timer-btn.resume{background:var(--green);color:#fff;border-color:var(--green)}
   .plan-timer-btn.finish{background:var(--indigo);color:#fff;border-color:var(--indigo)}
+  .plan-timer-btn.pausefinish{background:var(--paper);color:var(--indigo);border-color:var(--indigo);font-weight:600}
   .plan-timer-btn.cancel{color:var(--accent)}
   .plan-timer-btn:hover{opacity:.88}
 
@@ -2276,6 +2277,12 @@
   .taipa-mini-badge{font-size:8px;padding:0 3px;border-radius:3px;background:var(--ink-muted);color:#fff;font-weight:600}
   .taipa-mini-badge.first{background:var(--green)}
   .taipa-mini-badge.act{background:var(--indigo)}
+  .taipa-mini-badge.partial{background:#c98d00}
+  .taipa-block.act.is-partial{border-left-style:dashed}
+  .taipa-state-badge{font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;color:#fff}
+  .taipa-state-badge.done{background:#2ea043}
+  .taipa-state-badge.partial{background:#c98d00}
+  .taipa-state-cnt{font-size:10px;color:var(--ink-muted);margin-left:4px}
   .taipa-tiny{margin-top:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--line);border-radius:8px}
   .taipa-tiny-title{font-size:12px;font-weight:600;margin-bottom:6px;color:var(--ink-soft)}
   .taipa-tiny-item{display:flex;align-items:center;gap:6px;font-size:12px;padding:3px 0}
@@ -11068,8 +11075,14 @@ function resumeStudySession(id){
   renderProgress();
 }
 // 終了: 最後のセグメントを閉じ、endTs を確定。解答数を時刻窓から集計して保存。予定も完了に。
+// 終了: 最後のセグメントを閉じ、endTs を確定。解答数を時刻窓から集計して保存。
+//   改修31c: outcome で「完了(全問終了)」と「一旦終了(途中)」を区別。
+//     - 'done'    = 完了 → 予定の完了フラグを立てる
+//     - 'partial' = 一旦終了(途中) → 記録は残すが予定は未完のまま
+//   (旧データには outcome が無い → 'done' とみなす。status は従来どおり 'done'=計測終了済み)
 function finishStudySession(id, opts){
   opts = opts || {};
+  const outcome = (opts.outcome === 'partial') ? 'partial' : 'done';
   const sess = (state.studySessions||[]).find(x=>x.id===id);
   if(!sess || (sess.status!=='running' && sess.status!=='paused' && sess.status!=='resting')) return;
   const now = Date.now();
@@ -11077,13 +11090,15 @@ function finishStudySession(id, opts){
   const last = segs[segs.length-1];
   if(last && last.end==null) last.end = now;
   sess.endTs = now;
-  sess.status = 'done';
+  sess.status = 'done';      // 計測は終了済み(表示・集計対象)
+  sess.outcome = outcome;    // 完了 or 途中
   const st = sessionAnswerStats(sess);
   sess.answered = st.answered;
   sess.correct = st.correct;
   if(state.activeSessionId===id) state.activeSessionId = null;
-  // 予定の完了フラグも立てる(その発生日に対して)
-  if(sess.planKey && state.studyPlans && state.studyPlans[sess.planKey]){
+  // 予定の完了フラグは「完了(全問終了)」のときだけ立てる。
+  // 「一旦終了(途中)」では予定を未完のまま残し、続きを後で計測できるようにする。
+  if(outcome==='done' && sess.planKey && state.studyPlans && state.studyPlans[sess.planKey]){
     const plan = state.studyPlans[sess.planKey];
     plan.done ||= {};
     plan.done[sess.dateKey] = true;
@@ -11274,6 +11289,9 @@ function renderProgressPlan(root){
       // 改修31: 計測UI — このボックス(科目・フレーム・日)に対応する進行中セッションを探す
       const activeSess = (state.studySessions||[]).find(ss=>
         ss.planKey===o.key && ss.dateKey===dateKey && (ss.status==='running'||ss.status==='paused'||ss.status==='resting'));
+      // 改修31c: この予定(科目・フレーム・日)に既に「途中(一旦終了)」の記録があるか
+      const priorPartial = (state.studySessions||[]).some(ss=>
+        ss.planKey===o.key && ss.dateKey===dateKey && ss.status==='done' && ss.outcome==='partial');
       let timerHtml = '';
       if(activeSess){
         // 改修31b: 3状態(計測中=running / 中断=paused / 休憩=resting)に応じてボタンを出し分け
@@ -11293,17 +11311,23 @@ function renderProgressPlan(root){
           // 休憩中 → 再開のみ
           btns = `<button class="plan-timer-btn resume" data-sessresume="${activeSess.id}">再開</button>`;
         }
+        // 改修31c: 終了を「完了(全問終了)」と「一旦終了(途中)」に分割
         timerHtml = `<div class="plan-timer ${stateCls}" data-sessid="${activeSess.id}">
           <span class="plan-timer-clock" data-sessclock="${activeSess.id}" data-sessstart="${activeSess.startTs}">${fmtClockMs(sessionTotalMs(activeSess))}</span>
           <span class="plan-timer-state">${stateLabel}</span>
           ${btns}
-          <button class="plan-timer-btn finish" data-sessfinish="${activeSess.id}">終了</button>
+          <button class="plan-timer-btn finish" data-sessfinish="${activeSess.id}" data-outcome="done">✓ 完了</button>
+          <button class="plan-timer-btn pausefinish" data-sessfinish="${activeSess.id}" data-outcome="partial">一旦終了</button>
           <button class="plan-timer-btn cancel" data-sesscancel="${activeSess.id}">キャンセル</button>
         </div>`;
       }else if(!o.done){
+        const startLabel = priorPartial ? '▶ 続きを開始' : '▶ 開始';
+        const hint = priorPartial
+          ? 'このフレームは「一旦終了(途中)」の記録があります。続きを計測できます'
+          : '学習を始めるときに押すと、時間と解答数を自動で計測します';
         timerHtml = `<div class="plan-timer is-idle">
-          <button class="plan-timer-btn start" data-sessstart-subj="${escapeHtml(o.subject)}" data-sessstart-fref="${escapeHtml(String(o.frameRef))}" data-sessstart-date="${dateKey}">▶ 開始</button>
-          <span class="plan-timer-hint">学習を始めるときに押すと、時間と解答数を自動で計測します</span>
+          <button class="plan-timer-btn start" data-sessstart-subj="${escapeHtml(o.subject)}" data-sessstart-fref="${escapeHtml(String(o.frameRef))}" data-sessstart-date="${dateKey}">${startLabel}</button>
+          <span class="plan-timer-hint">${hint}</span>
         </div>`;
       }
       html += `<div class="plan-box ${o.done?'done':''}" style="border-left-color:${subjCol}">
@@ -11354,7 +11378,13 @@ function renderProgressPlan(root){
     b.addEventListener('click', ()=> resumeStudySession(b.dataset.sessresume));
   });
   root.querySelectorAll('button[data-sessfinish]').forEach(b=>{
-    b.addEventListener('click', ()=>{ if(confirm('この学習セッションを終了します。よろしいですか?')) finishStudySession(b.dataset.sessfinish); });
+    b.addEventListener('click', ()=>{
+      const outcome = (b.dataset.outcome === 'partial') ? 'partial' : 'done';
+      const msg = outcome==='partial'
+        ? 'このフレームを「一旦終了(途中)」にします。\n記録は残り、予定は未完のままです。続きは後で計測できます。\nよろしいですか?'
+        : 'このフレームを「完了(全問終了)」にします。\n予定が完了になります。よろしいですか?';
+      if(confirm(msg)) finishStudySession(b.dataset.sessfinish, {outcome});
+    });
   });
   root.querySelectorAll('button[data-sesscancel]').forEach(b=>{
     b.addEventListener('click', ()=> cancelStudySession(b.dataset.sesscancel));
@@ -13185,8 +13215,12 @@ function renderTaipaTimetable(dateKey, plans, sessions){
     const h = Math.max(TAIPA_ROW_PX, ((e-s)/TAIPA_SLOT_MIN) * TAIPA_ROW_PX);
     const col = statsSubjectColor(ss.subject);
     const totMin = Math.round(sessionTotalMs(ss)/60000);
-    actBlocks += `<div class="taipa-block act" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.20)}" title="${escapeHtml(ss.subject)} ${escapeHtml(frameOrSubFrameLabel(ss.subject,ss.frameRef))} / ${fmtHM(ss.startTs)}〜${fmtHM(ss.endTs)} / ${totMin}分 / 解答${ss.answered}問">
-      <div class="taipa-block-sub">${escapeHtml(shortSubject(ss.subject))}<span class="taipa-mini-badge act">${ss.answered}問</span></div>
+    // 改修31c: 一旦終了(途中)は帯にマークを付ける
+    const isPartial = ss.outcome==='partial';
+    const outcomeBadge = isPartial ? `<span class="taipa-mini-badge partial">途中</span>` : '';
+    const outcomeTxt = isPartial ? ' / 一旦終了(途中)' : ' / 完了';
+    actBlocks += `<div class="taipa-block act ${isPartial?'is-partial':''}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.20)}" title="${escapeHtml(ss.subject)} ${escapeHtml(frameOrSubFrameLabel(ss.subject,ss.frameRef))} / ${fmtHM(ss.startTs)}〜${fmtHM(ss.endTs)} / ${totMin}分 / 解答${ss.answered}問${outcomeTxt}">
+      <div class="taipa-block-sub">${escapeHtml(shortSubject(ss.subject))}<span class="taipa-mini-badge act">${ss.answered}問</span>${outcomeBadge}</div>
       <div class="taipa-block-frame">${escapeHtml(_taipaFrameShort(ss.subject,ss.frameRef))}</div>
     </div>`;
   }
@@ -13248,9 +13282,11 @@ function renderTaipaSummary(dateKey, sessions){
     bySubject[subj].ans += s.answered; bySubject[subj].correct += s.correct;
     bySubject[subj].frames.add(String(s.frameRef));
     const fk = s.subject+'|'+s.frameRef;
-    byFrame[fk] ||= {subject:s.subject, frameRef:s.frameRef, totalMs:0, activeMs:0, ans:0, correct:0};
+    byFrame[fk] ||= {subject:s.subject, frameRef:s.frameRef, totalMs:0, activeMs:0, ans:0, correct:0, anyDone:false, partialCnt:0, sessCnt:0};
     byFrame[fk].totalMs += tMs; byFrame[fk].activeMs += aMs;
     byFrame[fk].ans += s.answered; byFrame[fk].correct += s.correct;
+    byFrame[fk].sessCnt++;
+    if(s.outcome==='partial') byFrame[fk].partialCnt++; else byFrame[fk].anyDone = true; // 旧データ(outcome無し)は完了扱い
   }
 
   const perQ = (ms, ans)=> ans>0 ? (ms/60000/ans) : null; // 1問あたり分
@@ -13258,7 +13294,7 @@ function renderTaipaSummary(dateKey, sessions){
   const pct = (c,a)=> a>0 ? Math.round(c/a*100)+'%' : '—';
 
   if(!sessions.length){
-    return `<div class="taipa-summary-empty">この日の計測実績はありません。<br>「予定」タブの予定ボックスで「▶ 開始」→学習→「終了」を押すと、ここに集計が表示されます。</div>`;
+    return `<div class="taipa-summary-empty">この日の計測実績はありません。<br>「予定」タブの予定ボックスで「▶ 開始」→学習→「✓ 完了」または「一旦終了(途中)」を押すと、ここに集計が表示されます。</div>`;
   }
 
   let html = `<div class="taipa-summary">`;
@@ -13312,12 +13348,18 @@ function renderTaipaSummary(dateKey, sessions){
   });
   html += `<div class="taipa-tbl-title">フレーム別</div>
     <div class="taipa-tbl-wrap"><table class="taipa-tbl">
-    <thead><tr><th>科目 / フレーム</th><th>学習時間</th><th>解答</th><th>正答率</th><th>タイパ(A)</th></tr></thead><tbody>`;
+    <thead><tr><th>科目 / フレーム</th><th>状態</th><th>学習時間</th><th>解答</th><th>正答率</th><th>タイパ(A)</th></tr></thead><tbody>`;
   for(const fk of frameKeys){
     const d = byFrame[fk];
     const col = statsSubjectColor(d.subject);
+    // 改修31c: 状態 — いずれかが完了なら「完了」、全て途中なら「途中」
+    const stateBadge = d.anyDone
+      ? `<span class="taipa-state-badge done">完了</span>`
+      : `<span class="taipa-state-badge partial">途中</span>`;
+    const cntNote = d.sessCnt>1 ? `<span class="taipa-state-cnt">${d.sessCnt}回</span>` : '';
     html += `<tr>
       <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(shortSubject(d.subject))} ${escapeHtml(frameOrSubFrameLabel(d.subject,d.frameRef))}</td>
+      <td>${stateBadge}${cntNote}</td>
       <td>${fmtDurationMs(d.totalMs)}</td>
       <td>${d.ans}</td>
       <td>${pct(d.correct,d.ans)}</td>
