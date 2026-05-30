@@ -10577,8 +10577,19 @@ function _renderWeakInner(){
       </button>
     </div>
     <div class="nav-row">
+      ${(() => {
+        const wstep = computeNavStep(pool.length);
+        if(wstep === null){
+          return `<button class="btn-nav" id="w-prev" ${idx===0?'disabled':''}>← 前へ</button>
+      <button class="btn-nav" id="w-next" ${idx===pool.length-1?'disabled':''}>次へ →</button>`;
+        }
+        return `<button class="btn-nav" id="w-first" ${idx===0?'disabled':''} title="最初の問題へ">⏮ 最初へ</button>
+      <button class="btn-nav btn-nav-step" id="w-jump-back" ${idx===0?'disabled':''} title="${wstep}問前へ">⟪ ${wstep}問前</button>
       <button class="btn-nav" id="w-prev" ${idx===0?'disabled':''}>← 前へ</button>
       <button class="btn-nav" id="w-next" ${idx===pool.length-1?'disabled':''}>次へ →</button>
+      <button class="btn-nav btn-nav-step" id="w-jump-fwd" ${idx===pool.length-1?'disabled':''} title="${wstep}問後へ">${wstep}問後 ⟫</button>
+      <button class="btn-nav" id="w-last" ${idx===pool.length-1?'disabled':''} title="最後の問題へ">最後へ ⏭</button>`;
+      })()}
     </div>
     ${answered?renderWeakResult(q,correct):''}
     <div class="bookmark-row">
@@ -10598,6 +10609,18 @@ function _renderWeakInner(){
   const next = document.getElementById('w-next');
   if(prev) prev.addEventListener('click',()=>navWeak(-1));
   if(next) next.addEventListener('click',()=>navWeak(1));
+  // 改修03: 弱点モードに「最初へ/最後へ/N問前/N問後」を追加
+  const wstep = computeNavStep(pool.length);
+  const wFirst = document.getElementById('w-first');
+  const wLast  = document.getElementById('w-last');
+  if(wFirst) wFirst.addEventListener('click',()=>navWeakTo(0));
+  if(wLast)  wLast.addEventListener('click',()=>navWeakTo(pool.length-1));
+  if(wstep !== null){
+    const wJB = document.getElementById('w-jump-back');
+    const wJF = document.getElementById('w-jump-fwd');
+    if(wJB) wJB.addEventListener('click',()=>navWeakJump(-wstep));
+    if(wJF) wJF.addEventListener('click',()=>navWeakJump(wstep));
+  }
   // ふせん
   root.querySelectorAll('.bm').forEach(b=>b.addEventListener('click',()=>toggleBmWeak(q.id,b.dataset.bm)));
   // 関連図表バッジクリック
@@ -10677,6 +10700,36 @@ function navWeak(dir){
   state.weakSession.userAnswer = null;
   saveState();
   renderWeak();
+}
+
+/* 改修03: 弱点モード 指定インデックスへ直接ジャンプ(「最初へ」「最後へ」用) */
+function navWeakTo(idx){
+  const pool = getWeakPool();
+  if(!pool.length) return;
+  if(idx < 0) idx = 0;
+  if(idx > pool.length - 1) idx = pool.length - 1;
+  state.weakSession.currentIndex = idx;
+  state.weakSession.answered = false;
+  state.weakSession.userAnswer = null;
+  saveState();
+  renderWeak();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+/* 改修03: 弱点モード 相対ジャンプ(±N問) */
+function navWeakJump(delta){
+  const pool = getWeakPool();
+  if(!pool.length) return;
+  let target = state.weakSession.currentIndex + delta;
+  if(target < 0) target = 0;
+  if(target > pool.length - 1) target = pool.length - 1;
+  if(target === state.weakSession.currentIndex) return;
+  state.weakSession.currentIndex = target;
+  state.weakSession.answered = false;
+  state.weakSession.userAnswer = null;
+  saveState();
+  renderWeak();
+  window.scrollTo({top:0, behavior:'smooth'});
 }
 
 function toggleBmWeak(qid,color){
