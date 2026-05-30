@@ -238,6 +238,28 @@
   .bm.b{background:#4A6B8A}
   .bm.active{border-color:var(--ink);box-shadow:0 0 0 2px var(--bg)}
   .bm.active::after{content:"✓";color:#fff;font-size:11px;font-weight:700}
+  /* 改修01: 付箋チップ(色の四角の下に種別ラベルを縦表示) */
+  .bm-chip{display:flex;flex-direction:column;align-items:center;gap:3px}
+  .bm-label{font-size:10px;color:var(--ink-muted);letter-spacing:.02em;line-height:1;white-space:nowrap}
+  /* 改修02: 自分の追記メモ欄 */
+  .mynote-h{display:flex;align-items:center;gap:8px}
+  .mynote-badge{font-size:10px;font-weight:700;color:#fff;background:#5E8A6A;border-radius:4px;padding:2px 7px;letter-spacing:.04em}
+  .mynote-editbtn{margin-left:auto;font-size:12px;padding:3px 12px;border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:5px;cursor:pointer}
+  .mynote-editbtn:hover{background:var(--bg)}
+  .mynote-body{border-left:3px solid #5E8A6A;padding-left:12px;background:rgba(94,138,106,.06);border-radius:0 6px 6px 0}
+  .mynote-body .mynote-ul{margin:4px 0;padding-left:1.4em}
+  .mynote-body .mynote-ul li{margin:2px 0}
+  .mynote-edit{margin-top:6px}
+  .mynote-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+  .mynote-tool{font-size:12px;padding:4px 12px;border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:5px;cursor:pointer}
+  .mynote-tool:hover{background:var(--bg)}
+  .mynote-hint{font-size:11px;color:var(--ink-muted)}
+  .mynote-textarea{width:100%;min-height:120px;box-sizing:border-box;padding:10px;border:1px solid var(--line);border-radius:6px;font-family:inherit;font-size:14px;line-height:1.7;resize:vertical;background:var(--paper);color:var(--ink)}
+  .mynote-actions{display:flex;gap:10px;margin-top:8px}
+  .mynote-save{font-size:13px;padding:6px 20px;border:none;background:#5E8A6A;color:#fff;border-radius:5px;cursor:pointer;font-weight:600}
+  .mynote-save:hover{filter:brightness(1.08)}
+  .mynote-cancel{font-size:13px;padding:6px 18px;border:1px solid var(--line);background:var(--paper);color:var(--ink-muted);border-radius:5px;cursor:pointer}
+  .mynote-cancel:hover{background:var(--bg)}
 
   /* Sidebar */
   aside{display:flex;flex-direction:column;gap:16px}
@@ -2214,6 +2236,7 @@
   }
   .plan-timer.is-running{background:rgba(46,160,67,.10);border-color:rgba(46,160,67,.35)}
   .plan-timer.is-paused{background:rgba(201,141,0,.10);border-color:rgba(201,141,0,.35)}
+  .plan-timer.is-resting{background:rgba(120,120,130,.12);border-color:rgba(120,120,130,.4)}
   .plan-timer-clock{font-size:15px;font-weight:700;font-feature-settings:"tnum";color:var(--ink)}
   .plan-timer-state{font-size:11px;color:var(--ink-muted)}
   .plan-timer-hint{font-size:11px;color:var(--ink-muted)}
@@ -2223,8 +2246,10 @@
   }
   .plan-timer-btn.start{background:var(--green);color:#fff;border-color:var(--green);font-weight:600}
   .plan-timer-btn.pause{background:#c98d00;color:#fff;border-color:#c98d00}
+  .plan-timer-btn.rest{background:#6b7280;color:#fff;border-color:#6b7280}
   .plan-timer-btn.resume{background:var(--green);color:#fff;border-color:var(--green)}
   .plan-timer-btn.finish{background:var(--indigo);color:#fff;border-color:var(--indigo)}
+  .plan-timer-btn.pausefinish{background:var(--paper);color:var(--indigo);border-color:var(--indigo);font-weight:600}
   .plan-timer-btn.cancel{color:var(--accent)}
   .plan-timer-btn:hover{opacity:.88}
 
@@ -2274,6 +2299,12 @@
   .taipa-mini-badge{font-size:8px;padding:0 3px;border-radius:3px;background:var(--ink-muted);color:#fff;font-weight:600}
   .taipa-mini-badge.first{background:var(--green)}
   .taipa-mini-badge.act{background:var(--indigo)}
+  .taipa-mini-badge.partial{background:#c98d00}
+  .taipa-block.act.is-partial{border-left-style:dashed}
+  .taipa-state-badge{font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;color:#fff}
+  .taipa-state-badge.done{background:#2ea043}
+  .taipa-state-badge.partial{background:#c98d00}
+  .taipa-state-cnt{font-size:10px;color:var(--ink-muted);margin-left:4px}
   .taipa-tiny{margin-top:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--line);border-radius:8px}
   .taipa-tiny-title{font-size:12px;font-weight:600;margin-bottom:6px;color:var(--ink-soft)}
   .taipa-tiny-item{display:flex;align-items:center;gap:6px;font-size:12px;padding:3px 0}
@@ -2861,11 +2892,19 @@
         <label class="field">ふせん色</label>
         <select id="filter-bm">
           <option value="">指定なし</option>
-          <option value="r">赤</option>
-          <option value="p">桃</option>
-          <option value="y">黄</option>
-          <option value="g">緑</option>
-          <option value="b">青</option>
+          <option value="r">赤(重要)</option>
+          <option value="p">桃(事例)</option>
+          <option value="y">黄(注意)</option>
+          <option value="g">緑(確認)</option>
+          <option value="b">青(紐づけ)</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field">自分の追記</label>
+        <select id="filter-mynote">
+          <option value="">指定なし</option>
+          <option value="has">追記あり</option>
+          <option value="none">追記なし</option>
         </select>
       </div>
     </div>
@@ -4527,6 +4566,7 @@ function loadState(){
       }
       s.history ||= [];
       s.bookmarks ||= {};
+      s.myNotes ||= {};
       s.frameAttempts ||= {};
       s.session ||= {mode:'seq',currentIndex:0,filterLaw:'',filterYear:'',filterBm:'',filterCat:'',filterFrame:''};
       s.session.answered ||= false;
@@ -4724,8 +4764,9 @@ function loadState(){
     questions: SAMPLE_QUESTIONS.slice(),
     history: [],
     bookmarks: {},
+    myNotes: {},
     frameAttempts: {},
-    session: {mode:'seq',currentIndex:0,filterLaw:'',filterYear:'',filterBm:'',filterCat:'',filterFrame:'',frameMode:null,answered:false,userAnswer:null,kindMode:'both'},
+    session: {mode:'seq',currentIndex:0,filterLaw:'',filterYear:'',filterBm:'',filterMyNote:'',filterCat:'',filterFrame:'',frameMode:null,answered:false,userAnswer:null,kindMode:'both'},
     selectQuestions: SAMPLE_SELECT_QUESTIONS.slice(),
     selectHistory: [],
     selectSession: {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null},
@@ -4806,6 +4847,9 @@ function getPool(){
   if(s.filterCat) pool = pool.filter(q=>q.category===s.filterCat);
   if(s.filterYear) pool = pool.filter(q=>q.year===s.filterYear);
   if(s.filterBm) pool = pool.filter(q=>(state.bookmarks[q.id]||[]).includes(s.filterBm));
+  // 改修02: 自分の追記メモの有無で絞り込み
+  if(s.filterMyNote==='has')  pool = pool.filter(q=>hasMyNote(q.id));
+  if(s.filterMyNote==='none') pool = pool.filter(q=>!hasMyNote(q.id));
 
   if(s.mode==='weak'){
     // 改修04 (v2): 累計ミス回数が WEAK_THRESHOLD 回以上の問題を弱点扱い。
@@ -5038,7 +5082,7 @@ function renderQuiz(){
 
     <div class="bookmark-row">
       <span class="lbl">FUSEN</span>
-      ${['r','p','y','g','b'].map(c=>`<div class="bm ${c} ${bms.includes(c)?'active':''}" data-bm="${c}"></div>`).join('')}
+      ${['r','p','y','g','b'].map(c=>renderBmChip(c, bms.includes(c))).join('')}
       <span style="font-size:11px;color:var(--ink-muted);margin-left:auto">クリックでつける/外す</span>
     </div>
   `;
@@ -5064,7 +5108,11 @@ function renderQuiz(){
     navTo(target);
   });
   card.querySelectorAll('.bm').forEach(b=>b.addEventListener('click',()=>toggleBm(q.id,b.dataset.bm)));
-  // 関連図表バッジクリック
+  // 改修02: 自分の追記メモ欄のボタン
+  card.querySelectorAll('[data-note-edit]').forEach(b=>b.addEventListener('click',()=>startEditMyNote(b.dataset.noteEdit)));
+  card.querySelectorAll('[data-note-save]').forEach(b=>b.addEventListener('click',()=>saveMyNote(b.dataset.noteSave)));
+  card.querySelectorAll('[data-note-cancel]').forEach(b=>b.addEventListener('click',()=>cancelEditMyNote()));
+  card.querySelectorAll('[data-note-syntax]').forEach(b=>b.addEventListener('click',()=>insertNoteSyntax(b.dataset.noteSyntax)));
   card.querySelectorAll('.linked-fig-chip').forEach(chip=>{
     chip.addEventListener('click',()=>{
       const i = parseInt(chip.dataset.figidx, 10);
@@ -5121,6 +5169,37 @@ function renderQuiz(){
   renderSidebar();
 }
 
+/* 改修02: 追記メモ欄(表示モード/編集モード)を生成。renderResult から呼ばれる。 */
+function renderMyNoteSection(q){
+  const editing = state._editingNote === q.id;
+  const note = getMyNote(q.id);
+  if(editing){
+    return `
+      <div class="section-h mynote-h">自分の追記・修正メモ</div>
+      <div class="mynote-edit">
+        <div class="mynote-toolbar">
+          <button type="button" class="mynote-tool" data-note-syntax="bold">太字</button>
+          <button type="button" class="mynote-tool" data-note-syntax="list">・箇条書き</button>
+          <span class="mynote-hint">**で囲むと太字 / 行頭・で箇条書き</span>
+        </div>
+        <textarea id="mynote-textarea" class="mynote-textarea" placeholder="ここに自分の追記・修正を入力します。予備校の解説には手を加えず、追加分のみ保存されます。">${escapeHtml(note)}</textarea>
+        <div class="mynote-actions">
+          <button type="button" class="mynote-save" data-note-save="${q.id}">保存</button>
+          <button type="button" class="mynote-cancel" data-note-cancel="1">キャンセル</button>
+        </div>
+      </div>`;
+  }
+  if(hasMyNote(q.id)){
+    return `
+      <div class="section-h mynote-h">自分の追記・修正メモ <span class="mynote-badge">追記あり</span>
+        <button type="button" class="mynote-editbtn" data-note-edit="${q.id}">編集</button></div>
+      <div class="section-body mynote-body">${renderMyNoteHtml(note)}</div>`;
+  }
+  return `
+    <div class="section-h mynote-h">自分の追記・修正メモ
+      <button type="button" class="mynote-editbtn" data-note-edit="${q.id}">＋ 追記する</button></div>`;
+}
+
 function renderResult(q,correct){
   // 紐付けブロックが1件でもあれば articleText はデフォルト折りたたみ(優先表示は紐付けブロック)
   // 紐付けが空なら従来通り articleText を展開表示
@@ -5137,6 +5216,7 @@ function renderResult(q,correct){
       </div>
       ${q.point?`<div class="section-h">ポイント</div><div class="section-body">${escapeHtml(q.point).replace(/\n/g,'<br>')}</div>`:''}
       ${q.explanation?`<div class="section-h">解説</div><div class="section-body">${escapeHtml(q.explanation).replace(/\n/g,'<br>')}</div>`:''}
+      ${renderMyNoteSection(q)}
       <div class="section-h">難易度・出題根拠</div>
       <div class="section-body dim">
         レベル ${escapeHtml(q.difficulty||'—')}　／　${escapeHtml(q.legalBasis||'—')}
@@ -5277,6 +5357,17 @@ function wireQuizNavButtons(total){
   }
 }
 
+/* 改修01: 付箋の色と種別ラベルの対応(択一・選択・弱点 全モード共用)
+   r=重要 / p=事例 / y=注意 / g=確認 / b=紐づけ */
+const BM_LABELS = { r:'重要', p:'事例', y:'注意', g:'確認', b:'紐づけ' };
+/* 付箋1色分のHTMLを生成。activeなら✓付き表示。ラベルは色の四角の下に縦表示。 */
+function renderBmChip(color, isActive){
+  return `<div class="bm-chip">`
+    + `<div class="bm ${color}${isActive?' active':''}" data-bm="${color}"></div>`
+    + `<span class="bm-label">${BM_LABELS[color]||''}</span>`
+    + `</div>`;
+}
+
 function toggleBm(qid,color){
   state.bookmarks[qid] ||= [];
   const i = state.bookmarks[qid].indexOf(color);
@@ -5285,6 +5376,87 @@ function toggleBm(qid,color){
   if(!state.bookmarks[qid].length) delete state.bookmarks[qid];
   saveState();
   renderQuiz();
+}
+
+/* ===== 改修02: 自分の追記メモ(択一の解説への追記) =====
+   予備校(TAC)講師の解説 q.explanation は固定のまま手を加えず、
+   利用者が追記した内容のみを state.myNotes[qid] に保存する。 */
+function getMyNote(qid){
+  return (state.myNotes && state.myNotes[qid]) ? state.myNotes[qid] : '';
+}
+function hasMyNote(qid){
+  return getMyNote(qid).trim().length > 0;
+}
+function setMyNote(qid, text){
+  state.myNotes ||= {};
+  const t = (text||'').trim();
+  if(t) state.myNotes[qid] = text;   // trim前の元テキストを保存(末尾改行等は許容)
+  else delete state.myNotes[qid];     // 空なら削除(=追記なし扱い)
+  saveState();
+}
+/* 簡易記法を安全にHTMLへ変換。
+   先に escapeHtml で無害化 → 許可した記法( **太字** と 行頭「・」箇条書き )だけを装飾。 */
+function renderMyNoteHtml(text){
+  if(!text) return '';
+  let safe = escapeHtml(text);
+  // **太字** → <strong>
+  safe = safe.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  // 行単位で処理し、行頭「・」または「- 」を箇条書き<li>に
+  const lines = safe.split('\n');
+  let html = '';
+  let inList = false;
+  for(const ln of lines){
+    const m = ln.match(/^\s*(?:・|-\s)(.*)$/);
+    if(m){
+      if(!inList){ html += '<ul class="mynote-ul">'; inList = true; }
+      html += '<li>' + m[1] + '</li>';
+    }else{
+      if(inList){ html += '</ul>'; inList = false; }
+      html += ln + '<br>';
+    }
+  }
+  if(inList) html += '</ul>';
+  // 末尾の余分な<br>を1つ除去
+  html = html.replace(/<br>$/, '');
+  return html;
+}
+/* 追記メモの編集を開始(textareaへ切替) */
+function startEditMyNote(qid){
+  state._editingNote = qid;
+  renderQuiz();
+}
+/* 編集をキャンセル */
+function cancelEditMyNote(){
+  state._editingNote = null;
+  renderQuiz();
+}
+/* 編集内容を保存 */
+function saveMyNote(qid){
+  const ta = document.getElementById('mynote-textarea');
+  if(ta) setMyNote(qid, ta.value);
+  state._editingNote = null;
+  renderQuiz();
+}
+/* textareaのカーソル位置に記法を挿入(太字/箇条書きボタン用) */
+function insertNoteSyntax(kind){
+  const ta = document.getElementById('mynote-textarea');
+  if(!ta) return;
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  const before = ta.value.slice(0,s), sel = ta.value.slice(s,e), after = ta.value.slice(e);
+  if(kind==='bold'){
+    const inner = sel || '太字';
+    ta.value = before + '**' + inner + '**' + after;
+    ta.focus();
+    ta.selectionStart = before.length + 2;
+    ta.selectionEnd   = before.length + 2 + inner.length;
+  }else if(kind==='list'){
+    // 行頭に「・」を付ける
+    const needNl = (before.length>0 && !before.endsWith('\n')) ? '\n' : '';
+    ta.value = before + needNl + '・' + (sel||'') + after;
+    ta.focus();
+    const pos = before.length + needNl.length + 1 + (sel?sel.length:0);
+    ta.selectionStart = ta.selectionEnd = pos;
+  }
 }
 
 /* ===== Frame study mode (フレーム演習) ===== */
@@ -5520,6 +5692,9 @@ function renderSidebar(){
   fillSelect('filter-cat',cats,state.session.filterCat);
   fillSelect('filter-year',years,state.session.filterYear);
   document.getElementById('filter-bm').value = state.session.filterBm;
+  // 改修02: 自分の追記フィルタの値を復元
+  const fMyNoteEl = document.getElementById('filter-mynote');
+  if(fMyNoteEl) fMyNoteEl.value = state.session.filterMyNote || '';
 }
 function fillSelect(id,options,current){
   const sel = document.getElementById(id);
@@ -6711,6 +6886,7 @@ async function _applyMergeRestore(){
   state.questions ||= [];
   state.history ||= [];
   state.bookmarks ||= {};
+  state.myNotes ||= {};
   state.frameAttempts ||= {};
   state.selectQuestions ||= [];
   state.selectHistory ||= [];
@@ -6802,6 +6978,7 @@ function restoreBackup(){
         state.questions ||= [];
         state.history ||= [];
         state.bookmarks ||= {};
+        state.myNotes ||= {};
         state.frameAttempts ||= {};
         state.selectQuestions ||= [];
         state.selectHistory ||= [];
@@ -10923,19 +11100,21 @@ function planDateLabel(dateKey){
 
 /* ============================================================
    改修31: タイパ(実績タイムテーブル)— 学習セッションの計測エンジン
-   - 予定ボックスの「開始/中断/終了/キャンセル」で時刻を取得
-   - 解答数は state.history を [startTs, endTs] の時刻窓で自動集計
-   - segments[].mode: 'A'=通常演習(タイパ計算対象) / 'B'=ロックオン中断(時間は計上するがタイパ計算からは除外)
-   - 中断は「停止」ではないため、トータル学習時間には計上する
+   - 予定ボックスの「開始/中断/休憩/再開/終了/キャンセル」で時刻を取得
+   - 解答数は state.history を A/B 区間の時刻窓で自動集計(休憩は除外)
+   - segments[].mode:
+       'A'=通常演習(タイパ計算対象・学習時間に計上)
+       'B'=ロックオン中断(タイパ計算外だが学習時間には計上。深掘り・条文参照など)
+       'R'=休憩(改修31b。学習から離脱。タイパ計算外かつ学習時間にも計上しない。トイレ・離席など)
    ============================================================ */
 
-// 進行中(running/paused)のセッションを返す。なければ null。
+// 進行中(running/paused/resting)のセッションを返す。なければ null。
 function getActiveSession(){
   if(!state.activeSessionId) return null;
   const arr = state.studySessions || [];
   const s = arr.find(x=>x.id===state.activeSessionId);
   if(!s) { state.activeSessionId = null; return null; }
-  if(s.status!=='running' && s.status!=='paused'){ state.activeSessionId = null; return null; }
+  if(s.status!=='running' && s.status!=='paused' && s.status!=='resting'){ state.activeSessionId = null; return null; }
   return s;
 }
 
@@ -10950,28 +11129,53 @@ function sessionActiveMs(sess, nowTs){
   }
   return ms;
 }
-// セッションの「トータル学習時間」をミリ秒で返す(中断=Bモードも含む)
+// セッションの「トータル学習時間」をミリ秒で返す
+//   改修31b: A(演習)+B(中断/ロックオン)を計上。R(休憩)は学習から離脱しているため計上しない。
 function sessionTotalMs(sess, nowTs){
   let ms = 0;
   const segs = Array.isArray(sess.segments) ? sess.segments : [];
   for(const sg of segs){
+    if(sg.mode==='R') continue; // 休憩は学習時間に含めない
+    const end = sg.end!=null ? sg.end : (nowTs!=null ? nowTs : Date.now());
+    if(end>sg.start) ms += (end - sg.start);
+  }
+  return ms;
+}
+// 改修31b: R(休憩)の合計ミリ秒(参考表示用)
+function sessionRestMs(sess, nowTs){
+  let ms = 0;
+  const segs = Array.isArray(sess.segments) ? sess.segments : [];
+  for(const sg of segs){
+    if(sg.mode!=='R') continue;
     const end = sg.end!=null ? sg.end : (nowTs!=null ? nowTs : Date.now());
     if(end>sg.start) ms += (end - sg.start);
   }
   return ms;
 }
 
-// セッションの時刻窓 [startTs, endTs] に入る history を集計して {answered, correct} を返す。
+// セッション中に解答した問題数を集計して {answered, correct} を返す。
+//   改修31b: R(休憩)区間は学習から離脱しているため、その時間帯の解答は除外する。
 //   endTs が未確定(進行中)の場合は現在時刻まで。
 function sessionAnswerStats(sess, nowTs){
-  const start = sess.startTs;
-  const end = (sess.endTs!=null) ? sess.endTs : (nowTs!=null ? nowTs : Date.now());
+  const now = (nowTs!=null ? nowTs : Date.now());
+  const segs = Array.isArray(sess.segments) ? sess.segments : [];
+  // 休憩以外(A/B)の時間区間を作る
+  const intervals = [];
+  for(const sg of segs){
+    if(sg.mode==='R') continue;
+    const end = sg.end!=null ? sg.end : now;
+    if(end>sg.start) intervals.push([sg.start, end]);
+  }
+  // セグメントが無い(旧データ等)場合は startTs〜endTs の窓で集計(後方互換)
+  if(!intervals.length){
+    const start = sess.startTs;
+    const end = (sess.endTs!=null) ? sess.endTs : now;
+    intervals.push([start, end]);
+  }
   let answered=0, correct=0;
   for(const h of (state.history||[])){
-    if(h.ts>=start && h.ts<=end){
-      answered++;
-      if(h.correct) correct++;
-    }
+    const inAny = intervals.some(iv=> h.ts>=iv[0] && h.ts<=iv[1]);
+    if(inAny){ answered++; if(h.correct) correct++; }
   }
   return {answered, correct};
 }
@@ -11002,49 +11206,67 @@ function startStudySession(subject, frameRef, dateKey){
   renderProgress();
 }
 
-// 中断(Bモードへ): 現在のAセグメントを閉じ、Bセグメントを開く。時間は計上継続。
-function pauseStudySession(id){
-  const sess = (state.studySessions||[]).find(x=>x.id===id);
-  if(!sess || sess.status!=='running') return;
+// 改修31b: 現在のセグメントを閉じ、新しいモードのセグメントを開く共通処理
+function _switchSegment(sess, mode){
   const now = Date.now();
   const segs = sess.segments;
   const last = segs[segs.length-1];
   if(last && last.end==null) last.end = now;
-  segs.push({start: now, end: null, mode:'B'});
+  segs.push({start: now, end: null, mode});
+}
+
+// 中断(Bモードへ): ロックオン。学習時間には計上するがタイパ計算からは外す。
+function pauseStudySession(id){
+  const sess = (state.studySessions||[]).find(x=>x.id===id);
+  if(!sess || (sess.status!=='running' && sess.status!=='resting')) return;
+  _switchSegment(sess, 'B');
   sess.status = 'paused';
   saveState();
   renderProgress();
 }
-// 再開(Aモードへ): 現在のBセグメントを閉じ、Aセグメントを開く。
+// 改修31b: 休憩(Rモードへ): 学習から離脱。学習時間にもタイパにも計上しない。
+function restStudySession(id){
+  const sess = (state.studySessions||[]).find(x=>x.id===id);
+  if(!sess || (sess.status!=='running' && sess.status!=='paused')) return;
+  _switchSegment(sess, 'R');
+  sess.status = 'resting';
+  saveState();
+  renderProgress();
+}
+// 再開(Aモードへ): 中断(B)・休憩(R)いずれからでも通常演習に戻る。
 function resumeStudySession(id){
   const sess = (state.studySessions||[]).find(x=>x.id===id);
-  if(!sess || sess.status!=='paused') return;
-  const now = Date.now();
-  const segs = sess.segments;
-  const last = segs[segs.length-1];
-  if(last && last.end==null) last.end = now;
-  segs.push({start: now, end: null, mode:'A'});
+  if(!sess || (sess.status!=='paused' && sess.status!=='resting')) return;
+  _switchSegment(sess, 'A');
   sess.status = 'running';
   saveState();
   renderProgress();
 }
 // 終了: 最後のセグメントを閉じ、endTs を確定。解答数を時刻窓から集計して保存。予定も完了に。
+// 終了: 最後のセグメントを閉じ、endTs を確定。解答数を時刻窓から集計して保存。
+//   改修31c: outcome で「完了(全問終了)」と「一旦終了(途中)」を区別。
+//     - 'done'    = 完了 → 予定の完了フラグを立てる
+//     - 'partial' = 一旦終了(途中) → 記録は残すが予定は未完のまま
+//   (旧データには outcome が無い → 'done' とみなす。status は従来どおり 'done'=計測終了済み)
 function finishStudySession(id, opts){
   opts = opts || {};
+  const outcome = (opts.outcome === 'partial') ? 'partial' : 'done';
   const sess = (state.studySessions||[]).find(x=>x.id===id);
-  if(!sess || (sess.status!=='running' && sess.status!=='paused')) return;
+  if(!sess || (sess.status!=='running' && sess.status!=='paused' && sess.status!=='resting')) return;
   const now = Date.now();
   const segs = sess.segments;
   const last = segs[segs.length-1];
   if(last && last.end==null) last.end = now;
   sess.endTs = now;
-  sess.status = 'done';
+  sess.status = 'done';      // 計測は終了済み(表示・集計対象)
+  sess.outcome = outcome;    // 完了 or 途中
   const st = sessionAnswerStats(sess);
   sess.answered = st.answered;
   sess.correct = st.correct;
   if(state.activeSessionId===id) state.activeSessionId = null;
-  // 予定の完了フラグも立てる(その発生日に対して)
-  if(sess.planKey && state.studyPlans && state.studyPlans[sess.planKey]){
+  // 予定の完了フラグは「完了(全問終了)」のときだけ立てる。
+  // 「一旦終了(途中)」では予定を未完のまま残し、続きを後で計測できるようにする。
+  if(outcome==='done' && sess.planKey && state.studyPlans && state.studyPlans[sess.planKey]){
     const plan = state.studyPlans[sess.planKey];
     plan.done ||= {};
     plan.done[sess.dateKey] = true;
@@ -11234,23 +11456,46 @@ function renderProgressPlan(root){
       const itemsHtml = showContent ? `<div class="plan-box-items">${escapeHtml(content)}</div>` : '';
       // 改修31: 計測UI — このボックス(科目・フレーム・日)に対応する進行中セッションを探す
       const activeSess = (state.studySessions||[]).find(ss=>
-        ss.planKey===o.key && ss.dateKey===dateKey && (ss.status==='running'||ss.status==='paused'));
+        ss.planKey===o.key && ss.dateKey===dateKey && (ss.status==='running'||ss.status==='paused'||ss.status==='resting'));
+      // 改修31c: この予定(科目・フレーム・日)に既に「途中(一旦終了)」の記録があるか
+      const priorPartial = (state.studySessions||[]).some(ss=>
+        ss.planKey===o.key && ss.dateKey===dateKey && ss.status==='done' && ss.outcome==='partial');
       let timerHtml = '';
       if(activeSess){
-        const running = activeSess.status==='running';
-        timerHtml = `<div class="plan-timer ${running?'is-running':'is-paused'}" data-sessid="${activeSess.id}">
+        // 改修31b: 3状態(計測中=running / 中断=paused / 休憩=resting)に応じてボタンを出し分け
+        const status = activeSess.status;
+        const stateCls = status==='running' ? 'is-running' : (status==='paused' ? 'is-paused' : 'is-resting');
+        const stateLabel = status==='running' ? '計測中' : (status==='paused' ? '中断中(ロックオン・学習時間に計上)' : '休憩中(学習時間に計上しません)');
+        let btns = '';
+        if(status==='running'){
+          // 演習中 → 中断 / 休憩 が押せる
+          btns = `<button class="plan-timer-btn pause" data-sesspause="${activeSess.id}">中断</button>
+                  <button class="plan-timer-btn rest" data-sessrest="${activeSess.id}">休憩</button>`;
+        }else if(status==='paused'){
+          // 中断中(ロックオン) → 再開 / さらに休憩 が押せる
+          btns = `<button class="plan-timer-btn resume" data-sessresume="${activeSess.id}">再開</button>
+                  <button class="plan-timer-btn rest" data-sessrest="${activeSess.id}">休憩</button>`;
+        }else{
+          // 休憩中 → 再開のみ
+          btns = `<button class="plan-timer-btn resume" data-sessresume="${activeSess.id}">再開</button>`;
+        }
+        // 改修31c: 終了を「完了(全問終了)」と「一旦終了(途中)」に分割
+        timerHtml = `<div class="plan-timer ${stateCls}" data-sessid="${activeSess.id}">
           <span class="plan-timer-clock" data-sessclock="${activeSess.id}" data-sessstart="${activeSess.startTs}">${fmtClockMs(sessionTotalMs(activeSess))}</span>
-          <span class="plan-timer-state">${running?'計測中':'中断中(ロックオン)'}</span>
-          ${running
-            ? `<button class="plan-timer-btn pause" data-sesspause="${activeSess.id}">中断</button>`
-            : `<button class="plan-timer-btn resume" data-sessresume="${activeSess.id}">再開</button>`}
-          <button class="plan-timer-btn finish" data-sessfinish="${activeSess.id}">終了</button>
+          <span class="plan-timer-state">${stateLabel}</span>
+          ${btns}
+          <button class="plan-timer-btn finish" data-sessfinish="${activeSess.id}" data-outcome="done">✓ 完了</button>
+          <button class="plan-timer-btn pausefinish" data-sessfinish="${activeSess.id}" data-outcome="partial">一旦終了</button>
           <button class="plan-timer-btn cancel" data-sesscancel="${activeSess.id}">キャンセル</button>
         </div>`;
       }else if(!o.done){
+        const startLabel = priorPartial ? '▶ 続きを開始' : '▶ 開始';
+        const hint = priorPartial
+          ? 'このフレームは「一旦終了(途中)」の記録があります。続きを計測できます'
+          : '学習を始めるときに押すと、時間と解答数を自動で計測します';
         timerHtml = `<div class="plan-timer is-idle">
-          <button class="plan-timer-btn start" data-sessstart-subj="${escapeHtml(o.subject)}" data-sessstart-fref="${escapeHtml(String(o.frameRef))}" data-sessstart-date="${dateKey}">▶ 開始</button>
-          <span class="plan-timer-hint">学習を始めるときに押すと、時間と解答数を自動で計測します</span>
+          <button class="plan-timer-btn start" data-sessstart-subj="${escapeHtml(o.subject)}" data-sessstart-fref="${escapeHtml(String(o.frameRef))}" data-sessstart-date="${dateKey}">${startLabel}</button>
+          <span class="plan-timer-hint">${hint}</span>
         </div>`;
       }
       html += `<div class="plan-box ${o.done?'done':''}" style="border-left-color:${subjCol}">
@@ -11294,11 +11539,20 @@ function renderProgressPlan(root){
   root.querySelectorAll('button[data-sesspause]').forEach(b=>{
     b.addEventListener('click', ()=> pauseStudySession(b.dataset.sesspause));
   });
+  root.querySelectorAll('button[data-sessrest]').forEach(b=>{
+    b.addEventListener('click', ()=> restStudySession(b.dataset.sessrest));
+  });
   root.querySelectorAll('button[data-sessresume]').forEach(b=>{
     b.addEventListener('click', ()=> resumeStudySession(b.dataset.sessresume));
   });
   root.querySelectorAll('button[data-sessfinish]').forEach(b=>{
-    b.addEventListener('click', ()=>{ if(confirm('この学習セッションを終了します。よろしいですか?')) finishStudySession(b.dataset.sessfinish); });
+    b.addEventListener('click', ()=>{
+      const outcome = (b.dataset.outcome === 'partial') ? 'partial' : 'done';
+      const msg = outcome==='partial'
+        ? 'このフレームを「一旦終了(途中)」にします。\n記録は残り、予定は未完のままです。続きは後で計測できます。\nよろしいですか?'
+        : 'このフレームを「完了(全問終了)」にします。\n予定が完了になります。よろしいですか?';
+      if(confirm(msg)) finishStudySession(b.dataset.sessfinish, {outcome});
+    });
   });
   root.querySelectorAll('button[data-sesscancel]').forEach(b=>{
     b.addEventListener('click', ()=> cancelStudySession(b.dataset.sesscancel));
@@ -11318,7 +11572,7 @@ function _startPlanClockTicker(root){
     root.querySelectorAll('[data-sessclock]').forEach(el=>{
       const id = el.getAttribute('data-sessclock');
       const sess = (state.studySessions||[]).find(x=>x.id===id);
-      if(sess && (sess.status==='running'||sess.status==='paused')){
+      if(sess && (sess.status==='running'||sess.status==='paused'||sess.status==='resting')){
         el.textContent = fmtClockMs(sessionTotalMs(sess));
         anyAlive = true;
       }
@@ -13129,8 +13383,12 @@ function renderTaipaTimetable(dateKey, plans, sessions){
     const h = Math.max(TAIPA_ROW_PX, ((e-s)/TAIPA_SLOT_MIN) * TAIPA_ROW_PX);
     const col = statsSubjectColor(ss.subject);
     const totMin = Math.round(sessionTotalMs(ss)/60000);
-    actBlocks += `<div class="taipa-block act" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.20)}" title="${escapeHtml(ss.subject)} ${escapeHtml(frameOrSubFrameLabel(ss.subject,ss.frameRef))} / ${fmtHM(ss.startTs)}〜${fmtHM(ss.endTs)} / ${totMin}分 / 解答${ss.answered}問">
-      <div class="taipa-block-sub">${escapeHtml(shortSubject(ss.subject))}<span class="taipa-mini-badge act">${ss.answered}問</span></div>
+    // 改修31c: 一旦終了(途中)は帯にマークを付ける
+    const isPartial = ss.outcome==='partial';
+    const outcomeBadge = isPartial ? `<span class="taipa-mini-badge partial">途中</span>` : '';
+    const outcomeTxt = isPartial ? ' / 一旦終了(途中)' : ' / 完了';
+    actBlocks += `<div class="taipa-block act ${isPartial?'is-partial':''}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.20)}" title="${escapeHtml(ss.subject)} ${escapeHtml(frameOrSubFrameLabel(ss.subject,ss.frameRef))} / ${fmtHM(ss.startTs)}〜${fmtHM(ss.endTs)} / ${totMin}分 / 解答${ss.answered}問${outcomeTxt}">
+      <div class="taipa-block-sub">${escapeHtml(shortSubject(ss.subject))}<span class="taipa-mini-badge act">${ss.answered}問</span>${outcomeBadge}</div>
       <div class="taipa-block-frame">${escapeHtml(_taipaFrameShort(ss.subject,ss.frameRef))}</div>
     </div>`;
   }
@@ -13192,9 +13450,11 @@ function renderTaipaSummary(dateKey, sessions){
     bySubject[subj].ans += s.answered; bySubject[subj].correct += s.correct;
     bySubject[subj].frames.add(String(s.frameRef));
     const fk = s.subject+'|'+s.frameRef;
-    byFrame[fk] ||= {subject:s.subject, frameRef:s.frameRef, totalMs:0, activeMs:0, ans:0, correct:0};
+    byFrame[fk] ||= {subject:s.subject, frameRef:s.frameRef, totalMs:0, activeMs:0, ans:0, correct:0, anyDone:false, partialCnt:0, sessCnt:0};
     byFrame[fk].totalMs += tMs; byFrame[fk].activeMs += aMs;
     byFrame[fk].ans += s.answered; byFrame[fk].correct += s.correct;
+    byFrame[fk].sessCnt++;
+    if(s.outcome==='partial') byFrame[fk].partialCnt++; else byFrame[fk].anyDone = true; // 旧データ(outcome無し)は完了扱い
   }
 
   const perQ = (ms, ans)=> ans>0 ? (ms/60000/ans) : null; // 1問あたり分
@@ -13202,7 +13462,7 @@ function renderTaipaSummary(dateKey, sessions){
   const pct = (c,a)=> a>0 ? Math.round(c/a*100)+'%' : '—';
 
   if(!sessions.length){
-    return `<div class="taipa-summary-empty">この日の計測実績はありません。<br>「予定」タブの予定ボックスで「▶ 開始」→学習→「終了」を押すと、ここに集計が表示されます。</div>`;
+    return `<div class="taipa-summary-empty">この日の計測実績はありません。<br>「予定」タブの予定ボックスで「▶ 開始」→学習→「✓ 完了」または「一旦終了(途中)」を押すと、ここに集計が表示されます。</div>`;
   }
 
   let html = `<div class="taipa-summary">`;
@@ -13256,12 +13516,18 @@ function renderTaipaSummary(dateKey, sessions){
   });
   html += `<div class="taipa-tbl-title">フレーム別</div>
     <div class="taipa-tbl-wrap"><table class="taipa-tbl">
-    <thead><tr><th>科目 / フレーム</th><th>学習時間</th><th>解答</th><th>正答率</th><th>タイパ(A)</th></tr></thead><tbody>`;
+    <thead><tr><th>科目 / フレーム</th><th>状態</th><th>学習時間</th><th>解答</th><th>正答率</th><th>タイパ(A)</th></tr></thead><tbody>`;
   for(const fk of frameKeys){
     const d = byFrame[fk];
     const col = statsSubjectColor(d.subject);
+    // 改修31c: 状態 — いずれかが完了なら「完了」、全て途中なら「途中」
+    const stateBadge = d.anyDone
+      ? `<span class="taipa-state-badge done">完了</span>`
+      : `<span class="taipa-state-badge partial">途中</span>`;
+    const cntNote = d.sessCnt>1 ? `<span class="taipa-state-cnt">${d.sessCnt}回</span>` : '';
     html += `<tr>
       <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(shortSubject(d.subject))} ${escapeHtml(frameOrSubFrameLabel(d.subject,d.frameRef))}</td>
+      <td>${stateBadge}${cntNote}</td>
       <td>${fmtDurationMs(d.totalMs)}</td>
       <td>${d.ans}</td>
       <td>${pct(d.correct,d.ans)}</td>
@@ -13847,6 +14113,11 @@ function init(){
   });
   document.getElementById('filter-bm').addEventListener('change',e=>{
     state.session.filterBm = e.target.value;state.session.currentIndex=0;state.session.answered=false;saveState();renderQuiz();
+  });
+  // 改修02: 自分の追記フィルタ
+  const fMyNote = document.getElementById('filter-mynote');
+  if(fMyNote) fMyNote.addEventListener('change',e=>{
+    state.session.filterMyNote = e.target.value;state.session.currentIndex=0;state.session.answered=false;saveState();renderQuiz();
   });
 
   // ===== Select tab: mode buttons =====
