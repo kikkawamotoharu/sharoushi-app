@@ -10517,7 +10517,20 @@ const SENBON_CATEGORIES = [
   {key:'B', label:'B 弱点(ミス問)'},
   {key:'C', label:'C 罠問'},
   {key:'D', label:'D 改正・予想'},
+  {key:'E', label:'E その他'},
 ];
+// チェックマーク (D・Eだけでなく全カテゴリで付与可能)
+//   0=未設定 / 1=要チェック / 2=確認中 / 3=確認済
+// 1(要チェック)・2(確認中) の問題は演習対象から自動除外する
+const SENBON_MARKS = [
+  {v:0, label:'—',        short:'',     color:'#bbb'},
+  {v:1, label:'要チェック', short:'要',   color:'#e8a000'},
+  {v:2, label:'確認中',     short:'中',   color:'#2b8acb'},
+  {v:3, label:'確認済',     short:'済',   color:'#2e7d32'},
+];
+function senbonMarkInfo(v){ return SENBON_MARKS.find(m=>m.v===(v||0)) || SENBON_MARKS[0]; }
+// 演習対象に含めてよいか (要チェック/確認中は除外)
+function senbonPlayable(q){ const m = q.checkMark||0; return m!==1 && m!==2; }
 function senbonCatLabel(k){ const c=SENBON_CATEGORIES.find(x=>x.key===k); return c?c.label:(k||'未分類'); }
 function senbonLevelSec(lv){ const l=SENBON_LEVELS.find(x=>x.lv===lv); return l?l.sec:5; }
 
@@ -10548,15 +10561,36 @@ function renderWeakTab(){
 // 千本ノックで利用可能な問題プール(フィルタ適用前の全体)
 function senbonAllQuestions(){ return Array.isArray(state.senbon)?state.senbon:[]; }
 
-// フィルタを適用した出題プール
+// 各問の出典(source)一覧を集める(検索窓の候補用)
+function senbonSources(){
+  const set = new Set();
+  senbonAllQuestions().forEach(q=>{ if(q.source) set.add(q.source); });
+  return Array.from(set).sort();
+}
+
+// フィルタを適用した出題プール (演習用: 要チェック/確認中は除外)
 function senbonPool(){
   const s = state.senbonSession;
   return senbonAllQuestions().filter(q=>{
+    if(!senbonPlayable(q)) return false; // 要チェック/確認中は演習から除外
     if(s.category && q.category!==s.category) return false;
     if(s.subject && q.subject!==s.subject) return false;
-    if(s.frame && String(q.frameNo)!==String(s.frame)) return false;
+    if(s.source && q.source!==s.source) return false;
+    if(s.frame){
+      // 中分類キー("2.1"形式)なら subFrameKey で照合、数値なら frameNo で照合
+      if(/\d+\.\d+/.test(s.frame)){
+        if(String(q.subFrameKey)!==String(s.frame)) return false;
+      }else{
+        if(String(q.frameNo)!==String(s.frame)) return false;
+      }
+    }
     return true;
   });
+}
+
+// 各問の誤答回数を集計(ミス順抽出用)
+function senbonMissCount(qid){
+  return state.senbonHistory.filter(h=>h.id===qid && !h.correct).length;
 }
 
 function ensureSenbonState(){
@@ -10564,7 +10598,7 @@ function ensureSenbonState(){
   if(!Array.isArray(state.senbon)) state.senbon = [];
   if(!Array.isArray(state.senbonHistory)) state.senbonHistory = [];
   if(!state.senbonSession || typeof state.senbonSession !== 'object'){
-    state.senbonSession = {category:'',subject:'',frame:'',level:3,running:false,idx:0,order:[],results:[]};
+    state.senbonSession = {};
   }
   const ss = state.senbonSession;
   if(typeof ss.running !== 'boolean') ss.running = false;
@@ -10575,11 +10609,22 @@ function ensureSenbonState(){
   if(typeof ss.category !== 'string') ss.category = '';
   if(typeof ss.subject !== 'string') ss.subject = '';
   if(typeof ss.frame !== 'string') ss.frame = '';
+  if(typeof ss.source !== 'string') ss.source = '';     // 出典フィルタ
+  if(!ss.count) ss.count = 20;                           // 出題数(0=全問)
+  if(!ss.method) ss.method = 'random';                   // random|order|miss
+  if(typeof ss.paused !== 'boolean') ss.paused = false;  // 一時停止
+  if(typeof ss.remainMs !== 'number') ss.remainMs = 0;   // 一時停止時の残時間
+  if(typeof ss.lastWasRepeat !== 'boolean') ss.lastWasRepeat = false;
+  // 既存セッションデータの正規化漏れ対策
   if(!state.senbonView || typeof state.senbonView !== 'object'){
-    state.senbonView = {mode:'subjects',subject:null,frameNo:null,tab:'list',weakSub:'weak'};
+    state.senbonView = {mode:'subjects',subject:null,frameNo:null,subFrameKey:null,tab:'list',weakSub:'weak'};
   }
   if(!state.senbonView.weakSub) state.senbonView.weakSub = 'weak';
   if(!state.senbonView.mode) state.senbonView.mode = 'subjects';
+  // 進捗タブの検索フィルタ状態
+  if(!state.senbonManageFilter || typeof state.senbonManageFilter !== 'object'){
+    state.senbonManageFilter = {category:'',source:'',mark:''};
+  }
 }
 
 function renderSenbon(){
@@ -10606,20 +10651,39 @@ function renderSenbonSetup(root){
   const subjects = SUBJECTS_ORDER.filter(subj=>all.some(q=>q.subject===subj));
   const subjOpts = '<option value="">すべての科目</option>' +
     subjects.map(subj=>`<option value="${escapeHtml(subj)}" ${s.subject===subj?'selected':''}>${escapeHtml(subj)}</option>`).join('');
-  // フレーム候補(選択中科目に応じて)
+  // フレーム候補(選択中科目に応じて。中分類があれば中分類も選べる)
   let frameOpts = '<option value="">すべてのフレーム</option>';
   if(s.subject){
     const defs = FRAMES[s.subject] || [];
-    const used = new Set(all.filter(q=>q.subject===s.subject).map(q=>String(q.frameNo)));
-    frameOpts += defs.filter(d=>used.has(String(d.n)))
-      .map(d=>`<option value="${d.n}" ${String(s.frame)===String(d.n)?'selected':''}>F${d.n} ${escapeHtml(d.t)}</option>`).join('');
+    const usedFrames = new Set(all.filter(q=>q.subject===s.subject).map(q=>String(q.frameNo)));
+    defs.filter(d=>usedFrames.has(String(d.n))).forEach(d=>{
+      frameOpts += `<option value="${d.n}" ${String(s.frame)===String(d.n)?'selected':''}>F${d.n} ${escapeHtml(d.t)}</option>`;
+      // 中分類があれば、その配下も選択肢に出す
+      if(hasSubFrames(s.subject, d.n)){
+        getSubFrames(s.subject, d.n).forEach(sf=>{
+          const used = all.some(q=>q.subject===s.subject && String(q.subFrameKey)===String(sf.key));
+          if(used) frameOpts += `<option value="${sf.key}" ${String(s.frame)===String(sf.key)?'selected':''}>　└ F${d.n}_${sf.n} ${escapeHtml(sf.t)}</option>`;
+        });
+      }
+    });
   }
+  // 出典フィルタ候補
+  const sources = senbonSources();
+  let srcOpts = '<option value="">すべての出典</option>' +
+    sources.map(src=>`<option value="${escapeHtml(src)}" ${s.source===src?'selected':''}>${escapeHtml(src)}</option>`).join('');
   // カテゴリチップ
   const catChips = `<button class="sb-cat-chip ${!s.category?'sel':''}" data-cat="">すべて</button>` +
     SENBON_CATEGORIES.map(c=>`<button class="sb-cat-chip ${s.category===c.key?'sel':''}" data-cat="${c.key}">${escapeHtml(c.label)}</button>`).join('');
   // レベルチップ
   const lvChips = SENBON_LEVELS.map(l=>`<button class="sb-lv-chip ${s.level===l.lv?'sel':''}" data-lv="${l.lv}">${escapeHtml(l.label)}<span class="sb-lv-sec">${l.sec}秒/問</span></button>`).join('');
+  // 出題数チップ
+  const countOpts = [10,15,20,30,50,0];
+  const countChips = countOpts.map(n=>`<button class="sb-cnt-chip ${s.count===n?'sel':''}" data-cnt="${n}">${n===0?'全問':n+'問'}</button>`).join('');
+  // 抽出方法チップ
+  const methods = [{k:'random',t:'ランダム'},{k:'order',t:'科目順・フレーム順'},{k:'miss',t:'ミスの多い順'}];
+  const methodChips = methods.map(m=>`<button class="sb-mth-chip ${s.method===m.k?'sel':''}" data-mth="${m.k}">${escapeHtml(m.t)}</button>`).join('');
   const pool = senbonPool();
+  const willAsk = (s.count===0||s.count>=pool.length) ? pool.length : s.count;
 
   root.innerHTML = `
   <style>
@@ -10628,9 +10692,9 @@ function renderSenbonSetup(root){
     .sb-sub{font-size:12px;color:var(--ink-muted,#888);font-weight:400;margin-left:8px}
     .sb-row{display:flex;align-items:center;gap:10px;margin:12px 0;flex-wrap:wrap}
     .sb-row>label{font-size:13px;min-width:64px;color:var(--ink-muted,#666)}
-    .sb-row select{padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:8px;font-size:14px;background:#fff}
-    .sb-cat-chip,.sb-lv-chip{padding:7px 12px;border:1px solid var(--line,#ddd);border-radius:20px;background:#fff;font-size:12px;cursor:pointer;transition:.15s}
-    .sb-cat-chip.sel{background:#2b5dc9;color:#fff;border-color:#2b5dc9}
+    .sb-row select{padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:8px;font-size:14px;background:#fff;max-width:100%}
+    .sb-cat-chip,.sb-lv-chip,.sb-cnt-chip,.sb-mth-chip{padding:7px 12px;border:1px solid var(--line,#ddd);border-radius:20px;background:#fff;font-size:12px;cursor:pointer;transition:.15s}
+    .sb-cat-chip.sel,.sb-cnt-chip.sel,.sb-mth-chip.sel{background:#2b5dc9;color:#fff;border-color:#2b5dc9}
     .sb-lv-chip{border-radius:10px;display:inline-flex;flex-direction:column;align-items:center;gap:2px;min-width:84px}
     .sb-lv-chip.sel{background:#C9472A;color:#fff;border-color:#C9472A}
     .sb-lv-sec{font-size:10px;opacity:.85}
@@ -10652,11 +10716,23 @@ function renderSenbonSetup(root){
       <select id="sb-frame">${frameOpts}</select>
     </div>
     <div class="sb-row">
+      <label>出典</label>
+      <select id="sb-source">${srcOpts}</select>
+    </div>
+    <div class="sb-row">
+      <label>出題数</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${countChips}</div>
+    </div>
+    <div class="sb-row">
+      <label>抽出方法</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${methodChips}</div>
+    </div>
+    <div class="sb-row">
       <label>スピード</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap">${lvChips}</div>
     </div>
-    <button class="sb-start" id="sb-start" ${pool.length===0?'disabled':''}>▶ ${pool.length}問でスタート</button>
-    <div class="sb-poolinfo">出題対象: ${pool.length}問 / 登録総数 ${all.length}問</div>
+    <button class="sb-start" id="sb-start" ${pool.length===0?'disabled':''}>▶ ${willAsk}問でスタート</button>
+    <div class="sb-poolinfo">出題対象: ${pool.length}問中 ${willAsk}問を出題 / 登録総数 ${all.length}問<br><span style="font-size:11px">※「要チェック」「確認中」マークの問題は演習対象から自動除外されます</span></div>
     `}
   </div>`;
 
@@ -10667,6 +10743,12 @@ function renderSenbonSetup(root){
   root.querySelectorAll('.sb-lv-chip').forEach(b=>b.addEventListener('click',()=>{
     state.senbonSession.level = parseInt(b.dataset.lv,10); saveState(); renderSenbon();
   }));
+  root.querySelectorAll('.sb-cnt-chip').forEach(b=>b.addEventListener('click',()=>{
+    state.senbonSession.count = parseInt(b.dataset.cnt,10); saveState(); renderSenbon();
+  }));
+  root.querySelectorAll('.sb-mth-chip').forEach(b=>b.addEventListener('click',()=>{
+    state.senbonSession.method = b.dataset.mth; saveState(); renderSenbon();
+  }));
   const subjSel = document.getElementById('sb-subject');
   if(subjSel) subjSel.addEventListener('change',()=>{
     state.senbonSession.subject = subjSel.value; state.senbonSession.frame=''; saveState(); renderSenbon();
@@ -10675,21 +10757,64 @@ function renderSenbonSetup(root){
   if(frameSel) frameSel.addEventListener('change',()=>{
     state.senbonSession.frame = frameSel.value; saveState(); renderSenbon();
   });
+  const srcSel = document.getElementById('sb-source');
+  if(srcSel) srcSel.addEventListener('change',()=>{
+    state.senbonSession.source = srcSel.value; saveState(); renderSenbon();
+  });
   const startBtn = document.getElementById('sb-start');
   if(startBtn) startBtn.addEventListener('click', startSenbonRun);
 }
 
 // ===== 演習開始 =====
-function startSenbonRun(){
-  const pool = senbonPool();
-  if(pool.length===0) return;
-  // 出題順をシャッフル
-  const order = pool.map(q=>q.id);
-  for(let i=order.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [order[i],order[j]]=[order[j],order[i]]; }
-  state.senbonSession.running = true;
-  state.senbonSession.idx = 0;
-  state.senbonSession.order = order;
-  state.senbonSession.results = [];
+//   isRepeat: 「繰り返し」起動時は前回と同じ order を使い回す(order/method順序を維持)
+function startSenbonRun(isRepeat){
+  const s = state.senbonSession;
+  let order;
+  if(isRepeat===true && Array.isArray(s.order) && s.order.length){
+    // 繰り返し: 前回と同じ出題セット(順序も維持)。ランダムのみ再シャッフル
+    order = s.order.slice();
+    if(s.method==='random'){
+      for(let i=order.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [order[i],order[j]]=[order[j],order[i]]; }
+    }
+    s.lastWasRepeat = true;
+  }else{
+    const pool = senbonPool();
+    if(pool.length===0) return;
+    let arr = pool.slice();
+    if(s.method==='order'){
+      // 科目順・フレーム順(中分類も考慮)
+      arr.sort((a,b)=>{
+        const sa=SUBJECTS_ORDER.indexOf(a.subject), sb=SUBJECTS_ORDER.indexOf(b.subject);
+        if(sa!==sb) return (sa<0?999:sa)-(sb<0?999:sb);
+        const fa=a.frameNo==null?999:a.frameNo, fb=b.frameNo==null?999:b.frameNo;
+        if(fa!==fb) return fa-fb;
+        const ka=String(a.subFrameKey||''), kb=String(b.subFrameKey||'');
+        if(ka!==kb) return ka<kb?-1:1;
+        return (a.createdAt||0)-(b.createdAt||0);
+      });
+    }else if(s.method==='miss'){
+      // ミスの多い順。履歴ゼロなら全問ミス0となるため実質ランダムにフォールバック
+      const totalMiss = arr.reduce((sum,q)=>sum+senbonMissCount(q.id),0);
+      if(totalMiss===0){
+        for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; }
+      }else{
+        arr.sort((a,b)=>senbonMissCount(b.id)-senbonMissCount(a.id));
+      }
+    }else{
+      // ランダム
+      for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; }
+    }
+    // 出題数で切り出し(0=全問)
+    const n = (s.count===0) ? arr.length : Math.min(s.count, arr.length);
+    order = arr.slice(0, n).map(q=>q.id);
+    s.lastWasRepeat = false;
+  }
+  s.running = true;
+  s.paused = false;
+  s.remainMs = 0;
+  s.idx = 0;
+  s.order = order;
+  s.results = [];
   saveState();
   renderSenbon();
 }
@@ -10722,6 +10847,9 @@ function renderSenbonRun(root){
     .sbr-x{background:#ffebee;color:#c62828;border:2px solid #c62828}
     .sbr-btn:active{transform:scale(.96)}
     .sbr-quit{margin-top:18px;width:100%;padding:10px;background:transparent;border:1px solid var(--line,#ddd);border-radius:8px;color:var(--ink-muted,#888);font-size:13px;cursor:pointer}
+    .sbr-pause{margin-top:10px;width:100%;padding:12px;background:#fff3e0;border:1px solid #f0a500;border-radius:8px;color:#b07400;font-size:14px;font-weight:700;cursor:pointer}
+    .sbr-paused-banner{padding:30px 20px;text-align:center}
+    .sbr-resume{margin-top:14px;padding:14px 28px;background:#2e7d32;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer}
     .sbr-judge{padding:30px 20px;text-align:center}
     .sbr-judge-icon{font-size:56px;margin-bottom:8px}
     .sbr-judge-txt{font-size:24px;font-weight:800;margin-bottom:10px}
@@ -10733,7 +10861,7 @@ function renderSenbonRun(root){
   <div class="sbr-wrap">
     <div class="sbr-top">
       <span class="sbr-pos">${s.idx+1} / ${s.order.length}</span>
-      <span class="sbr-meta">${escapeHtml(q.subject||'')} ${q.frameNo!=null?('F'+q.frameNo):''} ・ ${senbonCatLabel(q.category)} ・ ${sec}秒</span>
+      <span class="sbr-meta">${escapeHtml(q.subject||'')} ${q.subFrameKey?('F'+q.subFrameKey):(q.frameNo!=null?('F'+q.frameNo):'')} ・ ${senbonCatLabel(q.category)} ・ ${sec}秒</span>
     </div>
     <div class="sbr-bar-track"><div class="sbr-bar" id="sbr-bar"></div></div>
     <div class="sbr-body" id="sbr-body">
@@ -10743,6 +10871,7 @@ function renderSenbonRun(root){
         <button class="sbr-btn sbr-o" data-ans="true">〇</button>
         <button class="sbr-btn sbr-x" data-ans="false">✕</button>
       </div>
+      <button class="sbr-pause" id="sbr-pause">⏸ 一時停止</button>
       <button class="sbr-quit" id="sbr-quit">中断して設定に戻る</button>
     </div>
   </div>`;
@@ -10751,18 +10880,41 @@ function renderSenbonRun(root){
     senbonAnswer(q, b.dataset.ans==='true');
   }));
   document.getElementById('sbr-quit').addEventListener('click', quitSenbonRun);
+  document.getElementById('sbr-pause').addEventListener('click',()=>pauseSenbonRun(q));
 
-  // タイマー開始
-  startSenbonTimer(sec, ()=>{ if(!_senbonAnswered) senbonAnswer(q, null); });
+  // タイマー開始(一時停止からの再開なら残時間を引き継ぐ)
+  const startMs = (s.paused && s.remainMs>0) ? s.remainMs : sec*1000;
+  s.paused = false;
+  startSenbonTimer(startMs, sec*1000, ()=>{ if(!_senbonAnswered) senbonAnswer(q, null); });
 }
 
-function startSenbonTimer(sec, onTimeout){
+// 一時停止: タイマーを止め残時間を保存し、再開ボタンを表示
+function pauseSenbonRun(q){
+  if(_senbonAnswered) return;
   stopSenbonTimer();
-  _senbonDeadline = Date.now() + sec*1000;
+  const s = state.senbonSession;
+  s.paused = true;
+  s.remainMs = Math.max(0, _senbonDeadline - Date.now());
+  saveState();
+  const body = document.getElementById('sbr-body');
+  if(body){
+    body.innerHTML = `<div class="sbr-paused-banner">
+      <div style="font-size:48px">⏸</div>
+      <div style="font-size:18px;font-weight:700;margin-top:8px">一時停止中</div>
+      <div style="font-size:13px;color:#888;margin-top:6px">残り ${(s.remainMs/1000).toFixed(1)}秒</div>
+      <button class="sbr-resume" id="sbr-resume">▶ 再開</button>
+    </div>`;
+    document.getElementById('sbr-resume').addEventListener('click',()=>renderSenbon());
+  }
+}
+
+function startSenbonTimer(startMs, fullMs, onTimeout){
+  stopSenbonTimer();
+  _senbonDeadline = Date.now() + startMs;
   const bar = document.getElementById('sbr-bar');
   _senbonTimer = setInterval(()=>{
     const remain = _senbonDeadline - Date.now();
-    const ratio = Math.max(0, remain/(sec*1000));
+    const ratio = Math.max(0, remain/fullMs);
     if(bar){ bar.style.width = (ratio*100)+'%'; bar.classList.toggle('danger', ratio<0.3); }
     if(remain<=0){ stopSenbonTimer(); onTimeout(); }
   }, 80);
@@ -10820,6 +10972,7 @@ function renderSenbonResult(root){
   const total = res.length;
   const correctN = res.filter(r=>r.correct).length;
   const timeoutN = res.filter(r=>r.timedOut).length;
+  const wrongN = total - correctN;
   const rate = total? Math.round(correctN/total*100):0;
   // カテゴリ別集計
   const byCat = {};
@@ -10839,25 +10992,82 @@ function renderSenbonResult(root){
     .sbres-rate{font-size:52px;font-weight:800;color:${rate>=80?'#2e7d32':rate>=50?'#e8a000':'#c62828'};line-height:1}
     .sbres-sub{font-size:14px;color:var(--ink-muted,#666);margin:8px 0 20px}
     .sbr-catrow{display:flex;justify-content:space-between;padding:8px 14px;font-size:14px;border-bottom:1px solid var(--line,#eee)}
-    .sbres-actions{display:flex;gap:12px;margin-top:22px}
-    .sbres-btn{flex:1;padding:14px;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer}
+    .sbres-actions{display:flex;gap:10px;margin-top:22px;flex-wrap:wrap}
+    .sbres-btn{flex:1;min-width:130px;padding:14px;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer}
+    .sbres-review{background:#1f2a44;color:#fff}
+    .sbres-repeat{background:#e8a000;color:#fff}
     .sbres-again{background:#C9472A;color:#fff}
     .sbres-back{background:#eef;color:#2b5dc9}
   </style>
   <div class="sbres">
     <div class="sbres-rate">${rate}%</div>
-    <div class="sbres-sub">${correctN} / ${total} 問正解　(時間切れ ${timeoutN}問)</div>
+    <div class="sbres-sub">${correctN} / ${total} 問正解　(不正解 ${wrongN}問・うち時間切れ ${timeoutN}問)</div>
     <div style="max-width:340px;margin:0 auto;text-align:left">${catRows}</div>
     <div class="sbres-actions">
-      <button class="sbres-btn sbres-again" id="sbres-again">🔁 もう一度</button>
+      ${wrongN>0?`<button class="sbres-btn sbres-review" id="sbres-review">🔍 ミスした${wrongN}問を確認</button>`:''}
+      <button class="sbres-btn sbres-repeat" id="sbres-repeat">🔁 同じ${total}問を繰り返す</button>
+      <button class="sbres-btn sbres-again" id="sbres-again">🎲 新しく出題</button>
       <button class="sbres-btn sbres-back" id="sbres-back">設定に戻る</button>
     </div>
   </div>`;
 
-  document.getElementById('sbres-again').addEventListener('click', startSenbonRun);
+  const reviewBtn = document.getElementById('sbres-review');
+  if(reviewBtn) reviewBtn.addEventListener('click', ()=>renderSenbonReview(root));
+  document.getElementById('sbres-repeat').addEventListener('click', ()=>startSenbonRun(true));
+  document.getElementById('sbres-again').addEventListener('click', ()=>startSenbonRun(false));
   document.getElementById('sbres-back').addEventListener('click',()=>{
     state.senbonSession.running=false; saveState(); renderSenbon();
   });
+}
+
+// ===== ミス確認モード(振り返り) =====
+function renderSenbonReview(root){
+  const s = state.senbonSession;
+  const wrong = (s.results||[]).filter(r=>!r.correct)
+    .map(r=>({r, q: senbonAllQuestions().find(x=>x.id===r.id)}))
+    .filter(o=>o.q);
+  const items = wrong.map(({r,q})=>`
+    <div class="sbrv-item">
+      <div class="sbrv-meta">${escapeHtml(q.subject||'')} ${q.subFrameKey?('F'+q.subFrameKey):(q.frameNo!=null?('F'+q.frameNo):'')} ・ ${senbonCatLabel(q.category)}${q.source?(' ・ '+escapeHtml(q.source)):''}</div>
+      <div class="sbrv-q">${escapeHtml(q.q)}</div>
+      <div class="sbrv-ans ${q.a?'o':'x'}">正解: ${q.a?'〇 正しい':'✕ 誤り'}${r.timedOut?' (時間切れ)':''}</div>
+      ${q.note?`<div class="sbrv-note">${escapeHtml(q.note)}</div>`:''}
+    </div>`).join('');
+
+  root.innerHTML = `
+  <style>
+    .sbrv-card{background:var(--surface,#fff);border-radius:14px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+    .sbrv-h{font-size:17px;font-weight:700;margin:0 0 4px}
+    .sbrv-sub{font-size:12px;color:#888;margin-bottom:14px}
+    .sbrv-item{border:1px solid var(--line,#eee);border-left:4px solid #c62828;border-radius:8px;padding:14px;margin-bottom:10px}
+    .sbrv-meta{font-size:11px;color:#999;margin-bottom:6px}
+    .sbrv-q{font-size:15px;line-height:1.6;margin-bottom:8px}
+    .sbrv-ans{font-size:14px;font-weight:700}
+    .sbrv-ans.o{color:#2e7d32}.sbrv-ans.x{color:#c62828}
+    .sbrv-note{font-size:13px;color:#555;background:#f7f7f9;border-radius:6px;padding:10px;margin-top:8px;line-height:1.6}
+    .sbrv-actions{display:flex;gap:10px;margin-top:16px}
+    .sbrv-btn{flex:1;padding:13px;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
+    .sbrv-retry{background:#C9472A;color:#fff}
+    .sbrv-back{background:#eef;color:#2b5dc9}
+  </style>
+  <div class="sbrv-card">
+    <h3 class="sbrv-h">🔍 ミスした問題の振り返り</h3>
+    <div class="sbrv-sub">間違えた ${wrong.length}問。正解と補足を確認しましょう。</div>
+    ${items || '<div style="padding:20px;text-align:center;color:#888">ミスした問題はありませんでした 🎉</div>'}
+    <div class="sbrv-actions">
+      ${wrong.length>0?`<button class="sbrv-btn sbrv-retry" id="sbrv-retry">🔁 ミスした${wrong.length}問だけ解き直す</button>`:''}
+      <button class="sbrv-btn sbrv-back" id="sbrv-back">← 結果に戻る</button>
+    </div>
+  </div>`;
+
+  const retryBtn = document.getElementById('sbrv-retry');
+  if(retryBtn) retryBtn.addEventListener('click',()=>{
+    // ミスした問題だけで新セッションを組む
+    const ids = wrong.map(o=>o.q.id);
+    s.order = ids; s.idx = 0; s.results = []; s.running = true; s.paused = false; s.remainMs = 0;
+    saveState(); renderSenbon();
+  });
+  document.getElementById('sbrv-back').addEventListener('click',()=>renderSenbonResult(root));
 }
 
 /* =========================================================================
@@ -10865,7 +11075,7 @@ function renderSenbonResult(root){
    ========================================================================= */
 function renderSenbonManage(root){
   ensureSenbonState();
-  state.senbonView ||= {mode:'subjects',subject:null,frameNo:null};
+  state.senbonView ||= {mode:'subjects',subject:null,frameNo:null,subFrameKey:null};
   const v = state.senbonView;
   const subTabs = progressSubTabsHtml(state.progressView.kindMode);
   let html = subTabs;
@@ -10892,6 +11102,15 @@ function renderSenbonManage(root){
     .sbm-actions button{padding:5px 12px;border:1px solid var(--line,#ddd);border-radius:7px;background:#fff;cursor:pointer;font-size:12px}
     .sbm-del{color:#c62828;border-color:#f0caca!important}
     .sbm-empty{padding:24px;text-align:center;color:var(--ink-muted,#888);font-size:13px;line-height:1.7}
+    .sbm-filter{display:flex;gap:8px;align-items:center;margin:10px 0;flex-wrap:wrap;padding:12px;background:#f7f7f9;border-radius:10px}
+    .sbm-filter label{font-size:12px;color:#666}
+    .sbm-filter select{padding:6px 8px;border:1px solid var(--line,#ddd);border-radius:7px;font-size:13px;background:#fff}
+    .sbm-mark{font-size:11px;padding:2px 8px;border-radius:10px;font-weight:700;color:#fff}
+    .sbm-src{font-size:11px;padding:2px 8px;border-radius:10px;background:#f0ece4;color:#8a7a55}
+    .sbm-memo{font-size:12px;color:#8a6d00;background:#fffaf0;border-radius:6px;padding:8px;margin-top:6px;line-height:1.5}
+    .sbm-mark-btns{display:flex;gap:4px;margin-top:8px;flex-wrap:wrap}
+    .sbm-mark-btn{padding:4px 10px;border:1px solid var(--line,#ddd);border-radius:7px;background:#fff;cursor:pointer;font-size:11px}
+    .sbm-mark-btn.on{color:#fff;border-color:transparent}
   </style>`;
 
   if(v.mode==='subjects'){
@@ -10912,29 +11131,85 @@ function renderSenbonManage(root){
       <span class="sbm-crumb">${escapeHtml(subj)} — フレームを選択</span></div>`;
     html += `<div class="sbm-grid">`;
     defs.forEach(d=>{
+      const hasSub = hasSubFrames(subj, d.n);
+      // 中分類ありのフレームは配下問題数を合算
       const cnt = all.filter(q=>q.subject===subj && String(q.frameNo)===String(d.n)).length;
-      html += `<div class="sbm-cell" data-sbm-frame="${d.n}">
-        <div class="sbm-cell-title">F${d.n} ${escapeHtml(d.t)}</div>
+      html += `<div class="sbm-cell" data-sbm-frame="${d.n}" data-sbm-hassub="${hasSub?'1':'0'}">
+        <div class="sbm-cell-title">F${d.n} ${escapeHtml(d.t)}${hasSub?' ▸':''}</div>
+        <div class="sbm-cell-count">${cnt}問${hasSub?' (中分類あり)':''}</div></div>`;
+    });
+    html += `</div>`;
+  } else if(v.mode==='subframes'){
+    // 中分類選択(一般常識のF2等)
+    const subj=v.subject, fno=v.frameNo;
+    const def = (FRAMES[subj]||[]).find(d=>String(d.n)===String(fno));
+    const subs = getSubFrames(subj, fno);
+    html += `<div class="sbm-bar"><button class="sbm-back" data-sbm-back="frames">← フレーム一覧</button>
+      <span class="sbm-crumb">${escapeHtml(subj)} F${fno} ${def?escapeHtml(def.t):''} — 中分類を選択</span></div>`;
+    html += `<div class="sbm-grid">`;
+    subs.forEach(sf=>{
+      const cnt = all.filter(q=>q.subject===subj && String(q.subFrameKey)===String(sf.key)).length;
+      html += `<div class="sbm-cell" data-sbm-subframe="${escapeHtml(sf.key)}">
+        <div class="sbm-cell-title">F${fno}_${sf.n} ${escapeHtml(sf.t)}</div>
         <div class="sbm-cell-count">${cnt}問</div></div>`;
     });
     html += `</div>`;
   } else if(v.mode==='items'){
-    const subj=v.subject, fno=v.frameNo;
+    const subj=v.subject, fno=v.frameNo, sfKey=v.subFrameKey;
     const def = (FRAMES[subj]||[]).find(d=>String(d.n)===String(fno));
-    const items = all.filter(q=>q.subject===subj && String(q.frameNo)===String(fno));
-    html += `<div class="sbm-bar"><button class="sbm-back" data-sbm-back="frames">← フレーム一覧</button>
-      <span class="sbm-crumb">${escapeHtml(subj)} F${fno} ${def?escapeHtml(def.t):''}</span></div>`;
+    const sf = sfKey ? getSubFrames(subj, fno).find(s=>String(s.key)===String(sfKey)) : null;
+    // このハコの問題(中分類が指定されていれば中分類で絞る)
+    let items = all.filter(q=>{
+      if(q.subject!==subj) return false;
+      if(sfKey) return String(q.subFrameKey)===String(sfKey);
+      return String(q.frameNo)===String(fno);
+    });
+    // 検索フィルタ適用
+    const f = state.senbonManageFilter;
+    const filtered = items.filter(q=>{
+      if(f.category && q.category!==f.category) return false;
+      if(f.source && (q.source||'')!==f.source) return false;
+      if(f.mark!=='' && String(q.checkMark||0)!==String(f.mark)) return false;
+      return true;
+    });
+    // 検索窓の候補
+    const usedCats = [...new Set(items.map(q=>q.category))];
+    const catFopt = '<option value="">全カテゴリ</option>' + SENBON_CATEGORIES.filter(c=>usedCats.includes(c.key)).map(c=>`<option value="${c.key}" ${f.category===c.key?'selected':''}>${escapeHtml(c.label)}</option>`).join('');
+    const usedSrcs = [...new Set(items.map(q=>q.source).filter(Boolean))];
+    const srcFopt = '<option value="">全出典</option>' + usedSrcs.map(s=>`<option value="${escapeHtml(s)}" ${f.source===s?'selected':''}>${escapeHtml(s)}</option>`).join('');
+    const markFopt = '<option value="">全マーク</option>' + SENBON_MARKS.map(m=>`<option value="${m.v}" ${String(f.mark)===String(m.v)?'selected':''}>${escapeHtml(m.label)}</option>`).join('');
+
+    const crumb = sf ? `${escapeHtml(subj)} F${fno}_${sf.n} ${escapeHtml(sf.t)}` : `${escapeHtml(subj)} F${fno} ${def?escapeHtml(def.t):''}`;
+    const backTo = sfKey ? 'subframes' : 'frames';
+    html += `<div class="sbm-bar"><button class="sbm-back" data-sbm-back="${backTo}">← ${sfKey?'中分類一覧':'フレーム一覧'}</button>
+      <span class="sbm-crumb">${crumb}</span></div>`;
     html += `<div><button class="sbm-add" id="sbm-add">＋ 一問一答を追加</button>
       <button class="sbm-import" id="sbm-import">📥 JSONで取込</button></div>`;
+    // 検索フィルタUI
+    html += `<div class="sbm-filter">
+      <label>🔍 絞り込み</label>
+      <select id="sbm-f-cat-filter">${catFopt}</select>
+      <select id="sbm-f-src-filter">${srcFopt}</select>
+      <select id="sbm-f-mark-filter">${markFopt}</select>
+      <span style="font-size:12px;color:#888;margin-left:auto">${filtered.length}/${items.length}問</span>
+    </div>`;
     if(items.length===0){
-      html += `<div class="sbm-empty">このフレームにはまだ一問一答がありません。<br>「＋追加」または「JSONで取込」で登録してください。</div>`;
+      html += `<div class="sbm-empty">このハコにはまだ一問一答がありません。<br>「＋追加」または「JSONで取込」で登録してください。</div>`;
+    }else if(filtered.length===0){
+      html += `<div class="sbm-empty">絞り込み条件に合う問題がありません。</div>`;
     }else{
-      items.forEach(q=>{
+      filtered.forEach(q=>{
+        const mk = senbonMarkInfo(q.checkMark);
+        const markBadge = mk.v ? `<span class="sbm-mark" style="background:${mk.color}">${escapeHtml(mk.label)}</span>` : '';
+        const srcBadge = q.source ? `<span class="sbm-src">${escapeHtml(q.source)}</span>` : '';
+        const markBtns = SENBON_MARKS.map(m=>`<button class="sbm-mark-btn ${(q.checkMark||0)===m.v?'on':''}" style="${(q.checkMark||0)===m.v?('background:'+m.color):''}" data-sbm-mark="${escapeHtml(q.id)}" data-mark-v="${m.v}">${escapeHtml(m.label)}</button>`).join('');
         html += `<div class="sbm-item" data-sbm-id="${escapeHtml(q.id)}">
-          <div class="sbm-item-head"><span class="sbm-tag">${escapeHtml(senbonCatLabel(q.category))}</span></div>
+          <div class="sbm-item-head"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="sbm-tag">${escapeHtml(senbonCatLabel(q.category))}</span>${srcBadge}${markBadge}</div></div>
           <div>${escapeHtml(q.q)}</div>
           <div class="sbm-ans ${q.a?'o':'x'}">正解: ${q.a?'〇':'✕'}</div>
           ${q.note?`<div class="sbm-note">${escapeHtml(q.note)}</div>`:''}
+          ${q.checkMemo?`<div class="sbm-memo">📝 ${escapeHtml(q.checkMemo)}</div>`:''}
+          <div class="sbm-mark-btns">${markBtns}</div>
           <div class="sbm-actions">
             <button data-sbm-edit="${escapeHtml(q.id)}">編集</button>
             <button class="sbm-del" data-sbm-delete="${escapeHtml(q.id)}">削除</button>
@@ -10948,16 +11223,45 @@ function renderSenbonManage(root){
   // ---- イベント結線 ----
   root.querySelectorAll('.prog-subtab').forEach(t=>t.addEventListener('click',()=>_handleProgSubTabClick(t)));
   root.querySelectorAll('[data-sbm-subject]').forEach(c=>c.addEventListener('click',()=>{
-    v.mode='frames'; v.subject=c.dataset.sbmSubject; v.frameNo=null; saveState(); renderProgress();
+    v.mode='frames'; v.subject=c.dataset.sbmSubject; v.frameNo=null; v.subFrameKey=null; saveState(); renderProgress();
   }));
   root.querySelectorAll('[data-sbm-frame]').forEach(c=>c.addEventListener('click',()=>{
-    v.mode='items'; v.frameNo=c.dataset.sbmFrame; saveState(); renderProgress();
+    v.frameNo=c.dataset.sbmFrame; v.subFrameKey=null;
+    // 中分類ありなら中分類選択へ、なければ問題一覧へ
+    if(c.dataset.sbmHassub==='1'){ v.mode='subframes'; }
+    else { v.mode='items'; }
+    saveState(); renderProgress();
+  }));
+  root.querySelectorAll('[data-sbm-subframe]').forEach(c=>c.addEventListener('click',()=>{
+    v.mode='items'; v.subFrameKey=c.dataset.sbmSubframe; saveState(); renderProgress();
   }));
   root.querySelectorAll('[data-sbm-back]').forEach(b=>b.addEventListener('click',()=>{
     const to=b.dataset.sbmBack;
-    if(to==='subjects'){ v.mode='subjects'; v.subject=null; v.frameNo=null; }
-    else if(to==='frames'){ v.mode='frames'; v.frameNo=null; }
+    if(to==='subjects'){ v.mode='subjects'; v.subject=null; v.frameNo=null; v.subFrameKey=null; }
+    else if(to==='frames'){ v.mode='frames'; v.frameNo=null; v.subFrameKey=null; }
+    else if(to==='subframes'){ v.mode='subframes'; v.subFrameKey=null; }
     saveState(); renderProgress();
+  }));
+  // 検索フィルタ
+  const cf=document.getElementById('sbm-f-cat-filter');
+  if(cf) cf.addEventListener('change',()=>{ state.senbonManageFilter.category=cf.value; saveState(); renderProgress(); });
+  const sf2=document.getElementById('sbm-f-src-filter');
+  if(sf2) sf2.addEventListener('change',()=>{ state.senbonManageFilter.source=sf2.value; saveState(); renderProgress(); });
+  const mf=document.getElementById('sbm-f-mark-filter');
+  if(mf) mf.addEventListener('change',()=>{ state.senbonManageFilter.mark=mf.value; saveState(); renderProgress(); });
+  // チェックマーク変更
+  root.querySelectorAll('[data-sbm-mark]').forEach(b=>b.addEventListener('click',()=>{
+    const id=b.dataset.sbmMark, mv=parseInt(b.dataset.markV,10);
+    const i=state.senbon.findIndex(q=>q.id===id);
+    if(i>=0){
+      state.senbon[i].checkMark = mv;
+      // 要チェック/確認中に変更した場合、メモ入力を促す(任意)
+      if(mv===1||mv===2){
+        const memo = prompt('チェックメモ(注意点など・任意):', state.senbon[i].checkMemo||'');
+        if(memo!==null) state.senbon[i].checkMemo = memo.trim();
+      }
+      saveState(); renderProgress();
+    }
   }));
   const addBtn=document.getElementById('sbm-add');
   if(addBtn) addBtn.addEventListener('click',()=>openSenbonEditor(null));
@@ -10977,14 +11281,23 @@ function renderSenbonManage(root){
 function openSenbonEditor(id){
   const v = state.senbonView;
   const editing = id ? senbonAllQuestions().find(q=>q.id===id) : null;
-  const cur = editing || {category:'A', q:'', a:true, note:''};
+  const cur = editing || {category:'A', q:'', a:true, note:'', source:'', checkMark:0, checkMemo:''};
   const catOpts = SENBON_CATEGORIES.map(c=>`<option value="${c.key}" ${cur.category===c.key?'selected':''}>${escapeHtml(c.label)}</option>`).join('');
+  const markOpts = SENBON_MARKS.map(m=>`<option value="${m.v}" ${(cur.checkMark||0)===m.v?'selected':''}>${escapeHtml(m.label)}</option>`).join('');
+  // 既存の出典候補(データリスト用)
+  const srcList = senbonSources().map(s=>`<option value="${escapeHtml(s)}">`).join('');
+  // 配置先ラベル(中分類対応)
+  let placeLabel = `${escapeHtml(v.subject)} F${v.frameNo}`;
+  if(v.subFrameKey){
+    const sf = getSubFrames(v.subject, v.frameNo).find(s=>String(s.key)===String(v.subFrameKey));
+    if(sf) placeLabel += `_${sf.n} ${escapeHtml(sf.t)}`;
+  }
   const overlay = document.createElement('div');
   overlay.id = 'sbm-modal';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
   overlay.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:480px;width:100%;padding:22px;max-height:90vh;overflow:auto">
     <h3 style="margin:0 0 16px;font-size:17px">${editing?'一問一答を編集':'一問一答を追加'}</h3>
-    <div style="font-size:12px;color:#888;margin-bottom:12px">${escapeHtml(v.subject)} F${v.frameNo}</div>
+    <div style="font-size:12px;color:#888;margin-bottom:12px">${placeLabel}</div>
     <label style="font-size:13px;display:block;margin-bottom:4px">カテゴリ</label>
     <select id="sbm-f-cat" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;margin-bottom:14px">${catOpts}</select>
     <label style="font-size:13px;display:block;margin-bottom:4px">問題文</label>
@@ -10995,7 +11308,14 @@ function openSenbonEditor(id){
       <label style="flex:1;text-align:center;padding:10px;border:2px solid ${!cur.a?'#c62828':'#ddd'};border-radius:8px;cursor:pointer"><input type="radio" name="sbm-a" value="false" ${!cur.a?'checked':''}> ✕ 誤り</label>
     </div>
     <label style="font-size:13px;display:block;margin-bottom:4px">補足(正確な数字など・任意)</label>
-    <textarea id="sbm-f-note" rows="2" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;margin-bottom:18px;font-size:13px;box-sizing:border-box">${escapeHtml(cur.note||'')}</textarea>
+    <textarea id="sbm-f-note" rows="2" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;margin-bottom:14px;font-size:13px;box-sizing:border-box">${escapeHtml(cur.note||'')}</textarea>
+    <label style="font-size:13px;display:block;margin-bottom:4px">出典(任意・例: 2026_TAC予想問題集 / 東京有明LS_オリジナル)</label>
+    <input id="sbm-f-source" list="sbm-src-list" value="${escapeHtml(cur.source||'')}" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;margin-bottom:14px;font-size:13px;box-sizing:border-box">
+    <datalist id="sbm-src-list">${srcList}</datalist>
+    <label style="font-size:13px;display:block;margin-bottom:4px">チェック状態</label>
+    <select id="sbm-f-mark" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;margin-bottom:14px">${markOpts}</select>
+    <label style="font-size:13px;display:block;margin-bottom:4px">チェックメモ(注意点など・任意)</label>
+    <textarea id="sbm-f-memo" rows="2" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;margin-bottom:18px;font-size:13px;box-sizing:border-box">${escapeHtml(cur.checkMemo||'')}</textarea>
     <div style="display:flex;gap:10px">
       <button id="sbm-cancel" style="flex:1;padding:12px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer">キャンセル</button>
       <button id="sbm-save" style="flex:1;padding:12px;border:none;border-radius:8px;background:#2b5dc9;color:#fff;font-weight:700;cursor:pointer">保存</button>
@@ -11010,14 +11330,18 @@ function openSenbonEditor(id){
     const aVal = overlay.querySelector('input[name="sbm-a"]:checked').value==='true';
     const note = document.getElementById('sbm-f-note').value.trim();
     const cat = document.getElementById('sbm-f-cat').value;
+    const source = document.getElementById('sbm-f-source').value.trim();
+    const checkMark = parseInt(document.getElementById('sbm-f-mark').value,10)||0;
+    const checkMemo = document.getElementById('sbm-f-memo').value.trim();
     if(editing){
       const i = state.senbon.findIndex(q=>q.id===id);
-      if(i>=0) state.senbon[i] = {...state.senbon[i], category:cat, q:qText, a:aVal, note};
+      if(i>=0) state.senbon[i] = {...state.senbon[i], category:cat, q:qText, a:aVal, note, source, checkMark, checkMemo};
     }else{
       state.senbon.push({
         id: 'sb_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
         subject: v.subject, frameNo: isNaN(parseInt(v.frameNo,10))?v.frameNo:parseInt(v.frameNo,10),
-        category: cat, q:qText, a:aVal, note, createdAt: Date.now()
+        subFrameKey: v.subFrameKey || null,
+        category: cat, q:qText, a:aVal, note, source, checkMark, checkMemo, createdAt: Date.now()
       });
     }
     saveState(); overlay.remove(); renderProgress();
@@ -11027,13 +11351,19 @@ function openSenbonEditor(id){
 // JSON一括取込
 function openSenbonImport(){
   const v = state.senbonView;
+  // 配置先ラベル(中分類対応)
+  let placeLabel = `${escapeHtml(v.subject)} F${v.frameNo}`;
+  if(v.subFrameKey){
+    const sf = getSubFrames(v.subject, v.frameNo).find(s=>String(s.key)===String(v.subFrameKey));
+    if(sf) placeLabel += `_${sf.n} ${escapeHtml(sf.t)}`;
+  }
   const overlay = document.createElement('div');
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
   overlay.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;padding:22px;max-height:90vh;overflow:auto">
     <h3 style="margin:0 0 8px;font-size:17px">📥 千本ノック JSON取込</h3>
-    <div style="font-size:12px;color:#888;margin-bottom:12px">配置先: ${escapeHtml(v.subject)} F${v.frameNo}<br>subject/frameNo は自動で配置先に設定されます(JSON内に含まれていれば優先)。</div>
-    <div style="font-size:12px;background:#f7f7f9;border-radius:8px;padding:10px;margin-bottom:12px;line-height:1.6">配列形式の例:<br><code>[{"q":"…","a":false,"category":"A","note":"…"}]</code></div>
-    <textarea id="sbm-imp-text" rows="10" placeholder='[{"q":"標準報酬月額の定時決定の届出期限は7月10日である。","a":false,"category":"A","note":"正しくは7月1日〜10日"}]' style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:monospace;box-sizing:border-box;margin-bottom:14px"></textarea>
+    <div style="font-size:12px;color:#888;margin-bottom:12px">配置先: ${placeLabel}<br>subject/frameNo/subFrameKey は自動で配置先に設定されます(JSON内にあれば優先)。</div>
+    <div style="font-size:12px;background:#f7f7f9;border-radius:8px;padding:10px;margin-bottom:12px;line-height:1.6">配列形式の例(source=出典・任意):<br><code>[{"q":"…","a":false,"category":"D","note":"…","source":"2026_TAC予想問題集"}]</code></div>
+    <textarea id="sbm-imp-text" rows="10" placeholder='[{"q":"標準報酬月額の定時決定の届出期限は7月10日である。","a":false,"category":"A","note":"正しくは7月1日〜10日","source":"東京有明LS_オリジナル"}]' style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:monospace;box-sizing:border-box;margin-bottom:14px"></textarea>
     <div style="display:flex;gap:10px">
       <button id="sbm-imp-cancel" style="flex:1;padding:12px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer">キャンセル</button>
       <button id="sbm-imp-go" style="flex:1;padding:12px;border:none;border-radius:8px;background:#2b5dc9;color:#fff;font-weight:700;cursor:pointer">取込</button>
@@ -11055,10 +11385,14 @@ function openSenbonImport(){
         id: o.id || ('sb_'+Date.now()+'_'+Math.random().toString(36).slice(2,7)),
         subject: o.subject || v.subject,
         frameNo: (o.frameNo!=null)?o.frameNo:fno,
+        subFrameKey: o.subFrameKey || v.subFrameKey || null,
         category: o.category || 'A',
         q: o.q,
         a: (typeof o.a==='boolean')?o.a:(o.a==='true'||o.a===1||o.a==='〇'||o.a==='○'),
         note: o.note || '',
+        source: o.source || '',
+        checkMark: o.checkMark || 0,
+        checkMemo: o.checkMemo || '',
         createdAt: Date.now()
       });
       added++;
