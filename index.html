@@ -2293,7 +2293,7 @@
     box-shadow:0 1px 2px rgba(0,0,0,.06);
   }
   .taipa-block.plan{border-style:dashed;border-left-style:solid}
-  .taipa-block.plan.done{opacity:.5}
+  .taipa-block.plan.done{opacity:.62}
   /* 改修05: 予定ハコのドラッグ移動・長さ変更 */
   .taipa-block.plan{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
   .taipa-block.plan:active{cursor:grabbing}
@@ -13693,8 +13693,7 @@ function _wireTaipaDrag(root){
   let drag = null; // {block, key, mode, startY, origTopPx, origHpx, durPx, label}
 
   const onDown = (e, block, mode)=>{
-    // 完了済み(done)の予定は移動不可(誤操作防止)
-    if(block.classList.contains('done')) return;
+    // 改修05修正: 完了済み(done)でもドラッグ可能とする(予定の組み替えを優先)
     e.preventDefault();
     const key = block.dataset.planKey;
     const topPx = parseFloat(block.style.top) || 0;
