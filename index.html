@@ -6446,6 +6446,7 @@ function _mergeBackupsCore(oldD, newD){
     whys:{addedPaths:0},
     studyPlans:{addedPaths:0},
     myNotes:{addedPaths:0},
+    studySessions:{addedPaths:0},
     conflicts:[]
   };
 
@@ -6611,6 +6612,25 @@ function _mergeBackupsCore(oldD, newD){
   result.myNotes = (result.myNotes && typeof result.myNotes==='object') ? result.myNotes : {};
   deepMergeAddOnly(oldD.myNotes||{}, result.myNotes, stats.myNotes);
 
+  // 改修31d: タイパの計測セッション(studySessions)も差分マージ対象にする。
+  //   studySessions は配列のため deepMergeAddOnly(オブジェクト専用)では扱えない。
+  //   各セッションは一意の id を持つので、id 基準で「片方にしかないセッションを足す」add-only マージを行う。
+  //   (これを忘れると端末間の差分マージ復元でタイパ実績が失われる。0.2 の3点セットの実例)
+  {
+    const oldArr = Array.isArray(oldD.studySessions) ? oldD.studySessions : [];
+    result.studySessions = Array.isArray(result.studySessions) ? result.studySessions : [];
+    const seen = new Set(result.studySessions.map(s=> s && s.id).filter(Boolean));
+    stats.studySessions ||= {addedPaths:0};
+    for(const s of oldArr){
+      if(s && s.id && !seen.has(s.id)){
+        try{ result.studySessions.push(JSON.parse(JSON.stringify(s))); }
+        catch(_){ result.studySessions.push(s); }
+        seen.add(s.id);
+        stats.studySessions.addedPaths++;
+      }
+    }
+  }
+
   if(!result.whyIntro && oldD.whyIntro){
     result.whyIntro = oldD.whyIntro;
   }
@@ -6765,6 +6785,9 @@ function renderMergePreview(){
     stats.history.added + stats.selectHistory.added + stats.caseHistory.added +
     stats.frameAttempts.addedKeys + stats.frameAttempts.addedAttempts +
     stats.bookmarks.added + stats.articles.addedPaths + stats.whys.addedPaths +
+    (stats.studyPlans?stats.studyPlans.addedPaths:0) +
+    (stats.myNotes?stats.myNotes.addedPaths:0) +
+    (stats.studySessions?stats.studySessions.addedPaths:0) +
     stats.figures.imageSupplemented;
 
   let html = '<table class="merge-preview-table">';
@@ -6797,6 +6820,9 @@ function renderMergePreview(){
   row('ブックマーク', stats.bookmarks.before, stats.bookmarks.added, stats.bookmarks.after);
   if(stats.articles.addedPaths>0) subrow('条文・解説(階層)', stats.articles.addedPaths);
   if(stats.whys.addedPaths>0) subrow('5why(階層)', stats.whys.addedPaths);
+  if(stats.studyPlans && stats.studyPlans.addedPaths>0) subrow('勉強の予定', stats.studyPlans.addedPaths);
+  if(stats.myNotes && stats.myNotes.addedPaths>0) subrow('自分の追記メモ', stats.myNotes.addedPaths);
+  if(stats.studySessions && stats.studySessions.addedPaths>0) subrow('タイパ計測セッション', stats.studySessions.addedPaths);
   html += '</tbody></table>';
 
   if(totalAdded === 0){
