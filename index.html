@@ -3419,11 +3419,11 @@
             <input type="time" id="plan-input-starttime">
           </div>
           <div>
-            <span class="plan-field-hint">終了時刻</span>
+            <span class="plan-field-hint">終了時刻(自動)</span>
             <input type="time" id="plan-input-endtime">
           </div>
         </div>
-        <span class="plan-field-hint">開始時刻の早い順に、その日の予定が上から並びます</span>
+        <span class="plan-field-hint">開始時刻と③の見込み時間を入れると、終了時刻は自動で計算されます(手入力も可)</span>
       </div>
       <div class="plan-field">
         <span class="plan-field-label">③ 学習に要する時間の見込み(分)</span>
@@ -11454,9 +11454,19 @@ function savePlanEdit(){
   const startDate = document.getElementById('plan-input-startdate').value;
   if(!startDate){ alert('学習を開始する日を指定してください'); return; }
   const startTime = document.getElementById('plan-input-starttime').value || '';
-  const endTime = document.getElementById('plan-input-endtime').value || '';
+  let endTime = document.getElementById('plan-input-endtime').value || '';
   const durRaw = document.getElementById('plan-input-duration').value;
-  const durationMin = (durRaw==='' || durRaw==null) ? null : Math.max(0, parseInt(durRaw,10) || 0);
+  let durationMin = (durRaw==='' || durRaw==null) ? null : Math.max(0, parseInt(durRaw,10) || 0);
+  // 改修06: 開始時刻と所要時間があれば終了時刻を自動補完。逆に終了時刻があれば所要時間を補完。
+  const _hmToMin = (hm)=>{ if(!hm||!/^\d{1,2}:\d{2}$/.test(hm)) return null; const [h,m]=hm.split(':').map(Number); return h*60+m; };
+  const _minToHm = (mn)=>{ mn=((Math.round(mn)%1440)+1440)%1440; return String(Math.floor(mn/60)).padStart(2,'0')+':'+String(mn%60).padStart(2,'0'); };
+  const _s = _hmToMin(startTime);
+  if(_s!=null && durationMin!=null && durationMin>0 && !endTime){
+    endTime = _minToHm(_s + durationMin);
+  } else if(_s!=null && endTime && (durationMin==null || durationMin===0)){
+    let _e = _hmToMin(endTime);
+    if(_e!=null){ let d=_e-_s; if(d<0)d+=1440; if(d>0) durationMin=d; }
+  }
   const offsets = [...document.querySelectorAll('#plan-review-grid .plan-review-chip.sel')]
     .map(c=>parseInt(c.dataset.off,10)).filter(n=>!isNaN(n)).sort((a,b)=>a-b);
   // 既存の done(完了履歴)は保持する
@@ -14309,6 +14319,35 @@ function init(){
   document.getElementById('plan-edit-cancel').addEventListener('click', closePlanEditModal);
   document.getElementById('plan-edit-save').addEventListener('click', savePlanEdit);
   document.getElementById('plan-edit-delete').addEventListener('click', deletePlanEdit);
+
+  // 改修06: 開始時刻+所要時間 → 終了時刻を自動計算(相互連動)
+  (function wirePlanTimeAutoCalc(){
+    const elStart = document.getElementById('plan-input-starttime');
+    const elEnd   = document.getElementById('plan-input-endtime');
+    const elDur   = document.getElementById('plan-input-duration');
+    if(!elStart || !elEnd || !elDur) return;
+    const hmToMin = (hm)=>{ if(!hm||!/^\d{1,2}:\d{2}$/.test(hm)) return null; const [h,m]=hm.split(':').map(Number); return h*60+m; };
+    const minToHm = (mn)=>{ mn=((Math.round(mn)%1440)+1440)%1440; return String(Math.floor(mn/60)).padStart(2,'0')+':'+String(mn%60).padStart(2,'0'); };
+    // 開始 + 所要 → 終了 を埋める
+    const calcEnd = ()=>{
+      const s = hmToMin(elStart.value);
+      const d = parseInt(elDur.value, 10);
+      if(s==null || isNaN(d) || d<=0) return;
+      elEnd.value = minToHm(s + d);
+    };
+    // 開始 + 終了 → 所要 を埋める(終了を手で動かした場合)
+    const calcDur = ()=>{
+      const s = hmToMin(elStart.value);
+      const e = hmToMin(elEnd.value);
+      if(s==null || e==null) return;
+      let diff = e - s;
+      if(diff < 0) diff += 1440; // 日跨ぎは想定しないが念のため
+      if(diff > 0) elDur.value = diff;
+    };
+    elStart.addEventListener('input', ()=>{ if(elDur.value) calcEnd(); else calcDur(); });
+    elDur.addEventListener('input', calcEnd);
+    elEnd.addEventListener('input', calcDur);
+  })();
 
   // Tabs
   document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
