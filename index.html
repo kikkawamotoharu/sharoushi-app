@@ -6445,6 +6445,7 @@ function _mergeBackupsCore(oldD, newD){
     articles:{addedPaths:0},
     whys:{addedPaths:0},
     studyPlans:{addedPaths:0},
+    myNotes:{addedPaths:0},
     conflicts:[]
   };
 
@@ -6606,6 +6607,9 @@ function _mergeBackupsCore(oldD, newD){
   // 改修30: 勉強の予定も add-only マージ(現在の予定・完了記録を失わない)
   result.studyPlans = (result.studyPlans && typeof result.studyPlans==='object') ? result.studyPlans : {};
   deepMergeAddOnly(oldD.studyPlans||{}, result.studyPlans, stats.studyPlans);
+  // 改修(追記メモ): 自分の追記メモも add-only マージ(片方にしかないメモを失わない)
+  result.myNotes = (result.myNotes && typeof result.myNotes==='object') ? result.myNotes : {};
+  deepMergeAddOnly(oldD.myNotes||{}, result.myNotes, stats.myNotes);
 
   if(!result.whyIntro && oldD.whyIntro){
     result.whyIntro = oldD.whyIntro;
