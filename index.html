@@ -2289,14 +2289,23 @@
   .taipa-hline{position:absolute;left:0;right:0;height:0;border-top:1px dashed var(--line-soft,rgba(0,0,0,.06))}
   .taipa-block{
     position:absolute;left:2px;right:2px;border-left:3px solid #999;border-radius:3px;
-    padding:1px 4px;overflow:hidden;font-size:9.5px;line-height:1.15;
+    padding:2px 5px;overflow:hidden;font-size:11.5px;line-height:1.25;
     box-shadow:0 1px 2px rgba(0,0,0,.06);
   }
   .taipa-block.plan{border-style:dashed;border-left-style:solid}
   .taipa-block.plan.done{opacity:.5}
-  .taipa-block-sub{font-weight:700;color:var(--ink);display:flex;align-items:center;gap:3px}
-  .taipa-block-frame{color:var(--ink-soft);font-size:9px}
-  .taipa-mini-badge{font-size:8px;padding:0 3px;border-radius:3px;background:var(--ink-muted);color:#fff;font-weight:600}
+  /* 改修05: 予定ハコのドラッグ移動・長さ変更 */
+  .taipa-block.plan{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+  .taipa-block.plan:active{cursor:grabbing}
+  .taipa-resize{position:absolute;left:0;right:0;height:8px;cursor:ns-resize;z-index:2}
+  .taipa-resize.top{top:0}
+  .taipa-resize.bottom{bottom:0}
+  .taipa-block.dragging{opacity:.85;box-shadow:0 3px 10px rgba(0,0,0,.25);z-index:10}
+  .taipa-block.dragging .taipa-block-sub{color:var(--indigo)}
+  .taipa-drag-time{position:absolute;right:3px;top:1px;font-size:10px;font-weight:700;color:var(--indigo);background:rgba(255,255,255,.9);border-radius:2px;padding:0 3px;pointer-events:none;z-index:11}
+  .taipa-block-sub{font-weight:700;color:var(--ink);display:flex;align-items:center;gap:3px;font-size:12px}
+  .taipa-block-frame{color:var(--ink-soft);font-size:11px;line-height:1.2;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .taipa-mini-badge{font-size:9.5px;padding:0 4px;border-radius:3px;background:var(--ink-muted);color:#fff;font-weight:600}
   .taipa-mini-badge.first{background:var(--green)}
   .taipa-mini-badge.act{background:var(--indigo)}
   .taipa-mini-badge.partial{background:#c98d00}
@@ -4084,6 +4093,23 @@ function lawToSubject(law){
   return LAW_TO_SUBJECT[law] || law;
 }
 
+/* 改修04: 中分類の法令選択に対応する科目(一般常識など、複数法令を内包する科目) */
+const SUBJECTS_WITH_SUBLAW = [
+  '労務管理その他の労働に関する一般常識',
+  '社会保険に関する一般常識'
+];
+/* 指定科目に属する個別法令のうち、実際に問題が存在するものの一覧を返す。
+   q.law が略称等で入っていても lawToSubject で同じ科目に解決されるものをすべて拾う。
+   表記ゆれ(正式名と略称)が混在しても、出現した q.law 値を母集団とするので破綻しない。 */
+function getSubLaws(subject){
+  if(!subject) return [];
+  const set = new Set();
+  state.questions.forEach(q=>{
+    if(q.law && lawToSubject(q.law)===subject) set.add(q.law);
+  });
+  return Array.from(set).sort((a,b)=>a.localeCompare(b,'ja'));
+}
+
 function frameTitle(law, n){
   const fr = (FRAMES[law]||[]).find(f=>f.n===n);
   return fr ? `フレーム${n} ${fr.t}` : `フレーム${n}`;
@@ -4585,7 +4611,7 @@ function loadState(){
       s.selectSession.userChoice ??= null;
       s.selectSession.filterCat ??= '';
       // 弱点問題の追加 (後方互換)
-      s.weakSession ||= {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu'};
+      s.weakSession ||= {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu'};
       s.weakSession.answered ||= false;
       s.weakSession.userAnswer ??= null;
       s.weakSession.questionType ||= 'takuitsu';
@@ -4770,7 +4796,7 @@ function loadState(){
     selectQuestions: SAMPLE_SELECT_QUESTIONS.slice(),
     selectHistory: [],
     selectSession: {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null},
-    weakSession: {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'},
+    weakSession: {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'},
     figures: [],
     figuresView: {filterSubject:'',filterFrame:''},
     studyPlans: {},
@@ -6893,7 +6919,7 @@ async function _applyMergeRestore(){
   state.session ||= {mode:'seq',currentIndex:0,filterLaw:'',filterYear:'',filterBm:'',filterCat:'',filterFrame:'',frameMode:null,answered:false,userAnswer:null,kindMode:'both'};
   state.session.kindMode ||= 'both';
   state.selectSession ||= {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null};
-  state.weakSession ||= {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'};
+  state.weakSession ||= {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'};
   state.weakSession.kindMode ||= 'both';
   state.figures ||= [];
   state.figuresView ||= {filterSubject:'',filterFrame:''};
@@ -6985,7 +7011,7 @@ function restoreBackup(){
         state.session ||= {mode:'seq',currentIndex:0,filterLaw:'',filterYear:'',filterBm:'',filterCat:'',filterFrame:'',frameMode:null,answered:false,userAnswer:null,kindMode:'both'};
         state.session.kindMode ||= 'both';
         state.selectSession ||= {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null};
-        state.weakSession ||= {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'};
+        state.weakSession ||= {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'};
         state.weakSession.kindMode ||= 'both';
         state.figures ||= [];
         state.figuresView ||= {filterSubject:'',filterFrame:''};
@@ -10377,6 +10403,10 @@ function getWeakPool(){
   // 科目フィルタ
   if(s.subject){
     pool = pool.filter(q=>lawToSubject(q.law)===s.subject);
+    // 改修04: 一般常識科目で中分類の法令が指定されていれば、さらにその法令に絞る
+    if(s.lawSub && SUBJECTS_WITH_SUBLAW.includes(s.subject)){
+      pool = pool.filter(q=>q.law===s.lawSub);
+    }
   }
   // ソート
   const sort = s.sortBy || 'count-desc';
@@ -10481,6 +10511,18 @@ function _renderWeakInner(){
       <div class="weak-filter-row">
         <label>科目</label>
         <select id="w-subject">${subjectOptions}</select>
+        ${(() => {
+          // 改修04: 一般常識科目を選んでいる場合、中分類の法令プルダウンを表示
+          if(s.subject && SUBJECTS_WITH_SUBLAW.includes(s.subject)){
+            const subLaws = getSubLaws(s.subject);
+            if(subLaws.length){
+              const opts = '<option value="">(科目内すべて)</option>' +
+                subLaws.map(l=>`<option value="${escapeHtml(l)}" ${s.lawSub===l?'selected':''}>${escapeHtml(l)}</option>`).join('');
+              return `<label style="margin-left:8px">法令</label><select id="w-lawsub">${opts}</select>`;
+            }
+          }
+          return '';
+        })()}
       </div>
       <div class="weak-filter-row">
         <label>並び順</label>
@@ -10754,7 +10796,16 @@ function wireWeakFilters(){
   const el2 = document.getElementById('w-miss-max'); if(el2) el2.addEventListener('change', onChange('missMax', v=>parseInt(v,10)||99));
   const el3 = document.getElementById('w-date-from'); if(el3) el3.addEventListener('change', onChange('dateFrom'));
   const el4 = document.getElementById('w-date-to'); if(el4) el4.addEventListener('change', onChange('dateTo'));
-  const el5 = document.getElementById('w-subject'); if(el5) el5.addEventListener('change', onChange('subject'));
+  const el5 = document.getElementById('w-subject'); if(el5) el5.addEventListener('change', e=>{
+    state.weakSession.subject = e.target.value;
+    state.weakSession.lawSub = '';   // 改修04: 科目を変えたら中分類の法令選択はリセット
+    state.weakSession.currentIndex = 0;
+    state.weakSession.answered = false;
+    saveState();
+    renderWeak();
+  });
+  // 改修04: 中分類の法令プルダウン
+  const elLawSub = document.getElementById('w-lawsub'); if(elLawSub) elLawSub.addEventListener('change', onChange('lawSub'));
   const el6 = document.getElementById('w-sort'); if(el6) el6.addEventListener('change', onChange('sortBy'));
   const el7 = document.getElementById('w-qtype'); if(el7) el7.addEventListener('change', onChange('questionType'));
   const el8 = document.getElementById('w-kindmode'); if(el8) el8.addEventListener('change', onChange('kindMode'));
@@ -10765,6 +10816,7 @@ function wireWeakFilters(){
     state.weakSession.dateFrom='';
     state.weakSession.dateTo='';
     state.weakSession.subject='';
+    state.weakSession.lawSub='';
     state.weakSession.sortBy='count-desc';
     state.weakSession.currentIndex=0;
     state.weakSession.answered=false;
@@ -13419,9 +13471,11 @@ function renderTaipaTimetable(dateKey, plans, sessions){
     const col = statsSubjectColor(p.subject);
     const lbl = frameOrSubFrameLabel(p.subject, p.frameRef);
     const kindB = p.kind==='review' ? `<span class="taipa-mini-badge">復${p.offset}</span>` : `<span class="taipa-mini-badge first">初</span>`;
-    planBlocks += `<div class="taipa-block plan ${p.done?'done':''}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.10)}">
+    planBlocks += `<div class="taipa-block plan ${p.done?'done':''}" data-plan-key="${escapeHtml(p.key)}" data-plan-start="${escapeHtml(p.startTime)}" data-plan-dur="${e-s}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.10)}" title="ドラッグで時間帯を移動 / 上下の端で長さ変更">
+      <div class="taipa-resize top"></div>
       <div class="taipa-block-sub">${escapeHtml(shortSubject(p.subject))}${kindB}</div>
-      <div class="taipa-block-frame">${escapeHtml(_taipaFrameShort(p.subject,p.frameRef))}</div>
+      <div class="taipa-block-frame">${escapeHtml(_taipaFrameFull(p.subject,p.frameRef))}</div>
+      <div class="taipa-resize bottom"></div>
     </div>`;
   }
 
@@ -13442,7 +13496,7 @@ function renderTaipaTimetable(dateKey, plans, sessions){
     const outcomeTxt = isPartial ? ' / 一旦終了(途中)' : ' / 完了';
     actBlocks += `<div class="taipa-block act ${isPartial?'is-partial':''}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.20)}" title="${escapeHtml(ss.subject)} ${escapeHtml(frameOrSubFrameLabel(ss.subject,ss.frameRef))} / ${fmtHM(ss.startTs)}〜${fmtHM(ss.endTs)} / ${totMin}分 / 解答${ss.answered}問${outcomeTxt}">
       <div class="taipa-block-sub">${escapeHtml(shortSubject(ss.subject))}<span class="taipa-mini-badge act">${ss.answered}問</span>${outcomeBadge}</div>
-      <div class="taipa-block-frame">${escapeHtml(_taipaFrameShort(ss.subject,ss.frameRef))}</div>
+      <div class="taipa-block-frame">${escapeHtml(_taipaFrameFull(ss.subject,ss.frameRef))}</div>
     </div>`;
   }
 
@@ -13453,7 +13507,7 @@ function renderTaipaTimetable(dateKey, plans, sessions){
     </div>
     <div class="taipa-col taipa-col-plan">
       <div class="taipa-colhead">予定</div>
-      <div class="taipa-grid" style="height:${gridH}px">${hourLines}${planBlocks}</div>
+      <div class="taipa-grid" id="taipa-plan-grid" data-start-slot="${startSlot}" data-row-px="${TAIPA_ROW_PX}" data-slot-min="${TAIPA_SLOT_MIN}" data-n-slots="${nSlots}" style="height:${gridH}px">${hourLines}${planBlocks}</div>
     </div>
     <div class="taipa-col taipa-col-act">
       <div class="taipa-colhead">実績</div>
@@ -13484,6 +13538,15 @@ function _taipaFrameShort(subject, frameRef){
   if(r.isSubFrame && r.subFrameKey) return 'F'+r.subFrameKey.replace('.', '_');
   if(r.frameNo!=null) return 'F'+r.frameNo;
   return String(frameRef);
+}
+/* 改修05修正: フレーム番号 + 中分類名(例 "F3 適用事業所と被保険者")。
+   タイムテーブルの帯に表示。名前が長い場合は折り返し表示(CSS側で2行まで)。 */
+function _taipaFrameFull(subject, frameRef){
+  const short = _taipaFrameShort(subject, frameRef);
+  const full = frameOrSubFrameLabel(subject, frameRef); // 例 "F3 適用事業所と…"
+  // frameOrSubFrameLabel は "F3 名前" 形式。先頭の "F3 " を除いて名前部分を取り出す
+  const name = full.replace(/^F[\d_\.]+\s*/, '').trim();
+  return name ? `${short} ${name}` : short;
 }
 
 // タイパ集計サマリー(総合計・科目別・タイパ評価)
@@ -13602,6 +13665,155 @@ function _wireTaipaView(root){
   const pv = root.querySelector('#taipa-prev'); if(pv) pv.addEventListener('click', ()=>{ const d=_gParseKey(cur)||_gTodayDate(); setDate(_gDateKey(_gAddDays(d,-1))); });
   const nx = root.querySelector('#taipa-next'); if(nx) nx.addEventListener('click', ()=>{ const d=_gParseKey(cur)||_gTodayDate(); setDate(_gDateKey(_gAddDays(d,1))); });
   const pk = root.querySelector('#taipa-datepick'); if(pk) pk.addEventListener('change', ()=>{ if(pk.value) setDate(pk.value); });
+  // 改修05: 予定ハコのドラッグ移動・長さ変更
+  _wireTaipaDrag(root);
+}
+
+/* ============================================================
+   改修05: タイパ タイムテーブル上の予定ハコをドラッグで
+   - 本体ドラッグ → 開始時刻を移動(長さ維持)
+   - 上端/下端ドラッグ → 長さ(所要時間)を変更
+   5分(=1スロット)単位でスナップ。マウス/タッチ両対応(Pointer Events)。
+   確定時に studyPlans[key] の startTime/endTime を書き戻して保存。
+   ============================================================ */
+function _wireTaipaDrag(root){
+  const grid = root.querySelector('#taipa-plan-grid');
+  if(!grid) return;
+  const rowPx   = parseFloat(grid.dataset.rowPx) || TAIPA_ROW_PX;
+  const slotMin = parseInt(grid.dataset.slotMin,10) || TAIPA_SLOT_MIN;
+  const startSlot = parseInt(grid.dataset.startSlot,10) || 0;
+  const nSlots  = parseInt(grid.dataset.nSlots,10) || 0;
+
+  // 分(0時起点) → "HH:MM"
+  const minToHm = (mn)=>{
+    mn = Math.max(0, Math.min(24*60-1, Math.round(mn)));
+    return String(Math.floor(mn/60)).padStart(2,'0')+':'+String(mn%60).padStart(2,'0');
+  };
+
+  let drag = null; // {block, key, mode, startY, origTopPx, origHpx, durPx, label}
+
+  const onDown = (e, block, mode)=>{
+    // 完了済み(done)の予定は移動不可(誤操作防止)
+    if(block.classList.contains('done')) return;
+    e.preventDefault();
+    const key = block.dataset.planKey;
+    const topPx = parseFloat(block.style.top) || 0;
+    const hPx = parseFloat(block.style.height) || rowPx;
+    drag = {
+      block, key, mode,
+      startY: e.clientY,
+      origTopPx: topPx,
+      origHpx: hPx,
+      newTopPx: topPx,
+      newHpx: hPx
+    };
+    block.classList.add('dragging');
+    block.setPointerCapture && block.setPointerCapture(e.pointerId);
+    // ドラッグ中の時刻ラベルを表示
+    let lab = block.querySelector('.taipa-drag-time');
+    if(!lab){ lab = document.createElement('div'); lab.className='taipa-drag-time'; block.appendChild(lab); }
+    drag.label = lab;
+    updateLabel();
+  };
+
+  const slotsToMin = (px)=> (startSlot + px/rowPx) * slotMin;
+
+  const updateLabel = ()=>{
+    if(!drag) return;
+    const sMin = slotsToMin(drag.newTopPx);
+    const eMin = slotsToMin(drag.newTopPx + drag.newHpx + 2); // +2は height-2の補正
+    drag.label.textContent = minToHm(sMin)+'–'+minToHm(eMin);
+  };
+
+  const onMove = (e)=>{
+    if(!drag) return;
+    e.preventDefault();
+    const dy = e.clientY - drag.startY;
+    const maxPx = nSlots * rowPx;
+    if(drag.mode==='move'){
+      let t = drag.origTopPx + dy;
+      // スナップ
+      t = Math.round(t/rowPx)*rowPx;
+      t = Math.max(0, Math.min(maxPx - drag.origHpx - 2, t));
+      drag.newTopPx = t;
+      drag.block.style.top = t+'px';
+    }else if(drag.mode==='top'){
+      let t = drag.origTopPx + dy;
+      t = Math.round(t/rowPx)*rowPx;
+      const bottom = drag.origTopPx + drag.origHpx;
+      t = Math.max(0, Math.min(bottom - rowPx, t));
+      drag.newTopPx = t;
+      drag.newHpx = bottom - t;
+      drag.block.style.top = t+'px';
+      drag.block.style.height = drag.newHpx+'px';
+    }else if(drag.mode==='bottom'){
+      let h = drag.origHpx + dy;
+      h = Math.round(h/rowPx)*rowPx;
+      h = Math.max(rowPx, Math.min(maxPx - drag.origTopPx - 2, h));
+      drag.newHpx = h;
+      drag.block.style.height = h+'px';
+    }
+    updateLabel();
+  };
+
+  const onUp = (e)=>{
+    if(!drag) return;
+    e.preventDefault();
+    const sMin = Math.round(slotsToMin(drag.newTopPx));
+    const eMin = Math.round(slotsToMin(drag.newTopPx + drag.newHpx + 2));
+    const startTime = minToHm(sMin);
+    const endTime = minToHm(eMin);
+    const durationMin = Math.max(slotMin, eMin - sMin);
+    const key = drag.key;
+    const blockRef = drag.block;
+    if(drag.label && drag.label.parentNode) drag.label.parentNode.removeChild(drag.label);
+    drag.block.classList.remove('dragging');
+    drag = null;
+    // データ書き戻し(初回・復習共通の startTime/endTime を更新)
+    if(state.studyPlans && state.studyPlans[key]){
+      state.studyPlans[key].startTime = startTime;
+      state.studyPlans[key].endTime = endTime;
+      state.studyPlans[key].durationMin = durationMin;
+      saveState();
+      // 改修05修正: 全体を再描画するとスクロールが先頭へ飛ぶため、再描画しない。
+      // ハコは既にドラッグ後の位置に表示済み。data属性だけ最新化し、続けて他のハコも編集できるようにする。
+      if(blockRef){ blockRef.dataset.planStart = startTime; blockRef.dataset.planDur = String(eMin - sMin); }
+      // 同じ予定キーの他オカレンス(復習回など)が同じ画面にあれば、その位置も更新
+      _taipaSyncSameKeyBlocks(root, key, blockRef, sMin, eMin, startSlot, rowPx, slotMin);
+    }
+  };
+
+  // 各予定ブロックに配線
+  grid.querySelectorAll('.taipa-block.plan').forEach(block=>{
+    const top = block.querySelector('.taipa-resize.top');
+    const bottom = block.querySelector('.taipa-resize.bottom');
+    block.addEventListener('pointerdown', (e)=>{
+      // ハンドル上は除外(下で個別配線)
+      if(e.target.classList.contains('taipa-resize')) return;
+      onDown(e, block, 'move');
+    });
+    if(top) top.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); onDown(e, block, 'top'); });
+    if(bottom) bottom.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); onDown(e, block, 'bottom'); });
+    block.addEventListener('pointermove', onMove);
+    block.addEventListener('pointerup', onUp);
+    block.addEventListener('pointercancel', onUp);
+  });
+}
+
+/* 改修05修正: 同じ予定キーの他のハコ(同一画面内の復習回など)の表示位置も、
+   再描画せずにその場で更新する。startMin/endMin はドラッグ確定後の分。 */
+function _taipaSyncSameKeyBlocks(root, key, draggedBlock, startMin, endMin, startSlot, rowPx, slotMin){
+  const grid = root.querySelector('#taipa-plan-grid');
+  if(!grid) return;
+  const top = ((startMin/slotMin) - startSlot) * rowPx;
+  const h = Math.max(rowPx, ((endMin-startMin)/slotMin) * rowPx);
+  grid.querySelectorAll('.taipa-block.plan').forEach(b=>{
+    if(b === draggedBlock) return;
+    if(b.dataset.planKey !== key) return;
+    b.style.top = top + 'px';
+    b.style.height = (h-2) + 'px';
+    b.dataset.planStart = String(startMin/60|0).padStart(2,'0');
+  });
 }
 
 /* ============================================================
