@@ -236,6 +236,8 @@
   .bm.y{background:#E5B547}
   .bm.g{background:#5E8A6A}
   .bm.b{background:#4A6B8A}
+  .bm.w{background:#7E5AA2}   /* 改修01: why付箋(紫) */
+  .bm.s{background:#D9822B}  /* 改修01: 千本付箋(橙) */
   .bm.active{border-color:var(--ink);box-shadow:0 0 0 2px var(--bg)}
   .bm.active::after{content:"✓";color:#fff;font-size:11px;font-weight:700}
   /* 改修01: 付箋チップ(色の四角の下に種別ラベルを縦表示) */
@@ -2906,6 +2908,8 @@
           <option value="y">黄(注意)</option>
           <option value="g">緑(確認)</option>
           <option value="b">青(紐づけ)</option>
+          <option value="w">紫(why)</option>
+          <option value="s">橙(千本)</option>
         </select>
       </div>
       <div class="field-group">
@@ -5125,7 +5129,7 @@ function renderQuiz(){
 
     <div class="bookmark-row">
       <span class="lbl">FUSEN</span>
-      ${['r','p','y','g','b'].map(c=>renderBmChip(c, bms.includes(c))).join('')}
+      ${BM_COLORS_TANITSU.map(c=>renderBmChip(c, bms.includes(c))).join('')}
       <span style="font-size:11px;color:var(--ink-muted);margin-left:auto">クリックでつける/外す</span>
     </div>
   `;
@@ -5402,8 +5406,12 @@ function wireQuizNavButtons(total){
 }
 
 /* 改修01: 付箋の色と種別ラベルの対応(択一・選択・弱点 全モード共用)
-   r=重要 / p=事例 / y=注意 / g=確認 / b=紐づけ */
-const BM_LABELS = { r:'重要', p:'事例', y:'注意', g:'確認', b:'紐づけ' };
+   r=重要 / p=事例 / y=注意 / g=確認 / b=紐づけ / w=why / s=千本
+   ※ w(why)・s(千本) は択一モードのみで表示。ラベル定義は全モード共用で問題ない
+     (選択・弱点の描画は r〜b の5色配列のみを使うため w/s は出現しない)。 */
+const BM_LABELS = { r:'重要', p:'事例', y:'注意', g:'確認', b:'紐づけ', w:'why', s:'千本' };
+/* 改修01: 択一モードで表示する付箋色の並び(既存5色 + why + 千本) */
+const BM_COLORS_TANITSU = ['r','p','y','g','b','w','s'];
 /* 付箋1色分のHTMLを生成。activeなら✓付き表示。ラベルは色の四角の下に縦表示。 */
 function renderBmChip(color, isActive){
   return `<div class="bm-chip">`
@@ -5587,6 +5595,11 @@ function enterFrameMode(subject, frameNo, kind, subFrameKey){
   }
   saveState();
   switchTab('quiz');
+  // 【改修41】既に全問解答済みなのに未完了のまま残った演習を、開き直した瞬間に救済する。
+  //   checkFrameComplete は従来「解答ボタンを押した直後」しか走らなかったため、
+  //   answeredIds 破損等で止まった演習はアプリを開き直しても完了しなかった。
+  //   入口で一度判定を走らせれば、履歴からの復元(checkFrameComplete内)で即完了できる。
+  checkFrameComplete();
 }
 
 function exitFrameMode(){
