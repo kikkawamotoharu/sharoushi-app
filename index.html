@@ -5298,8 +5298,9 @@ function answerQuestion(userAns){
     const keyN = fm.subFrameKey ? fm.subFrameKey : fm.frameNo;
     const k = frameKey(subj, keyN, fmKind);
     const fa = state.frameAttempts[k];
-    if(fa && fa.current && !fa.current.answeredIds.includes(q.id)){
-      fa.current.answeredIds.push(q.id);
+    if(fa && fa.current){
+      if(!Array.isArray(fa.current.answeredIds)) fa.current.answeredIds = [];
+      if(!fa.current.answeredIds.includes(q.id)) fa.current.answeredIds.push(q.id);
     }
   }
   saveState();
@@ -5621,10 +5622,42 @@ function checkFrameComplete(){
   const fa = state.frameAttempts[k];
   if(!fa || !fa.current) return;
   // 全問解答済みかチェック
-  const required = new Set(fa.current.questionIds);
+  // 【改修41】幽霊ID対策 + answeredIds 破損対策:
+  //   fa.current.questionIds は「演習開始時点」のプールのスナップショット。
+  //   その後に問題の削除・kind変更・別端末からの復元などで state.questions の中身が変わると、
+  //   questionIds の中に「現在のプールにはもう存在せず、画面に二度と出てこない=解答不能な問題ID」が
+  //   残ることがある。この幽霊IDが required に居座ると allDone が永久に false になり、
+  //   最終問まで解いても「次へ」消化が完了せず、フレーム演習が終われない(報告された不具合)。
+  //   → 完了判定は「現在のプール(getPool相当)に実在する問題」だけを必須とする。
+  //   さらに、繰り返し演習で fa.current.answeredIds 自体が undefined / 非配列に壊れる事象も
+  //   確認された(診断で answeredIds:undefined)。この場合 answered が空集合になり永久未完了になる。
+  //   → answeredIds が壊れていたら、この演習(subject/frameNo/attemptNo)の解答履歴(history[].fm)から復元する。
+  const livePool = getPool();
+  const liveIds = new Set(livePool.map(q=>q.id));
+  // --- answeredIds の自己修復 ---
+  if(!Array.isArray(fa.current.answeredIds)) fa.current.answeredIds = [];
+  {
+    // この演習回(attemptNo)に属する解答履歴を集め、answeredIds を補完する
+    const attemptNo = fa.current.attemptNo;
+    const recovered = new Set(fa.current.answeredIds);
+    for(const h of state.history){
+      if(!h || !h.fm || !h.qid) continue;
+      let hk = h.fm.k || 'pastA'; if(hk==='past') hk='pastA';
+      // fm: {s:科目, f:フレーム参照(整数or"2.1"), k:kind, a:attemptNo}
+      if(h.fm.s===subject && String(h.fm.f)===String(keyN) && hk===fmKind &&
+         (h.fm.a==null || h.fm.a===attemptNo)){
+        recovered.add(h.qid);
+      }
+    }
+    fa.current.answeredIds = [...recovered];
+  }
   const answered = new Set(fa.current.answeredIds);
-  let allDone = true;
-  for(const id of required){if(!answered.has(id)){allDone=false;break}}
+  // 必須 = 「開始時の必須問題」かつ「現在も実在する問題」(到達可能なものだけ)
+  const required = (fa.current.questionIds||[]).filter(id=>liveIds.has(id));
+  // 念のため、現在のプールに増えた問題も必須に含める(取込で問題が増えたケース)
+  for(const id of liveIds){ if(!required.includes(id)) required.push(id); }
+  let allDone = required.length>0;
+  for(const id of required){ if(!answered.has(id)){ allDone=false; break; } }
   if(allDone){
     fa.current.completedAt = Date.now();
     fa.history.push(fa.current);
@@ -6464,6 +6497,8 @@ function _mergeBackupsCore(oldD, newD){
     studyPlans:{addedPaths:0},
     myNotes:{addedPaths:0},
     studySessions:{addedPaths:0},
+    senbon:{addedPaths:0},
+    senbonHistory:{addedPaths:0},
     conflicts:[]
   };
 
@@ -6646,6 +6681,33 @@ function _mergeBackupsCore(oldD, newD){
         stats.studySessions.addedPaths++;
       }
     }
+  }
+
+  // 改修38: 千本ノック(senbon / senbonHistory)も差分マージ対象にする。
+  //   senbon は一意 id を持つ配列なので id 基準 add-only。
+  //   senbonHistory はタイムスタンプ付きログなので id+ts で dedupe。
+  //   (studySessions と同じく、これを忘れると端末間の差分マージ復元で千本ノックの問題・履歴が失われる)
+  {
+    const oldArr = Array.isArray(oldD.senbon) ? oldD.senbon : [];
+    result.senbon = Array.isArray(result.senbon) ? result.senbon : [];
+    const seen = new Set(result.senbon.map(s=> s && s.id).filter(Boolean));
+    stats.senbon ||= {addedPaths:0};
+    for(const s of oldArr){
+      if(s && s.id && !seen.has(s.id)){
+        try{ result.senbon.push(JSON.parse(JSON.stringify(s))); }
+        catch(_){ result.senbon.push(s); }
+        seen.add(s.id);
+        stats.senbon.addedPaths++;
+      }
+    }
+  }
+  {
+    result.senbonHistory = Array.isArray(result.senbonHistory) ? result.senbonHistory : [];
+    stats.senbonHistory ||= {addedPaths:0};
+    stats.senbonHistory.addedPaths = mergeHistArr(
+      oldD.senbonHistory||[], result.senbonHistory,
+      h=>`${h&&h.id||''}|${h&&h.ts||''}`);
+    result.senbonHistory.sort((a,b)=>(a&&a.ts||0)-(b&&b.ts||0));
   }
 
   if(!result.whyIntro && oldD.whyIntro){
@@ -6840,6 +6902,8 @@ function renderMergePreview(){
   if(stats.studyPlans && stats.studyPlans.addedPaths>0) subrow('勉強の予定', stats.studyPlans.addedPaths);
   if(stats.myNotes && stats.myNotes.addedPaths>0) subrow('自分の追記メモ', stats.myNotes.addedPaths);
   if(stats.studySessions && stats.studySessions.addedPaths>0) subrow('タイパ計測セッション', stats.studySessions.addedPaths);
+  if(stats.senbon && stats.senbon.addedPaths>0) subrow('千本ノック(一問一答)', stats.senbon.addedPaths);
+  if(stats.senbonHistory && stats.senbonHistory.addedPaths>0) subrow('千本ノック解答ログ', stats.senbonHistory.addedPaths);
   html += '</tbody></table>';
 
   if(totalAdded === 0){
