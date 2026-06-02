@@ -11332,6 +11332,23 @@ function highlightArticleNumbers(escapedText){
   return html.replace(/\n/g, '<br>');
 }
 
+// e-Gov 法令検索のキーワード検索URLを組み立てる。
+// 検索語は articleRef(条文番号)優先、なければ subject(科目=法令名)。
+// 条文番号の「第○条」以降は検索ノイズになりやすいので法令名部分だけ抽出を試みる。
+function buildEgovSearchUrl(q){
+  let kw = '';
+  if(q.articleRef && q.articleRef.trim()){
+    // 「雇用保険法 第10条」→「雇用保険法」を優先抽出。"法"までで切る。
+    const m = q.articleRef.trim().match(/^(.*?法)(?:\s|第|\d|条|則|施行|附|$)/);
+    kw = m ? m[1] : q.articleRef.trim();
+  }
+  if(!kw && q.subject) kw = q.subject;
+  kw = (kw||'').trim();
+  if(!kw) return null;
+  // e-Gov 法令検索のキーワード検索ページ
+  return 'https://laws.e-gov.go.jp/search/elawsSearch/elaws_search/lsg0100/?searchType=keyword&keyword=' + encodeURIComponent(kw);
+}
+
 // 条文ポップアップを表示
 function showSenbonArticle(id){
   const q = senbonAllQuestions().find(x=>x.id===id);
@@ -11363,15 +11380,25 @@ function showSenbonArticle(id){
     <div style="font-size:12px;color:#888;margin-bottom:12px;line-height:1.6">${escapeHtml(q.subject||'')} ${q.subFrameKey?('F'+q.subFrameKey):(q.frameNo!=null?('F'+q.frameNo):'')} ・ ${escapeHtml(senbonCatLabel(q.category))}</div>
     ${refLine}
     ${bodyHtml}
-    <div style="margin-top:18px;text-align:right">
+    <div style="margin-top:18px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+      <button id="sbm-art-egov" style="padding:9px 16px;border:1px solid #2e7d32;border-radius:8px;background:#fff;color:#2e7d32;font-weight:700;cursor:pointer;font-size:13px">🌐 e-Govで開く</button>
       <button id="sbm-art-edit" style="padding:9px 16px;border:1px solid #2b5dc9;border-radius:8px;background:#fff;color:#2b5dc9;font-weight:700;cursor:pointer;font-size:13px">${has?'条文を編集':'条文を登録'}</button>
     </div>
+    <div style="font-size:11px;color:#aaa;margin-top:8px;text-align:right">e-Govは正確な原典確認用です(別タブで開きます)</div>
   </div>`;
   document.body.appendChild(overlay);
   const close = ()=>overlay.remove();
   document.getElementById('sbm-art-close').addEventListener('click', close);
   overlay.addEventListener('click', e=>{ if(e.target===overlay) close(); });
   document.getElementById('sbm-art-edit').addEventListener('click', ()=>{ close(); openSenbonEditor(id); });
+  const egovBtn = document.getElementById('sbm-art-egov');
+  if(egovBtn){
+    egovBtn.addEventListener('click', ()=>{
+      const url = buildEgovSearchUrl(q);
+      if(!url){ alert('検索する法令名が特定できませんでした。条文番号または科目を確認してください。'); return; }
+      window.open(url, '_blank', 'noopener');
+    });
+  }
 }
 
 /* =========================================================================
@@ -11675,9 +11702,16 @@ function openSenbonImport(){
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
   overlay.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;padding:22px;max-height:90vh;overflow:auto">
     <h3 style="margin:0 0 8px;font-size:17px">📥 千本ノック JSON取込</h3>
-    <div style="font-size:12px;color:#888;margin-bottom:12px">配置先: ${placeLabel}<br>subject/frameNo/subFrameKey は自動で配置先に設定されます(JSON内にあれば優先)。</div>
-    <div style="font-size:12px;background:#f7f7f9;border-radius:8px;padding:10px;margin-bottom:12px;line-height:1.6">配列形式の例(source=出典・任意 / articleRef=条文番号・任意 / articleText=条文本文・任意):<br><code>[{"q":"…","a":false,"category":"D","note":"…","source":"2026_TAC予想問題集","articleRef":"雇用保険法 第10条","articleText":"(失業等給付) 法10条…"}]</code></div>
-    <textarea id="sbm-imp-text" rows="10" placeholder='[{"q":"標準報酬月額の定時決定の届出期限は7月10日である。","a":false,"category":"A","note":"正しくは7月1日〜10日","source":"東京有明LS_オリジナル"}]' style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:monospace;box-sizing:border-box;margin-bottom:14px"></textarea>
+    <div style="font-size:12px;color:#888;margin-bottom:12px">配置先: ${placeLabel}</div>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <label style="flex:1;display:flex;gap:6px;align-items:center;padding:10px;border:2px solid #2b5dc9;border-radius:8px;cursor:pointer;font-size:13px" id="sbm-imp-mode-add-l">
+        <input type="radio" name="sbm-imp-mode" value="add" checked> ＋ 新規追加</label>
+      <label style="flex:1;display:flex;gap:6px;align-items:center;padding:10px;border:2px solid #ddd;border-radius:8px;cursor:pointer;font-size:13px" id="sbm-imp-mode-upd-l">
+        <input type="radio" name="sbm-imp-mode" value="update"> 📜 条文だけ後付け(更新)</label>
+    </div>
+    <div id="sbm-imp-help-add" style="font-size:12px;background:#f7f7f9;border-radius:8px;padding:10px;margin-bottom:12px;line-height:1.6">配列形式の例(source/articleRef/articleText は任意):<br><code>[{"q":"…","a":false,"category":"D","note":"…","articleRef":"雇用保険法 第10条","articleText":"(失業等給付) 法10条…"}]</code></div>
+    <div id="sbm-imp-help-upd" style="display:none;font-size:12px;background:#eef6ee;border-radius:8px;padding:10px;margin-bottom:12px;line-height:1.6">既存の問題に<b>条文だけ</b>を後から追加します。新規問題は作りません。<br>各要素は <code>id</code> または <code>q</code>(問題文・完全一致)で既存問題を特定し、<code>articleRef</code>/<code>articleText</code> を埋めます。<br>例:<br><code>[{"q":"一般の受給資格者の…150日である。","articleRef":"雇用保険法 第22条","articleText":"…"}]</code><br><span style="font-size:11px;color:#789">※問題文は画面の文言と完全一致が必要です(空白・記号も含む)。一致しない場合はスキップされます。</span></div>
+    <textarea id="sbm-imp-text" rows="10" placeholder='[{"q":"…","a":false,"category":"A","note":"…"}]' style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:monospace;box-sizing:border-box;margin-bottom:14px"></textarea>
     <div style="display:flex;gap:10px">
       <button id="sbm-imp-cancel" style="flex:1;padding:12px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer">キャンセル</button>
       <button id="sbm-imp-go" style="flex:1;padding:12px;border:none;border-radius:8px;background:#2b5dc9;color:#fff;font-weight:700;cursor:pointer">取込</button>
@@ -11686,13 +11720,50 @@ function openSenbonImport(){
   document.body.appendChild(overlay);
   document.getElementById('sbm-imp-cancel').addEventListener('click',()=>overlay.remove());
   overlay.addEventListener('click',e=>{ if(e.target===overlay) overlay.remove(); });
+  // モード切替UI
+  const getMode = ()=> overlay.querySelector('input[name="sbm-imp-mode"]:checked').value;
+  overlay.querySelectorAll('input[name="sbm-imp-mode"]').forEach(r=>{
+    r.addEventListener('change',()=>{
+      const m = getMode();
+      document.getElementById('sbm-imp-help-add').style.display = m==='add'?'block':'none';
+      document.getElementById('sbm-imp-help-upd').style.display = m==='update'?'block':'none';
+      document.getElementById('sbm-imp-mode-add-l').style.borderColor = m==='add'?'#2b5dc9':'#ddd';
+      document.getElementById('sbm-imp-mode-upd-l').style.borderColor = m==='update'?'#2e7d32':'#ddd';
+    });
+  });
   document.getElementById('sbm-imp-go').addEventListener('click',()=>{
     let arr;
     try{ arr = JSON.parse(document.getElementById('sbm-imp-text').value); }
     catch(e){ alert('JSONの解析に失敗しました: '+e.message); return; }
     if(!Array.isArray(arr)){ alert('配列形式のJSONを入力してください'); return; }
-    let added=0;
+    const mode = getMode();
     const fno = isNaN(parseInt(v.frameNo,10))?v.frameNo:parseInt(v.frameNo,10);
+
+    if(mode==='update'){
+      // === 条文だけ後付け(更新) ===
+      let updated=0, skipped=0;
+      const byId = new Map(state.senbon.map(q=>[q.id, q]));
+      // 問題文(正規化)→問題 の索引。同一文が複数あるとどれか1件に当たる点は許容。
+      const normQ = s => String(s||'').replace(/\s+/g,'').trim();
+      const byQ = new Map();
+      state.senbon.forEach(q=>{ const k=normQ(q.q); if(!byQ.has(k)) byQ.set(k, q); });
+      arr.forEach(o=>{
+        if(!o) return;
+        let target = null;
+        if(o.id && byId.has(o.id)) target = byId.get(o.id);
+        else if(typeof o.q==='string' && byQ.has(normQ(o.q))) target = byQ.get(normQ(o.q));
+        if(!target){ skipped++; return; }
+        if(typeof o.articleRef==='string') target.articleRef = o.articleRef;
+        if(typeof o.articleText==='string') target.articleText = o.articleText;
+        updated++;
+      });
+      saveState(); overlay.remove(); renderProgress();
+      alert(`条文を後付けしました。\n更新: ${updated}件 / 該当なし(スキップ): ${skipped}件`);
+      return;
+    }
+
+    // === 新規追加 ===
+    let added=0;
     arr.forEach(o=>{
       if(!o || typeof o.q!=='string') return;
       state.senbon.push({
