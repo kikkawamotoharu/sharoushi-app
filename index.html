@@ -12474,24 +12474,8 @@ function sessionAnswerStats(sess, nowTs){
 }
 
 // 新規セッション開始(予定ボックスから)。既存の進行中があれば自動で終了確定。
-// 改修: 「▶開始」一発で、計測セッション開始と同時に「択一」タブの該当フレーム演習(過去問A)を自動起動する。
-//   タブ移動や「演習開始」ボタンの二度押しを不要にする。
-//   (択一画面側にも計測バーが出るため、中断・休憩・完了はそのまま操作できる)
 function startStudySession(subject, frameRef, dateKey){
-  // ① まず、この予定フレームに過去問A が登録されているかを事前確認する。
-  //    0問なら計測セッションを開始せずに中止する(計測だけ始まる空振りを防ぐ)。
-  const fref0 = resolveFrameRef(subject, frameRef);
-  if(fref0.frameNo == null){ alert('フレーム参照が不正です: ' + frameRef); return; }
-  let qPre = state.questions.filter(q=>lawToSubject(q.law)===subject && q.frameNo===fref0.frameNo && getKind(q)==='pastA');
-  if(fref0.isSubFrame && fref0.subFrame){
-    qPre = qPre.filter(q=>questionMatchesSubFrame(q.law, fref0.subFrame));
-  }
-  if(qPre.length === 0){
-    alert('このフレームには過去問Aが登録されていないため、演習を開始できません。\n(「過去問A」タブで問題を追加してください)');
-    return;
-  }
-
-  // ② 既存の進行中セッションがあれば、まず確定(終了)する
+  // 既存の進行中セッションがあれば、まず確定(終了)する
   const prev = getActiveSession();
   if(prev){
     if(!confirm('別の学習セッションが進行中です。\nそれを「終了」して新しいセッションを開始しますか?')) return;
@@ -12512,12 +12496,7 @@ function startStudySession(subject, frameRef, dateKey){
   state.studySessions.push(sess);
   state.activeSessionId = sess.id;
   saveState();
-
-  // ③ そのまま「択一」タブの該当フレーム演習(過去問A)を起動する。
-  //    startFrameAttempt 内部で enterFrameMode → switchTab('quiz') まで実行され、
-  //    予定していた科目・フレームの問題演習がすぐ始まる。
-  //    既に同フレームの進行中演習がある場合は「継続/新規」の確認が出る(従来挙動)。
-  startFrameAttempt(subject, frameRef, 'pastA');
+  renderProgress();
 }
 
 // 改修31b: 現在のセグメントを閉じ、新しいモードのセグメントを開く共通処理
@@ -14381,6 +14360,10 @@ function statsKindLabel(km){
   return '過去問A';
 }
 
+// レゴ見出し用アイコン。環境により絵文字 🧱(U+1F9F1)が表示されない端末があるため、
+// インラインSVGのレンガアイコンで確実に表示する。currentColor で周囲の文字色になじむ。
+const LEGO_ICON_SVG = `<svg class="lego-ico" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false" style="vertical-align:-0.14em;display:inline-block"><rect x="2.5" y="5" width="19" height="14" rx="1.5" fill="#C0392B"/><g stroke="#fff" stroke-width="1.4" stroke-linecap="round"><line x1="2.5" y1="9.7" x2="21.5" y2="9.7"/><line x1="2.5" y1="14.3" x2="21.5" y2="14.3"/><line x1="9" y1="5" x2="9" y2="9.7"/><line x1="15" y1="5" x2="15" y2="9.7"/><line x1="6" y1="9.7" x2="6" y2="14.3"/><line x1="12" y1="9.7" x2="12" y2="14.3"/><line x1="18" y1="9.7" x2="18" y2="14.3"/><line x1="9" y1="14.3" x2="9" y2="19"/><line x1="15" y1="14.3" x2="15" y2="19"/></g></svg>`;
+
 // メインレンダリング
 function renderStats(){
   const root = document.getElementById('stats-content');
@@ -14394,7 +14377,7 @@ function renderStats(){
   // 改修31: サブタブ(レゴ / タイパ)
   const subTab = state.statsView.subTab;
   const subTabsHtml = `<div class="stats-subtabs">
-    <button class="stats-subtab ${subTab==='lego'?'active':''}" data-statssub="lego">🧱 レゴ</button>
+    <button class="stats-subtab ${subTab==='lego'?'active':''}" data-statssub="lego">${LEGO_ICON_SVG} レゴ</button>
     <button class="stats-subtab ${subTab==='taipa'?'active':''}" data-statssub="taipa">⏱ タイパ</button>
     <button class="stats-subtab ${subTab==='time'?'active':''}" data-statssub="time">📈 学習時間</button>
   </div>`;
@@ -14446,7 +14429,7 @@ function renderStats(){
   // イントロ + サブタブ + 期間切替
   html += `<div class="card stats-intro">
     ${subTabsHtml}
-    <h2 class="stats-h2">🧱 レゴ <span class="stats-sub">フレーム演習(進捗管理モード)の日別解答数</span></h2>
+    <h2 class="stats-h2">${LEGO_ICON_SVG} レゴ <span class="stats-sub">フレーム演習(進捗管理モード)の日別解答数</span></h2>
     <p class="stats-desc">科目の積み上がり具合を「レゴ」に見立てた日別の解答数グラフです。トップページの「今日の実績」は単発の択一演習も含みますが、こちらは<strong>進捗管理モードのフレーム演習のみ</strong>を集計しています。</p>
   </div>`;
 
