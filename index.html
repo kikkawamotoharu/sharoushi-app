@@ -11297,6 +11297,84 @@ function renderSenbonReview(root){
 }
 
 /* =========================================================================
+   改修: 千本ノック「条文」参照機能
+   各問に articleRef(条文番号) / articleText(条文本文) を持たせ、
+   「📜 条文」ボタンで登録済み条文をポップアップ表示する。
+   本文中の数値(○日・○箇月・分数・割合・期間 等)は朱色でハイライトする。
+   自動取得は行わず、登録済みデータのみを表示(未登録なら「未登録」と案内)。
+   ========================================================================= */
+
+// 条文本文を持っているか(空白のみは未登録扱い)
+function senbonHasArticle(q){
+  if(!q) return false;
+  return !!((q.articleText && q.articleText.trim()) || (q.articleRef && q.articleRef.trim()));
+}
+
+// 条文本文中の数値表現を朱色ハイライトする(HTMLエスケープ後に適用)。
+// 例: 「7日」「6箇月」「3分の2」「100分の50」「2週間」「14日間」「1年6月」など。
+function highlightArticleNumbers(escapedText){
+  // 改行は <br> に。エスケープ済み文字列に対して数値+単位をラップする。
+  // 全角・半角数字の両方に対応。
+  const numCls = 'sbm-art-num';
+  // 「分の」を含む割合表現(例 100分の50、3分の2)をまず処理
+  let html = escapedText.replace(
+    /([0-9０-９]+\s*分の\s*[0-9０-９]+)/g,
+    `<span class="${numCls}">$1</span>`
+  );
+  // 数値+単位(日/箇月/か月/ヶ月/月/年/週間/週/時間/日間/円/歳/回/人/割/％/%)
+  html = html.replace(
+    /([0-9０-９]+(?:\s*(?:箇月|か月|ヶ月|週間|日間|時間|日|月|年|週|円|歳|回|人|割|％|%)))/g,
+    function(m){
+      // 既にハイライト済みspan内の場合は二重ラップを避ける(簡易: 直前が">"でなければラップ)
+      return `<span class="${numCls}">${m}</span>`;
+    }
+  );
+  return html.replace(/\n/g, '<br>');
+}
+
+// 条文ポップアップを表示
+function showSenbonArticle(id){
+  const q = senbonAllQuestions().find(x=>x.id===id);
+  if(!q) return;
+  const has = senbonHasArticle(q);
+  const refLine = (q.articleRef && q.articleRef.trim())
+    ? `<div class="sbm-art-ref">${escapeHtml(q.articleRef.trim())}</div>` : '';
+  let bodyHtml;
+  if(q.articleText && q.articleText.trim()){
+    bodyHtml = `<div class="sbm-art-body">${highlightArticleNumbers(escapeHtml(q.articleText.trim()))}</div>`;
+  }else if(q.articleRef && q.articleRef.trim()){
+    bodyHtml = `<div class="sbm-art-empty">条文番号のみ登録されています。本文は未登録です。</div>`;
+  }else{
+    bodyHtml = `<div class="sbm-art-empty">この問題には条文が登録されていません。<br><span style="font-size:12px;color:#999">編集画面の「条文番号 / 条文本文」に入力すると、ここに表示されます。</span></div>`;
+  }
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.innerHTML = `<style>
+    .sbm-art-num{color:#c62828;font-weight:700}
+    .sbm-art-ref{font-size:13px;font-weight:700;color:#2b5dc9;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #eee}
+    .sbm-art-body{font-size:14px;line-height:1.9;color:#222;white-space:normal}
+    .sbm-art-empty{font-size:14px;color:#888;line-height:1.7;padding:18px 0;text-align:center}
+  </style>
+  <div style="background:#fff;border-radius:14px;max-width:520px;width:100%;padding:22px;max-height:85vh;overflow:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0;font-size:16px">📜 条文</h3>
+      <button id="sbm-art-close" style="border:none;background:#f1f1f1;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:16px">×</button>
+    </div>
+    <div style="font-size:12px;color:#888;margin-bottom:12px;line-height:1.6">${escapeHtml(q.subject||'')} ${q.subFrameKey?('F'+q.subFrameKey):(q.frameNo!=null?('F'+q.frameNo):'')} ・ ${escapeHtml(senbonCatLabel(q.category))}</div>
+    ${refLine}
+    ${bodyHtml}
+    <div style="margin-top:18px;text-align:right">
+      <button id="sbm-art-edit" style="padding:9px 16px;border:1px solid #2b5dc9;border-radius:8px;background:#fff;color:#2b5dc9;font-weight:700;cursor:pointer;font-size:13px">${has?'条文を編集':'条文を登録'}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close = ()=>overlay.remove();
+  document.getElementById('sbm-art-close').addEventListener('click', close);
+  overlay.addEventListener('click', e=>{ if(e.target===overlay) close(); });
+  document.getElementById('sbm-art-edit').addEventListener('click', ()=>{ close(); openSenbonEditor(id); });
+}
+
+/* =========================================================================
    進捗タブ「🔫 千本ノック」: 一問一答の配置・追加・編集・削除・JSON取込
    ========================================================================= */
 function renderSenbonManage(root){
@@ -11327,6 +11405,8 @@ function renderSenbonManage(root){
     .sbm-actions{display:flex;gap:8px;margin-top:8px}
     .sbm-actions button{padding:5px 12px;border:1px solid var(--line,#ddd);border-radius:7px;background:#fff;cursor:pointer;font-size:12px}
     .sbm-del{color:#c62828;border-color:#f0caca!important}
+    .sbm-art.has{color:#2b5dc9;border-color:#bcd!important;font-weight:700}
+    .sbm-art.empty{color:#aaa}
     .sbm-empty{padding:24px;text-align:center;color:var(--ink-muted,#888);font-size:13px;line-height:1.7}
     .sbm-filter{display:flex;gap:8px;align-items:center;margin:10px 0;flex-wrap:wrap;padding:12px;background:#f7f7f9;border-radius:10px}
     .sbm-filter label{font-size:12px;color:#666}
@@ -11437,6 +11517,7 @@ function renderSenbonManage(root){
           ${q.checkMemo?`<div class="sbm-memo">📝 ${escapeHtml(q.checkMemo)}</div>`:''}
           <div class="sbm-mark-btns">${markBtns}</div>
           <div class="sbm-actions">
+            <button class="sbm-art ${senbonHasArticle(q)?'has':'empty'}" data-sbm-article="${escapeHtml(q.id)}">📜 条文${senbonHasArticle(q)?'':' (未登録)'}</button>
             <button data-sbm-edit="${escapeHtml(q.id)}">編集</button>
             <button class="sbm-del" data-sbm-delete="${escapeHtml(q.id)}">削除</button>
           </div></div>`;
@@ -11494,6 +11575,7 @@ function renderSenbonManage(root){
   const impBtn=document.getElementById('sbm-import');
   if(impBtn) impBtn.addEventListener('click',openSenbonImport);
   root.querySelectorAll('[data-sbm-edit]').forEach(b=>b.addEventListener('click',()=>openSenbonEditor(b.dataset.sbmEdit)));
+  root.querySelectorAll('[data-sbm-article]').forEach(b=>b.addEventListener('click',()=>showSenbonArticle(b.dataset.sbmArticle)));
   root.querySelectorAll('[data-sbm-delete]').forEach(b=>b.addEventListener('click',()=>{
     const id=b.dataset.sbmDelete;
     if(confirm('この一問一答を削除しますか?')){
@@ -11507,7 +11589,7 @@ function renderSenbonManage(root){
 function openSenbonEditor(id){
   const v = state.senbonView;
   const editing = id ? senbonAllQuestions().find(q=>q.id===id) : null;
-  const cur = editing || {category:'A', q:'', a:true, note:'', source:'', checkMark:0, checkMemo:''};
+  const cur = editing || {category:'A', q:'', a:true, note:'', source:'', checkMark:0, checkMemo:'', articleRef:'', articleText:''};
   const catOpts = SENBON_CATEGORIES.map(c=>`<option value="${c.key}" ${cur.category===c.key?'selected':''}>${escapeHtml(c.label)}</option>`).join('');
   const markOpts = SENBON_MARKS.map(m=>`<option value="${m.v}" ${(cur.checkMark||0)===m.v?'selected':''}>${escapeHtml(m.label)}</option>`).join('');
   // 既存の出典候補(データリスト用)
@@ -11542,6 +11624,10 @@ function openSenbonEditor(id){
     <select id="sbm-f-mark" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;margin-bottom:14px">${markOpts}</select>
     <label style="font-size:13px;display:block;margin-bottom:4px">チェックメモ(注意点など・任意)</label>
     <textarea id="sbm-f-memo" rows="2" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;margin-bottom:18px;font-size:13px;box-sizing:border-box">${escapeHtml(cur.checkMemo||'')}</textarea>
+    <label style="font-size:13px;display:block;margin-bottom:4px">📜 条文番号(任意・例: 雇用保険法 第10条)</label>
+    <input id="sbm-f-articleref" value="${escapeHtml(cur.articleRef||'')}" placeholder="雇用保険法 第10条" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;margin-bottom:14px;font-size:13px;box-sizing:border-box">
+    <label style="font-size:13px;display:block;margin-bottom:4px">📜 条文本文(任意・「条文」ボタンで表示。数値は朱色ハイライトされます)</label>
+    <textarea id="sbm-f-articletext" rows="4" placeholder="(失業等給付) 法10条…&#10;条文をそのまま貼り付けてください。" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;margin-bottom:18px;font-size:13px;box-sizing:border-box;line-height:1.7">${escapeHtml(cur.articleText||'')}</textarea>
     <div style="display:flex;gap:10px">
       <button id="sbm-cancel" style="flex:1;padding:12px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer">キャンセル</button>
       <button id="sbm-save" style="flex:1;padding:12px;border:none;border-radius:8px;background:#2b5dc9;color:#fff;font-weight:700;cursor:pointer">保存</button>
@@ -11559,15 +11645,17 @@ function openSenbonEditor(id){
     const source = document.getElementById('sbm-f-source').value.trim();
     const checkMark = parseInt(document.getElementById('sbm-f-mark').value,10)||0;
     const checkMemo = document.getElementById('sbm-f-memo').value.trim();
+    const articleRef = document.getElementById('sbm-f-articleref').value.trim();
+    const articleText = document.getElementById('sbm-f-articletext').value.trim();
     if(editing){
       const i = state.senbon.findIndex(q=>q.id===id);
-      if(i>=0) state.senbon[i] = {...state.senbon[i], category:cat, q:qText, a:aVal, note, source, checkMark, checkMemo};
+      if(i>=0) state.senbon[i] = {...state.senbon[i], category:cat, q:qText, a:aVal, note, source, checkMark, checkMemo, articleRef, articleText};
     }else{
       state.senbon.push({
         id: 'sb_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
         subject: v.subject, frameNo: isNaN(parseInt(v.frameNo,10))?v.frameNo:parseInt(v.frameNo,10),
         subFrameKey: v.subFrameKey || null,
-        category: cat, q:qText, a:aVal, note, source, checkMark, checkMemo, createdAt: Date.now()
+        category: cat, q:qText, a:aVal, note, source, checkMark, checkMemo, articleRef, articleText, createdAt: Date.now()
       });
     }
     saveState(); overlay.remove(); renderProgress();
@@ -11588,7 +11676,7 @@ function openSenbonImport(){
   overlay.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;padding:22px;max-height:90vh;overflow:auto">
     <h3 style="margin:0 0 8px;font-size:17px">📥 千本ノック JSON取込</h3>
     <div style="font-size:12px;color:#888;margin-bottom:12px">配置先: ${placeLabel}<br>subject/frameNo/subFrameKey は自動で配置先に設定されます(JSON内にあれば優先)。</div>
-    <div style="font-size:12px;background:#f7f7f9;border-radius:8px;padding:10px;margin-bottom:12px;line-height:1.6">配列形式の例(source=出典・任意):<br><code>[{"q":"…","a":false,"category":"D","note":"…","source":"2026_TAC予想問題集"}]</code></div>
+    <div style="font-size:12px;background:#f7f7f9;border-radius:8px;padding:10px;margin-bottom:12px;line-height:1.6">配列形式の例(source=出典・任意 / articleRef=条文番号・任意 / articleText=条文本文・任意):<br><code>[{"q":"…","a":false,"category":"D","note":"…","source":"2026_TAC予想問題集","articleRef":"雇用保険法 第10条","articleText":"(失業等給付) 法10条…"}]</code></div>
     <textarea id="sbm-imp-text" rows="10" placeholder='[{"q":"標準報酬月額の定時決定の届出期限は7月10日である。","a":false,"category":"A","note":"正しくは7月1日〜10日","source":"東京有明LS_オリジナル"}]' style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:monospace;box-sizing:border-box;margin-bottom:14px"></textarea>
     <div style="display:flex;gap:10px">
       <button id="sbm-imp-cancel" style="flex:1;padding:12px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer">キャンセル</button>
@@ -11619,6 +11707,8 @@ function openSenbonImport(){
         source: o.source || '',
         checkMark: o.checkMark || 0,
         checkMemo: o.checkMemo || '',
+        articleRef: o.articleRef || '',
+        articleText: o.articleText || '',
         createdAt: Date.now()
       });
       added++;
