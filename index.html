@@ -12474,8 +12474,24 @@ function sessionAnswerStats(sess, nowTs){
 }
 
 // 新規セッション開始(予定ボックスから)。既存の進行中があれば自動で終了確定。
+// 改修: 「▶開始」一発で、計測セッション開始と同時に「択一」タブの該当フレーム演習(過去問A)を自動起動する。
+//   タブ移動や「演習開始」ボタンの二度押しを不要にする。
+//   (択一画面側にも計測バーが出るため、中断・休憩・完了はそのまま操作できる)
 function startStudySession(subject, frameRef, dateKey){
-  // 既存の進行中セッションがあれば、まず確定(終了)する
+  // ① まず、この予定フレームに過去問A が登録されているかを事前確認する。
+  //    0問なら計測セッションを開始せずに中止する(計測だけ始まる空振りを防ぐ)。
+  const fref0 = resolveFrameRef(subject, frameRef);
+  if(fref0.frameNo == null){ alert('フレーム参照が不正です: ' + frameRef); return; }
+  let qPre = state.questions.filter(q=>lawToSubject(q.law)===subject && q.frameNo===fref0.frameNo && getKind(q)==='pastA');
+  if(fref0.isSubFrame && fref0.subFrame){
+    qPre = qPre.filter(q=>questionMatchesSubFrame(q.law, fref0.subFrame));
+  }
+  if(qPre.length === 0){
+    alert('このフレームには過去問Aが登録されていないため、演習を開始できません。\n(「過去問A」タブで問題を追加してください)');
+    return;
+  }
+
+  // ② 既存の進行中セッションがあれば、まず確定(終了)する
   const prev = getActiveSession();
   if(prev){
     if(!confirm('別の学習セッションが進行中です。\nそれを「終了」して新しいセッションを開始しますか?')) return;
@@ -12496,7 +12512,12 @@ function startStudySession(subject, frameRef, dateKey){
   state.studySessions.push(sess);
   state.activeSessionId = sess.id;
   saveState();
-  renderProgress();
+
+  // ③ そのまま「択一」タブの該当フレーム演習(過去問A)を起動する。
+  //    startFrameAttempt 内部で enterFrameMode → switchTab('quiz') まで実行され、
+  //    予定していた科目・フレームの問題演習がすぐ始まる。
+  //    既に同フレームの進行中演習がある場合は「継続/新規」の確認が出る(従来挙動)。
+  startFrameAttempt(subject, frameRef, 'pastA');
 }
 
 // 改修31b: 現在のセグメントを閉じ、新しいモードのセグメントを開く共通処理
