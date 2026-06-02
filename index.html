@@ -2255,6 +2255,17 @@
   .plan-timer-btn.cancel{color:var(--accent)}
   .plan-timer-btn:hover{opacity:.88}
 
+  /* 【改修42】択一画面(暗背景の frame-banner 内)に置くセッションタイマー */
+  .frame-banner .quiz-sess-timer{
+    width:100%;margin-top:10px;margin-bottom:2px;
+    background:rgba(245,242,236,.95);border-color:rgba(245,242,236,.5);
+  }
+  .frame-banner .quiz-sess-timer.is-running{background:rgba(212,237,218,.95);border-color:rgba(46,160,67,.5)}
+  .frame-banner .quiz-sess-timer.is-paused{background:rgba(247,233,200,.95);border-color:rgba(201,141,0,.55)}
+  .frame-banner .quiz-sess-timer.is-resting{background:rgba(228,228,232,.95);border-color:rgba(120,120,130,.55)}
+  .frame-banner .quiz-sess-timer .plan-timer-clock{color:#1B2942}
+  .frame-banner .quiz-sess-timer .plan-timer-state{color:#4a5568}
+
   /* ===== 改修31: タイパ タイムテーブル ===== */
   .taipa-summary-empty,.taipa-summary{margin:4px 0 14px 0}
   .taipa-summary-empty{padding:18px;text-align:center;color:var(--ink-muted);font-size:13px;
@@ -5055,12 +5066,19 @@ function renderQuiz(){
     const titleStr = fm.subFrameKey
       ? frameOrSubFrameLabel(subject, fm.subFrameKey)
       : frameTitle(subject, frameNo);
+    // 【改修42】進捗管理_予定_演習実施モードのボタンを択一画面にも表示する。
+    //   進行中の学習セッション(running/paused/resting)があれば、その状態に応じた
+    //   「中断/休憩/再開/完了/一旦終了/キャンセル」を frameMode バナー内に出す。
+    //   進捗管理タブの plan-timer と同一の状態遷移・ラベルにする。
+    const sessHtml = renderQuizSessionTimer(subject, fm.subFrameKey != null ? fm.subFrameKey : frameNo);
+
     return `<div class="frame-banner">
       <div class="fb-head">
         <span class="fb-mark">演習中</span>
         <span class="fb-title">${escapeHtml(subject)} ${escapeHtml(titleStr)}${kindLbl} <span class="fb-att">(${cur.attemptNo}回目)</span></span>
       </div>
       <div class="fb-prog"><div class="fb-bar"><div class="fb-fill" style="width:${pct}%"></div></div><span class="fb-pct">${done}/${tot}問 (${pct}%)</span></div>
+      ${sessHtml}
       <div class="fb-actions">
         <button class="btn ghost btn-sm" id="fm-abandon">演習を破棄</button>
         <button class="btn ghost btn-sm" id="fm-exit">中断して通常に戻る</button>
@@ -5072,6 +5090,7 @@ function renderQuiz(){
     card.innerHTML = fmBanner + `<div class="empty"><div class="ico">―</div>条件に合う問題がありません。<br>モードや絞り込みを変えてください。</div>`;
     const ab = document.getElementById('fm-abandon'); if(ab) ab.addEventListener('click', abandonFrameAttempt);
     const ex = document.getElementById('fm-exit'); if(ex) ex.addEventListener('click', exitFrameMode);
+    _wireQuizSessionButtons(card);  // 【改修42】進捗管理セッションボタンの配線
     return;
   }
 
@@ -5194,6 +5213,7 @@ function renderQuiz(){
   // フレーム演習バナーのボタン
   const ab = document.getElementById('fm-abandon'); if(ab) ab.addEventListener('click', abandonFrameAttempt);
   const ex = document.getElementById('fm-exit'); if(ex) ex.addEventListener('click', exitFrameMode);
+  _wireQuizSessionButtons(card);  // 【改修42】進捗管理セッションボタンの配線
   // フレーム完了バナーのボタン
   const fcBack = document.getElementById('fc-back-progress');
   if(fcBack) fcBack.addEventListener('click', ()=>{
@@ -5600,6 +5620,133 @@ function enterFrameMode(subject, frameNo, kind, subFrameKey){
   //   answeredIds 破損等で止まった演習はアプリを開き直しても完了しなかった。
   //   入口で一度判定を走らせれば、履歴からの復元(checkFrameComplete内)で即完了できる。
   checkFrameComplete();
+}
+
+/* ============================================================
+   【改修42】択一画面に「進捗管理_予定_演習実施モード」のボタンを表示
+   ------------------------------------------------------------
+   進捗管理タブに戻らずに、択一画面から直接
+   「中断 / 休憩 / 再開 / 完了 / 一旦終了 / キャンセル」を操作できるようにする。
+   状態遷移・ラベルは進捗管理タブの plan-timer (renderProgressPlan) と完全に同一。
+     - running  : [中断][休憩]
+     - paused   : [再開][休憩]
+     - resting  : [再開]
+   いずれの状態でも [✓完了][一旦終了][キャンセル] を併置。
+   既存のセッション操作関数(pause/rest/resume/finish/cancel StudySession)を
+   そのまま利用し、操作後に renderQuiz() で択一バナーを即時更新する。
+   ============================================================ */
+
+// 現在の frameMode に対応する進行中セッションを探す。
+//   frameRef は数値フレームNo または サブフレームキー("2.1")。
+//   進捗管理から「開始」したセッションは planKey = subject + '|' + frameRef で作られる。
+//   ただし frameMode と完全一致しない場合(別フレームの計測中など)でも、
+//   「進行中セッションがあれば」択一画面から操作できると煩雑さ解消に資するため、
+//   まず planKey 完全一致を優先し、無ければ進行中の activeSession を返す。
+function findQuizActiveSession(subject, frameRef){
+  const arr = state.studySessions || [];
+  const isActive = ss => ss && (ss.status==='running'||ss.status==='paused'||ss.status==='resting');
+  // 1) frameMode と planKey が一致する進行中セッション(最優先)
+  const wantKey = planKey(subject, frameRef);
+  let sess = arr.find(ss=> isActive(ss) && ss.planKey===wantKey);
+  if(sess) return sess;
+  // 2) フレーム番号のみ一致(サブフレーム指定で計測しているがバナーが親フレーム等のズレ吸収)
+  const wantKey2 = planKey(subject, String(frameRef));
+  sess = arr.find(ss=> isActive(ss) && ss.planKey===wantKey2);
+  if(sess) return sess;
+  // 3) それも無ければ、現在の activeSession(進行中)を返す。
+  //    予定演習実施モードでは通常セッションは1つだけ進行中なので、これで実用上問題ない。
+  return getActiveSession();
+}
+
+// frameMode バナー内に挿入するセッションタイマー&ボタンの HTML を返す。
+//   進行中セッションが無ければ空文字(=従来どおりバナーのみ)。
+function renderQuizSessionTimer(subject, frameRef){
+  const sess = findQuizActiveSession(subject, frameRef);
+  if(!sess) return '';
+  const status = sess.status; // 'running' | 'paused' | 'resting'
+  const stateCls = status==='running' ? 'is-running' : (status==='paused' ? 'is-paused' : 'is-resting');
+  const stateLabel = status==='running'
+    ? '計測中'
+    : (status==='paused' ? '中断中(ロックオン・学習時間に計上)' : '休憩中(学習時間に計上しません)');
+  let btns = '';
+  if(status==='running'){
+    btns = `<button class="plan-timer-btn pause" data-qsesspause="${sess.id}">中断</button>
+            <button class="plan-timer-btn rest" data-qsessrest="${sess.id}">休憩</button>`;
+  }else if(status==='paused'){
+    btns = `<button class="plan-timer-btn resume" data-qsessresume="${sess.id}">再開</button>
+            <button class="plan-timer-btn rest" data-qsessrest="${sess.id}">休憩</button>`;
+  }else{ // resting
+    btns = `<button class="plan-timer-btn resume" data-qsessresume="${sess.id}">再開</button>`;
+  }
+  // 進捗管理タブの plan-timer と同一構成。属性名は択一画面専用(data-qsess*)にして配線を分離。
+  return `<div class="plan-timer quiz-sess-timer ${stateCls}" data-qsessid="${sess.id}">
+    <span class="plan-timer-clock" data-qsessclock="${sess.id}">${fmtClockMs(sessionTotalMs(sess))}</span>
+    <span class="plan-timer-state">${stateLabel}</span>
+    ${btns}
+    <button class="plan-timer-btn finish" data-qsessfinish="${sess.id}" data-qoutcome="done">✓ 完了</button>
+    <button class="plan-timer-btn pausefinish" data-qsessfinish="${sess.id}" data-qoutcome="partial">一旦終了</button>
+    <button class="plan-timer-btn cancel" data-qsesscancel="${sess.id}">キャンセル</button>
+  </div>`;
+}
+
+// 択一画面のセッションボタンを配線する。card は quiz-card 要素。
+function _wireQuizSessionButtons(card){
+  if(!card) return;
+  // 中断(B): running/resting → paused
+  card.querySelectorAll('button[data-qsesspause]').forEach(b=>{
+    b.addEventListener('click', ()=>{ pauseStudySession(b.dataset.qsesspause); renderQuiz(); });
+  });
+  // 休憩(R): running/paused → resting
+  card.querySelectorAll('button[data-qsessrest]').forEach(b=>{
+    b.addEventListener('click', ()=>{ restStudySession(b.dataset.qsessrest); renderQuiz(); });
+  });
+  // 再開(A): paused/resting → running
+  card.querySelectorAll('button[data-qsessresume]').forEach(b=>{
+    b.addEventListener('click', ()=>{ resumeStudySession(b.dataset.qsessresume); renderQuiz(); });
+  });
+  // 完了 / 一旦終了
+  card.querySelectorAll('button[data-qsessfinish]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const outcome = (b.dataset.qoutcome === 'partial') ? 'partial' : 'done';
+      const msg = outcome==='partial'
+        ? 'このフレームを「一旦終了(途中)」にします。\n記録は残り、予定は未完のままです。続きは後で計測できます。\nよろしいですか?'
+        : 'このフレームを「完了(全問終了)」にします。\n予定が完了になります。よろしいですか?';
+      if(!confirm(msg)) return;
+      finishStudySession(b.dataset.qsessfinish, {outcome});
+      // セッションは終了。択一バナーを更新(タイマー部は消える)。
+      renderQuiz();
+    });
+  });
+  // キャンセル(計測破棄)
+  card.querySelectorAll('button[data-qsesscancel]').forEach(b=>{
+    b.addEventListener('click', ()=>{ cancelStudySession(b.dataset.qsesscancel); renderQuiz(); });
+  });
+  // 経過時間の毎秒更新
+  _startQuizClockTicker(card);
+}
+
+// 択一画面のセッションタイマーを毎秒更新(再レンダリングはしない)。
+let _quizClockTimer = null;
+function _startQuizClockTicker(card){
+  if(_quizClockTimer){ clearInterval(_quizClockTimer); _quizClockTimer = null; }
+  if(!card) return;
+  const clocks = card.querySelectorAll('[data-qsessclock]');
+  if(!clocks.length) return;
+  const tick = ()=>{
+    const els = card.querySelectorAll('[data-qsessclock]');
+    if(!els.length){ if(_quizClockTimer){ clearInterval(_quizClockTimer); _quizClockTimer = null; } return; }
+    let anyAlive = false;
+    els.forEach(el=>{
+      const id = el.getAttribute('data-qsessclock');
+      const sess = (state.studySessions||[]).find(x=>x.id===id);
+      if(sess && (sess.status==='running'||sess.status==='paused'||sess.status==='resting')){
+        el.textContent = fmtClockMs(sessionTotalMs(sess));
+        anyAlive = true;
+      }
+    });
+    if(!anyAlive && _quizClockTimer){ clearInterval(_quizClockTimer); _quizClockTimer = null; }
+  };
+  _quizClockTimer = setInterval(tick, 1000);
 }
 
 function exitFrameMode(){
@@ -10421,6 +10568,8 @@ function findWhyBlockByCtx(ctx){
 
 /* ===== Tabs ===== */
 function switchTab(name){
+  // 【改修42】択一タブを離れるときはセッションタイマーの毎秒更新を止める
+  if(name!=='quiz' && _quizClockTimer){ clearInterval(_quizClockTimer); _quizClockTimer = null; }
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
   document.getElementById('view-quiz').style.display = name==='quiz'?'block':'none';
   document.getElementById('aside-quiz').style.display = name==='quiz'?'flex':'none';
@@ -12327,6 +12476,7 @@ function sessionAnswerStats(sess, nowTs){
 // 新規セッション開始(予定ボックスから)。既存の進行中があれば自動で終了確定。
 // 改修: 「▶開始」一発で、計測セッション開始と同時に「択一」タブの該当フレーム演習(過去問A)を自動起動する。
 //   タブ移動や「演習開始」ボタンの二度押しを不要にする。
+//   (択一画面側にも計測バーが出るため、中断・休憩・完了はそのまま操作できる)
 function startStudySession(subject, frameRef, dateKey){
   // ① まず、この予定フレームに過去問A が登録されているかを事前確認する。
   //    0問なら計測セッションを開始せずに中止する(計測だけ始まる空振りを防ぐ)。
