@@ -1829,6 +1829,50 @@
     font-size:13.5px;
   }
 
+  /* ===== 改修01: 出題根拠の条番号クリック → 条文表示 ===== */
+  .lb-chip{
+    display:inline-block;padding:1px 7px;margin:0 1px;border-radius:4px;
+    background:var(--accent-soft);color:var(--accent);
+    font-weight:600;cursor:pointer;text-decoration:none;
+    border:1px solid transparent;transition:border-color .12s,background .12s;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .lb-chip:hover,.lb-chip:active{border-color:var(--accent);background:#F0D6D0}
+  .lb-chip::after{content:"📖";font-size:10px;margin-left:3px;opacity:.7}
+  .lb-art-panel{
+    margin-top:10px;border:1px solid var(--line);border-radius:8px;
+    background:var(--bg);overflow:hidden;
+  }
+  .lb-art-panel-head{
+    display:flex;align-items:center;gap:8px;padding:8px 12px;
+    background:var(--line-soft);font-size:12px;color:var(--ink-muted);
+  }
+  .lb-art-panel-head .lb-close{
+    margin-left:auto;cursor:pointer;font-size:16px;line-height:1;
+    color:var(--ink-muted);padding:2px 6px;border-radius:4px;
+  }
+  .lb-art-panel-head .lb-close:hover{background:var(--paper);color:var(--ink)}
+  .lb-art-panel-body{padding:12px 14px}
+  .lb-art-item{padding:10px 0;border-bottom:1px solid var(--line-soft)}
+  .lb-art-item:last-child{border-bottom:none}
+  .lb-art-item .lb-art-kind{
+    display:inline-block;padding:1px 7px;border-radius:3px;
+    font-size:10px;font-weight:600;letter-spacing:.05em;margin-right:6px;
+  }
+  .lb-art-item .lb-art-kind.k-a{background:#FEE5E0;color:#8B2618}
+  .lb-art-item .lb-art-kind.k-b{background:#E3EEF6;color:#1F4F77}
+  .lb-art-item .lb-art-kind.k-c{background:#F3E9D7;color:#7A5A1A}
+  .lb-art-item .lb-art-ti{font-size:13px;font-weight:600;color:var(--ink)}
+  .lb-art-item .lb-art-loc{font-size:11px;color:var(--ink-muted);margin:3px 0 6px 0}
+  .lb-art-item .lb-art-text{font-size:14px;line-height:1.85;color:var(--ink);white-space:pre-wrap}
+  .lb-art-empty{font-size:13px;color:var(--ink-muted);line-height:1.7}
+  .lb-art-empty .lb-egov{
+    display:inline-block;margin-top:8px;padding:6px 12px;border-radius:6px;
+    background:var(--accent);color:#fff;text-decoration:none;font-size:12px;font-weight:600;
+  }
+  .lb-art-empty .lb-egov:hover{opacity:.9}
+  .sbm-art-num{color:#C9472A;font-weight:600}
+
   /* ===== 改修11: 5why タブ用スタイル ===== */
   /* 基本構造は条文・解説タブ(.art-*)と同じ。色味で区別する */
   .why-intro{padding:20px 24px}
@@ -5293,6 +5337,8 @@ function renderQuiz(){
 
   // 条文・解説アコーディオン(Phase 7)
   wireLinkedArticlesAccordion(card);
+  // 改修01: 出題根拠の条番号チップ
+  try { wireLegalBasisChips(card, q); } catch(e){ console.error('[改修01] wireLegalBasisChips(quiz):', e); }
   const artLinkBtnQuiz = document.getElementById('art-link-btn-quiz');
   if(artLinkBtnQuiz) artLinkBtnQuiz.addEventListener('click', ()=>openArticlePicker(q.id));
 
@@ -5381,7 +5427,7 @@ function renderResult(q,correct){
       ${renderMyNoteSection(q)}
       <div class="section-h">難易度・出題根拠</div>
       <div class="section-body dim">
-        レベル ${escapeHtml(q.difficulty||'—')}　／　${escapeHtml(q.legalBasis||'—')}
+        レベル ${escapeHtml(q.difficulty||'—')}　／　${renderLegalBasisInteractive(q)}
       </div>
       ${renderLinkedArticlesSection(q, 'quiz')}
       ${(() => { try { return renderLinkedWhysSection(q, 'quiz'); } catch(e) { console.error('[5why] renderLinkedWhysSection(quiz) error:', e); return ''; } })()}
@@ -8527,6 +8573,176 @@ function articleKindMeta(kind){
   if(kind === 'explanation') return {lbl:'解説',     cls:'k-b'};
   if(kind === 'point')       return {lbl:'比較認識法®', cls:'k-c'};
   return                          {lbl:'条文',     cls:'k-a'};
+}
+
+/* ===== 改修01: 出題根拠(legalBasis)の条番号クリック → 条文表示 =====
+   legalBasis のテキスト内から「○条」「○条の○」「則○条」等の参照を検出し、
+   クリック可能チップにする。クリック時は当該科目(q.law)の登録条文を検索して
+   その場にアコーディオン展開。登録がなければ e-Gov 検索リンクを出す。 */
+
+/* 全角数字→半角に正規化 */
+function lbNormDigits(s){
+  return String(s||'').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+}
+
+/* 条番号の「コア」を抽出して比較用キーにする。
+   例「法10条の3、1項」→「10条の3」、「則17条の2 1項」→「則17条の2」、
+      「第10条第1項」→「10条」。法/則/施行令 等の種別接頭辞は保持する。 */
+function lbExtractCore(refRaw){
+  let s = lbNormDigits(refRaw).trim();
+  if(!s) return null;
+  // 接頭の種別(則=規則, 令=施行令, 法=法律)を拾う。明示がなければ '法' 扱い。
+  let kind = '法';
+  if(/則/.test(s.slice(0,4)))      kind = '則';
+  else if(/令/.test(s.slice(0,4))) kind = '令';
+  // 「(第)○条(の○)」を拾う
+  const m = s.match(/第?\s*(\d+)\s*条(?:\s*の\s*(\d+))?/);
+  if(!m) return null;
+  const core = m[2] ? `${m[1]}条の${m[2]}` : `${m[1]}条`;
+  return { kind, core, num: m[1], sub: m[2]||null };
+}
+
+/* 条文ブロックのテキスト/legalRef から、その条番号コア集合を求める */
+function lbBlockCores(blk){
+  const hay = lbNormDigits(((blk.legalRef||'') + ' ' + (blk.text||'')).slice(0, 400));
+  const cores = [];
+  const re = /(則|令|法)?\s*第?\s*(\d+)\s*条(?:\s*の\s*(\d+))?/g;
+  let m;
+  while((m = re.exec(hay)) !== null){
+    const kind = m[1] || '法';
+    const core = m[3] ? `${m[2]}条の${m[3]}` : `${m[2]}条`;
+    cores.push({ kind, core });
+  }
+  return cores;
+}
+
+/* q.law の登録条文から、参照 core にマッチするブロックを探す。
+   マッチ精度: 同一 core(○条 or ○条の○)で、kind(法/則/令)が一致すれば優先。
+   kind 情報が曖昧な場合は core 一致のみで採用(誤マッチを抑えるため core は必須)。*/
+function lbFindArticles(law, refCore){
+  const out = [];
+  if(!refCore || !law) return out;
+  const lawData = (state.articles && state.articles[law]) || {};
+  for(const [keyStr, frData] of Object.entries(lawData)){
+    const indices = (frData && frData.indices) || [];
+    for(let i=0;i<indices.length;i++){
+      const idx = indices[i];
+      for(const blk of (idx.blocks||[])){
+        if(!blk) continue;
+        // 条文系のみ対象(解説/ポイントも条番号を持てば拾う)
+        const cores = lbBlockCores(blk);
+        // core 一致(○条 or ○条の○)を確認
+        let hit = cores.find(c => c.core === refCore.core);
+        if(!hit) continue;
+        // kind が双方明示されていて食い違う場合は除外
+        if(refCore.kind && hit.kind && refCore.kind !== '法' && hit.kind !== '法'
+           && refCore.kind !== hit.kind) continue;
+        const info = findArticleBlock(blk.id);
+        if(info) out.push(info);
+      }
+    }
+  }
+  // 重複(同一ブロック)除去
+  const seen = new Set();
+  return out.filter(info => {
+    const id = info.block && info.block.id;
+    if(!id || seen.has(id)) return false;
+    seen.add(id); return true;
+  });
+}
+
+/* legalBasis 文字列を、条番号部分だけクリック可能チップにした HTML へ変換 */
+function renderLegalBasisInteractive(q){
+  const raw = q.legalBasis || '';
+  if(!raw.trim()) return escapeHtml('—');
+  const norm = lbNormDigits(raw);
+  // 参照トークン抽出: 「(法|則|令)?(第)?N条(の N)?(第 N 項)?」をまとめて1チップに
+  const re = /((?:法|則|令|施行令|施行規則)?\s*第?\s*\d+\s*条(?:\s*の\s*\d+)?(?:\s*第?\s*\d+\s*項)?(?:\s*第?\s*\d+\s*号)?)/g;
+  let html = '';
+  let last = 0; let m;
+  while((m = re.exec(norm)) !== null){
+    const before = norm.slice(last, m.index);
+    if(before) html += escapeHtml(before);
+    const token = m[1];
+    const core = lbExtractCore(token);
+    if(core){
+      html += `<a href="#" class="lb-chip" data-lb-ref="${escapeHtml(token.trim())}" data-lb-core="${escapeHtml(core.core)}" data-lb-kind="${escapeHtml(core.kind)}">${escapeHtml(token.trim())}</a>`;
+    } else {
+      html += escapeHtml(token);
+    }
+    last = m.index + m[0].length;
+  }
+  const tail = norm.slice(last);
+  if(tail) html += escapeHtml(tail);
+  return html;
+}
+
+/* チップ用 e-Gov URL(law=法令名 + 参照語) */
+function lbBuildEgovUrl(law, refText){
+  let kw = (law || '').trim();
+  const refNum = (refText||'').match(/第?\s*\d+\s*条(?:\s*の\s*\d+)?/);
+  if(kw && refNum) kw += ' ' + refNum[0].replace(/\s+/g,'');
+  else if(!kw) kw = (refText||'').trim();
+  if(!kw) return null;
+  return 'https://laws.e-gov.go.jp/search/elawsSearch/elaws_search/lsg0100/?searchType=keyword&keyword=' + encodeURIComponent(kw);
+}
+
+/* チップクリック時に表示するパネル HTML を生成 */
+function lbBuildPanelHtml(law, refText, refCore){
+  const found = lbFindArticles(law, refCore);
+  const head = `<div class="lb-art-panel-head"><span>📖 ${escapeHtml(refText)}</span><span class="lb-close" data-lb-close="1">×</span></div>`;
+  if(found.length){
+    const items = found.map(info=>{
+      const blk = info.block;
+      const meta = articleKindMeta(blk.kind);
+      const title = escapeHtml(blk.title || '(無題)');
+      const loc = escapeHtml(articleBlockLocationLabel(info) + (info.indexTitle ? ' / ' + info.indexTitle : ''));
+      const text = highlightArticleNumbers(escapeHtml(blk.text || ''));
+      return `<div class="lb-art-item">
+        <div><span class="lb-art-kind ${meta.cls}">${meta.lbl}</span><span class="lb-art-ti">${title}</span></div>
+        <div class="lb-art-loc">${loc}</div>
+        <div class="lb-art-text">${text}</div>
+      </div>`;
+    }).join('');
+    return `<div class="lb-art-panel">${head}<div class="lb-art-panel-body">${items}</div></div>`;
+  }
+  // 未登録 → e-Gov リンク
+  const url = lbBuildEgovUrl(law, refText);
+  const egov = url ? `<a class="lb-egov" href="${escapeHtml(url)}" target="_blank" rel="noopener">🌐 e-Govで「${escapeHtml(law||'')} ${escapeHtml((refText||'').replace(/\s+/g,''))}」を検索</a>` : '';
+  return `<div class="lb-art-panel">${head}<div class="lb-art-panel-body">
+    <div class="lb-art-empty">この条文はアプリに未登録です。「条文・解説」タブに登録すると、ここに本文が表示されます。${egov ? '<br>' + egov : ''}</div>
+  </div></div>`;
+}
+
+/* renderResult 内の出題根拠チップに対し、クリック挙動を wire する。
+   root 配下の .lb-chip を対象。トグル式(同じチップ再クリックで閉じる)。 */
+function wireLegalBasisChips(root, q){
+  if(!root) return;
+  root.querySelectorAll('.lb-chip').forEach(chip=>{
+    if(chip.dataset.lbWired) return;
+    chip.dataset.lbWired = '1';
+    chip.addEventListener('click', (e)=>{
+      e.preventDefault();
+      // 既存パネル(このチップ直後)があればトグルで閉じる
+      const holder = chip.closest('.section-body') || root;
+      const existing = holder.querySelector('.lb-art-panel[data-lb-owner]');
+      if(existing && existing.getAttribute('data-lb-owner') === (chip.dataset.lbRef||'')){
+        existing.remove(); return;
+      }
+      if(existing) existing.remove();
+      const refText = chip.dataset.lbRef || '';
+      const refCore = { core: chip.dataset.lbCore || '', kind: chip.dataset.lbKind || '法' };
+      const html = lbBuildPanelHtml(q.law, refText, refCore);
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const panel = tmp.firstElementChild;
+      panel.setAttribute('data-lb-owner', refText);
+      holder.appendChild(panel);
+      const closeBtn = panel.querySelector('[data-lb-close]');
+      if(closeBtn) closeBtn.addEventListener('click', ()=>panel.remove());
+      panel.scrollIntoView({block:'nearest', behavior:'smooth'});
+    });
+  });
 }
 
 /* ===== 改修11: 5whyブロック検索ヘルパー =====
@@ -12248,6 +12464,8 @@ function _renderWeakInner(){
 
   // 条文・解説アコーディオン(Phase 7)
   wireLinkedArticlesAccordion(root);
+  // 改修01: 出題根拠の条番号チップ
+  try { wireLegalBasisChips(root, q); } catch(e){ console.error('[改修01] wireLegalBasisChips(weak):', e); }
   const artLinkBtnWeak = document.getElementById('art-link-btn-weak');
   if(artLinkBtnWeak) artLinkBtnWeak.addEventListener('click', ()=>openArticlePicker(q.id));
 
