@@ -356,6 +356,79 @@
   .modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
   textarea{font-family:'Shippori Mincho',serif;line-height:1.7;resize:vertical;min-height:80px}
 
+  /* ===== 改修46: バックアップ忘れ防止リマインダーバナー =====
+     - sticky でタブの下に常駐(必要時のみ表示)
+     - レベル別の色(soft=amber / warn=orange / urgent=accent)
+     - モバイルでは縦並びレイアウト */
+  .backup-reminder{
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:8px 16px;
+    border-bottom:1px solid var(--line);
+    font-size:12.5px;line-height:1.5;
+    position:sticky;top:0;z-index:50;
+    background:var(--amber-soft, #F8EFDA);
+    border-left:4px solid var(--amber, #C68A14);
+    color:var(--ink);
+    animation:brSlideDown .25s ease-out;
+  }
+  @keyframes brSlideDown{
+    from{transform:translateY(-100%);opacity:0}
+    to{transform:translateY(0);opacity:1}
+  }
+  .backup-reminder.level-warn{
+    background:#FBE9D7;
+    border-left-color:#D9802A;
+  }
+  .backup-reminder.level-urgent{
+    background:#F8DDD8;
+    border-left-color:var(--accent);
+    color:var(--ink);
+    font-weight:500;
+  }
+  .backup-reminder .br-icon{
+    font-size:14px;flex-shrink:0;
+  }
+  .backup-reminder.level-urgent .br-icon{
+    animation:brPulse 1.6s ease-in-out infinite;
+  }
+  @keyframes brPulse{
+    0%,100%{transform:scale(1);opacity:1}
+    50%{transform:scale(1.15);opacity:0.7}
+  }
+  .backup-reminder .br-text{flex:1;min-width:160px}
+  .backup-reminder .br-text strong{color:var(--accent);font-weight:600}
+  .backup-reminder .br-actions{
+    display:flex;gap:6px;flex-shrink:0;
+  }
+  .backup-reminder .br-action{
+    background:var(--ink);color:#fff;
+    border:none;padding:5px 12px;border-radius:4px;
+    font-size:12px;font-family:inherit;font-weight:500;
+    cursor:pointer;letter-spacing:.04em;
+    transition:background .15s;
+  }
+  .backup-reminder.level-urgent .br-action{
+    background:var(--accent);
+  }
+  .backup-reminder .br-action:hover{background:#000}
+  .backup-reminder.level-urgent .br-action:hover{background:#9F2F25}
+  .backup-reminder .br-dismiss{
+    background:transparent;border:1px solid var(--line);
+    padding:5px 10px;border-radius:4px;font-size:11.5px;
+    color:var(--ink-soft);font-family:inherit;cursor:pointer;
+    transition:all .15s;
+  }
+  .backup-reminder .br-dismiss:hover{
+    background:rgba(255,255,255,.6);color:var(--ink);
+  }
+  @media(max-width:560px){
+    .backup-reminder{
+      flex-direction:column;align-items:stretch;gap:8px;padding:10px 14px;
+    }
+    .backup-reminder .br-text{min-width:0}
+    .backup-reminder .br-actions{justify-content:flex-end}
+  }
+
   /* ===== 改修25: 差分マージ復元モーダル ===== */
   .merge-slot{
     border:1.5px solid var(--line);border-radius:6px;
@@ -2839,6 +2912,20 @@
     </nav>
   </header>
 
+  <!-- ===== 改修46: バックアップ忘れ防止リマインダーバナー =====
+       未バックアップの解答が一定数を超えると表示される。
+       ワンクリックでバックアップを実行可能。
+       「後で」ボタンで20分間非表示にできる(ただしレベルが上がれば自動再表示)。
+       本機能は改修25(差分マージ復元)の事前予防として機能する二重防御線。 -->
+  <div id="backup-reminder-banner" class="backup-reminder" style="display:none" role="status" aria-live="polite">
+    <span class="br-icon" aria-hidden="true">🔔</span>
+    <span class="br-text"><span id="br-count-text"></span></span>
+    <div class="br-actions">
+      <button type="button" class="br-action" id="br-backup-now">今すぐバックアップ</button>
+      <button type="button" class="br-dismiss" id="br-dismiss" title="20分間非表示(レベルが上がれば自動再表示)">後で</button>
+    </div>
+  </div>
+
   <!-- ===== QUIZ VIEW ===== -->
   <main id="view-quiz">
     <div class="card" id="quiz-card">
@@ -4698,6 +4785,9 @@ function loadState(){
       if(typeof s.whyView.subFrameKey === 'undefined') s.whyView.subFrameKey = null;
       // 改修03: 5why タブのイントロ文(ユーザー編集可)
       if(typeof s.whyIntro === 'undefined' || s.whyIntro === null) s.whyIntro = DEFAULT_WHY_INTRO;
+      // 改修46: バックアップ忘れ防止リマインダー(後方互換)
+      // 既存ユーザーには「今現在」を最終バックアップ時刻として扱い、初回起動でいきなり警告が出るのを防ぐ
+      if(typeof s.lastBackupAt === 'undefined' || s.lastBackupAt === null) s.lastBackupAt = Date.now();
       // === Migration: 既存問題にframeNoを自動付与 ===
       let migrated = 0;
       // Phase 1: 文字列のframeNoを数値に変換
@@ -4871,6 +4961,11 @@ function saveState(){
     console.error('saveState failed', e);
     alert('保存に失敗しました: '+e.message+'\n\n画像本体は IndexedDB に分離済みです。\nブラウザのキャッシュ削除前に「データ」タブから完全バックアップを取得してください。');
   }
+  // 改修46: state の変更ごとにバナーを更新(未バックアップ件数の自動反映)
+  // updateBackupReminderBanner は DOM 未生成の起動初期にも呼ばれうるので try で防御
+  try{
+    if(typeof updateBackupReminderBanner === 'function') updateBackupReminderBanner();
+  }catch(_){}
 }
 
 /* ===== Question filter / current pool ===== */
@@ -6536,6 +6631,122 @@ async function runStorageDiagnostic(){
   }
 }
 
+/* ============================================================
+   改修46: バックアップ忘れ防止リマインダー
+   ----------------------------------------------------------
+   改修25(差分マージ復元)が「忘れた後の救済」だったのに対し、本機能は
+   「そもそも忘れない」ための事前予防。二重の防御線で運用ミスを防ぐ:
+   - 防御線1: タブ群直下のバナー(未バックアップ件数を可視化、ワンクリックでバックアップ)
+   - 防御線2: タブ閉じ・リロード時の beforeunload 確認ダイアログ
+   ============================================================ */
+
+// しきい値定義(変更したい場合はここを編集)
+const BACKUP_REMINDER_THRESHOLDS = {
+  soft:    {count: 10, minutes:  30},  // 🟡 軽い注意
+  warn:    {count: 30, minutes:  90},  // 🟠 中程度
+  urgent:  {count: 60, minutes: 180}   // 🔴 強い警告
+};
+const BACKUP_REMINDER_DISMISS_MIN = 20; // 「後で」で何分間非表示にするか
+const BACKUP_BEFOREUNLOAD_THRESHOLD = 5; // この件数以上ならタブ閉じ時に確認
+
+// モジュール内変数(セッション中のみ保持。リロードでリセット)
+let _backupReminderDismissedUntil = 0;   // dismiss が効いている期限(timestamp)
+let _backupReminderDismissedLevel = '';  // dismiss した時のレベル(これを上回ったら自動再表示)
+
+/** 現在のバックアップ未取得状況を計算
+ *  履歴系(択一/選択式/事例)+ 千本ノックの解答も合算する。
+ * @returns {{count:number, minutes:number, level:'none'|'soft'|'warn'|'urgent'}} */
+function getBackupStatus(){
+  const since = state.lastBackupAt || 0;
+  let count = 0;
+  for(const h of (state.history        || [])) if(h && h.ts && h.ts > since) count++;
+  for(const h of (state.selectHistory  || [])) if(h && h.ts && h.ts > since) count++;
+  for(const h of (state.caseHistory    || [])) if(h && h.ts && h.ts > since) count++;
+  // 改修38(千本ノック)の解答ログも未バックアップ件数に算入
+  for(const h of (state.senbonHistory  || [])) if(h && h.ts && h.ts > since) count++;
+  const minutes = since ? Math.max(0, Math.floor((Date.now() - since) / 60000)) : 0;
+  let level = 'none';
+  const T = BACKUP_REMINDER_THRESHOLDS;
+  if(count >= T.urgent.count || minutes >= T.urgent.minutes) level = 'urgent';
+  else if(count >= T.warn.count || minutes >= T.warn.minutes) level = 'warn';
+  else if(count >= T.soft.count || minutes >= T.soft.minutes) level = 'soft';
+  return {count, minutes, level};
+}
+
+/** リマインダーバナーの表示・非表示を制御 */
+function updateBackupReminderBanner(){
+  const banner = document.getElementById('backup-reminder-banner');
+  if(!banner) return;
+  const status = getBackupStatus();
+
+  // dismiss 判定: 期限内 AND レベル未エスカレーション なら非表示
+  const now = Date.now();
+  const dismissed = now < _backupReminderDismissedUntil;
+  const levelOrder = ['none','soft','warn','urgent'];
+  const curIdx = levelOrder.indexOf(status.level);
+  const dismIdx = levelOrder.indexOf(_backupReminderDismissedLevel || 'none');
+  const escalated = curIdx > dismIdx;
+
+  if(status.level === 'none' || (dismissed && !escalated)){
+    banner.style.display = 'none';
+    return;
+  }
+
+  // 表示内容を組み立て
+  banner.classList.remove('level-soft','level-warn','level-urgent');
+  banner.classList.add('level-' + status.level);
+  banner.style.display = 'flex';
+
+  const textEl = document.getElementById('br-count-text');
+  if(textEl){
+    let timeText = '';
+    if(status.minutes < 60){
+      timeText = status.minutes + '分前';
+    }else{
+      const h = Math.floor(status.minutes/60);
+      const m = status.minutes % 60;
+      timeText = h + '時間' + (m>0 ? m+'分' : '') + '前';
+    }
+    let msg = '';
+    if(status.level === 'urgent'){
+      msg = `<strong>未バックアップ ${status.count}問</strong> / 最終取得 ${escapeHtml(timeText)} — バックアップを取りましょう`;
+    }else if(status.level === 'warn'){
+      msg = `<strong>未バックアップ ${status.count}問</strong> / 最終取得 ${escapeHtml(timeText)}`;
+    }else{
+      msg = `未バックアップ <strong>${status.count}問</strong> / 最終取得 ${escapeHtml(timeText)}`;
+    }
+    textEl.innerHTML = msg;
+  }
+}
+
+/** 「後で」ボタンの handler */
+function _dismissBackupReminder(){
+  const status = getBackupStatus();
+  _backupReminderDismissedUntil = Date.now() + BACKUP_REMINDER_DISMISS_MIN * 60 * 1000;
+  _backupReminderDismissedLevel = status.level;
+  updateBackupReminderBanner();
+}
+
+/** beforeunload ハンドラ: 未バックアップ件数が一定以上なら確認ダイアログ */
+function _backupBeforeUnloadHandler(e){
+  const status = getBackupStatus();
+  if(status.count >= BACKUP_BEFOREUNLOAD_THRESHOLD){
+    // 最新ブラウザは独自メッセージを無視するが、preventDefault + returnValue で標準確認を出せる
+    e.preventDefault();
+    e.returnValue = `未バックアップの解答が ${status.count} 問あります。本当にこのページを閉じますか?`;
+    return e.returnValue;
+  }
+}
+
+// 1分ごとに「経過時間」の表示を自動更新(解答していなくても時間で表示が変わる)
+let _backupReminderInterval = null;
+function _startBackupReminderTicker(){
+  if(_backupReminderInterval) return;
+  _backupReminderInterval = setInterval(()=>{
+    try{ updateBackupReminderBanner() }catch(_){}
+  }, 60 * 1000);
+}
+
 async function backupAll(){
   try{
     // IndexedDB から全画像を取得し、メタとマージしてバックアップに含める
@@ -6561,6 +6772,10 @@ async function backupAll(){
     }
     const blob = new Blob([JSON.stringify(snapshot,null,2)],{type:'application/json'});
     download(blob,`sharoushi_backup_${Date.now()}.json`);
+    // 改修46: バックアップ取得成功時に最終取得時刻を記録(リマインダーバナーが消える)
+    state.lastBackupAt = Date.now();
+    saveState();
+    if(typeof updateBackupReminderBanner === 'function') updateBackupReminderBanner();
   }catch(err){
     alert('バックアップ作成に失敗しました: '+err.message);
   }
@@ -7210,6 +7425,8 @@ async function _applyMergeRestore(){
   state.whys ||= {};
   state.whyView ||= {mode:'subjects', subject:null, frameNo:null, indexId:null, subFrameKey:null};
   if(typeof state.whyIntro === 'undefined' || state.whyIntro === null) state.whyIntro = DEFAULT_WHY_INTRO;
+  // 改修46: マージ復元完了時点で「最終バックアップ取得済」とみなす
+  state.lastBackupAt = Date.now();
 
   saveState();
   closeMergeRestoreModal();
@@ -7314,6 +7531,8 @@ function restoreBackup(){
         state.whyView ||= {mode:'subjects', subject:null, frameNo:null, indexId:null, subFrameKey:null};
         // 改修03: 5why イントロ(ユーザー編集可)
         if(typeof state.whyIntro === 'undefined' || state.whyIntro === null) state.whyIntro = DEFAULT_WHY_INTRO;
+        // 改修46: バックアップ復元完了時点で「最終バックアップ取得済」とみなす
+        state.lastBackupAt = Date.now();
         // === Migration v3: 予想問対応 ===
         // (a) 既存問題のkind未設定 → 'past' とみなす
         for(const q of state.questions){if(q.kind == null) q.kind = 'past'}
@@ -15876,6 +16095,20 @@ function init(){
   if(mergeModal) mergeModal.addEventListener('click', e=>{
     if(e.target === mergeModal) closeMergeRestoreModal();
   });
+
+  // 改修46: バックアップ忘れ防止リマインダー
+  const brBackupNow = document.getElementById('br-backup-now');
+  if(brBackupNow) brBackupNow.addEventListener('click', ()=>{
+    // バックアップ実行(成功時に backupAll 内で banner が消える)
+    backupAll();
+  });
+  const brDismiss = document.getElementById('br-dismiss');
+  if(brDismiss) brDismiss.addEventListener('click', _dismissBackupReminder);
+  // タブ閉じ/リロード時の確認(防御線2)
+  window.addEventListener('beforeunload', _backupBeforeUnloadHandler);
+  // 起動時に1回バナー状態を計算 + 1分ごとの自動更新を開始
+  updateBackupReminderBanner();
+  _startBackupReminderTicker();
 
   // Keyboard shortcuts
   document.addEventListener('keydown',e=>{
