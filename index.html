@@ -238,6 +238,13 @@
   .bm.b{background:#4A6B8A}
   .bm.w{background:#7E5AA2}   /* 改修01: why付箋(紫) */
   .bm.s{background:#D9822B}  /* 改修01: 千本付箋(橙) */
+  /* 改修(付箋追加): 撃墜=ブラック / 修正=薄黄 / VS=青赤2色 */
+  .bm.k{background:#2B2B2B}                 /* 撃墜(ブラック) */
+  .bm.f{background:#F5E9A8}                 /* 修正(薄黄) */
+  .bm.f.active::after{color:#7A5A1A}        /* 薄黄は✓を濃色に */
+  .bm.v{                                    /* VS: 対角線(右上→左下)で左=赤/右=青 */
+    background:linear-gradient(to bottom right,#D14B3F 0%,#D14B3F 49.5%,#fff 49.5%,#fff 50.5%,#4A6B8A 50.5%,#4A6B8A 100%);
+  }
   .bm.active{border-color:var(--ink);box-shadow:0 0 0 2px var(--bg)}
   .bm.active::after{content:"✓";color:#fff;font-size:11px;font-weight:700}
   /* 改修01: 付箋チップ(色の四角の下に種別ラベルを縦表示) */
@@ -262,6 +269,26 @@
   .mynote-save:hover{filter:brightness(1.08)}
   .mynote-cancel{font-size:13px;padding:6px 18px;border:1px solid var(--line);background:var(--paper);color:var(--ink-muted);border-radius:5px;cursor:pointer}
   .mynote-cancel:hover{background:var(--bg)}
+
+  /* 改修48_改修04: VS_識別_ロックwhy® メモ欄(薄紫テーマ) */
+  .vsnote-h{display:flex;align-items:center;gap:8px}
+  .vsnote-badge{font-size:10px;font-weight:700;color:#fff;background:#7E5AA2;border-radius:4px;padding:2px 7px;letter-spacing:.04em}
+  .vsnote-editbtn{margin-left:auto;font-size:12px;padding:3px 12px;border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:5px;cursor:pointer}
+  .vsnote-editbtn:hover{background:var(--bg)}
+  .vsnote-body{border-left:3px solid #7E5AA2;padding-left:12px;background:rgba(126,90,162,.10);border-radius:0 6px 6px 0}
+  .vsnote-body .vsnote-ul{margin:4px 0;padding-left:1.4em}
+  .vsnote-body .vsnote-ul li{margin:2px 0}
+  .vsnote-edit{margin-top:6px}
+  .vsnote-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+  .vsnote-tool{font-size:12px;padding:4px 12px;border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:5px;cursor:pointer}
+  .vsnote-tool:hover{background:var(--bg)}
+  .vsnote-hint{font-size:11px;color:var(--ink-muted)}
+  .vsnote-textarea{width:100%;min-height:120px;box-sizing:border-box;padding:10px;border:1px solid var(--line);border-radius:6px;font-family:inherit;font-size:14px;line-height:1.7;resize:vertical;background:rgba(126,90,162,.05);color:var(--ink)}
+  .vsnote-actions{display:flex;gap:10px;margin-top:8px}
+  .vsnote-save{font-size:13px;padding:6px 20px;border:none;background:#7E5AA2;color:#fff;border-radius:5px;cursor:pointer;font-weight:600}
+  .vsnote-save:hover{filter:brightness(1.08)}
+  .vsnote-cancel{font-size:13px;padding:6px 18px;border:1px solid var(--line);background:var(--paper);color:var(--ink-muted);border-radius:5px;cursor:pointer}
+  .vsnote-cancel:hover{background:var(--bg)}
 
   /* Sidebar */
   aside{display:flex;flex-direction:column;gap:16px}
@@ -307,6 +334,44 @@
   select:focus,input:focus,textarea:focus{outline:none;border-color:var(--ink)}
   label.field{display:block;font-size:11px;color:var(--ink-muted);margin-bottom:4px;letter-spacing:.05em}
   .field-group+.field-group{margin-top:10px}
+
+  /* ===== 改修48_改修02: バックアップ通知設定 ===== */
+  .brs-mode-group{display:flex;gap:4px;margin-bottom:12px}
+  .brs-mode-btn{
+    flex:1;background:none;border:1px solid var(--line);cursor:pointer;
+    padding:8px 6px;border-radius:5px;font-family:inherit;
+    font-size:12px;color:var(--ink-soft);text-align:center;transition:all .12s;
+  }
+  .brs-mode-btn:hover{background:var(--line-soft);color:var(--ink)}
+  .brs-mode-btn.active{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .brs-count-group{display:flex;flex-wrap:wrap;gap:4px}
+  .brs-count-btn{
+    flex:1 1 calc(33% - 4px);min-width:48px;background:none;border:1px solid var(--line);
+    cursor:pointer;padding:8px 4px;border-radius:5px;font-family:inherit;
+    font-size:13px;color:var(--ink-soft);text-align:center;transition:all .12s;
+  }
+  .brs-count-btn:hover{background:var(--line-soft);color:var(--ink)}
+  .brs-count-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .brs-hint{font-size:11px;color:var(--ink-muted);line-height:1.6;margin:8px 0 0 0}
+  .brs-times-list{display:flex;flex-direction:column;gap:5px;margin-bottom:8px}
+  .brs-time-item{
+    display:flex;align-items:center;gap:8px;padding:6px 10px;
+    background:var(--bg);border:1px solid var(--line);border-radius:5px;font-size:14px;
+  }
+  .brs-time-item .brs-time-val{flex:1;font-weight:600;color:var(--ink);letter-spacing:.05em}
+  .brs-time-item .brs-time-del{
+    background:none;border:none;cursor:pointer;color:var(--ink-muted);
+    font-size:16px;line-height:1;padding:2px 6px;border-radius:4px;
+  }
+  .brs-time-item .brs-time-del:hover{background:var(--accent-soft);color:var(--accent)}
+  .brs-time-add-row{display:flex;gap:6px;align-items:center}
+  .brs-time-input{flex:1;min-width:0}
+  .brs-time-add{
+    flex:0 0 auto;background:var(--ink);color:var(--bg);border:none;cursor:pointer;
+    padding:8px 12px;border-radius:5px;font-family:inherit;font-size:12px;white-space:nowrap;
+  }
+  .brs-time-add:hover{opacity:.9}
+  .brs-time-add:disabled{opacity:.4;cursor:not-allowed}
 
   /* Manage view */
   .manage-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
@@ -3052,6 +3117,9 @@
           <option value="b">青(紐づけ)</option>
           <option value="w">紫(why)</option>
           <option value="s">橙(千本)</option>
+          <option value="k">黒(撃墜)</option>
+          <option value="f">薄黄(修正)</option>
+          <option value="v">青赤(VS)</option>
         </select>
       </div>
       <div class="field-group">
@@ -3061,6 +3129,45 @@
           <option value="has">追記あり</option>
           <option value="none">追記なし</option>
         </select>
+      </div>
+    </div>
+
+    <!-- ===== 改修48_改修02: 自動バックアップ通知の設定 ===== -->
+    <div class="stat-card" id="backup-reminder-settings-card">
+      <h3>バックアップ通知</h3>
+      <div class="brs-mode-group" role="radiogroup" aria-label="通知方式">
+        <button type="button" class="brs-mode-btn" data-brsmode="count">問題数ごと</button>
+        <button type="button" class="brs-mode-btn" data-brsmode="time">時刻で通知</button>
+        <button type="button" class="brs-mode-btn" data-brsmode="off">通知しない</button>
+      </div>
+
+      <!-- 問題数方式 -->
+      <div class="brs-panel" id="brs-panel-count">
+        <label class="field">何問ごとに通知するか</label>
+        <div class="brs-count-group">
+          <button type="button" class="brs-count-btn" data-brscount="10">10問</button>
+          <button type="button" class="brs-count-btn" data-brscount="20">20問</button>
+          <button type="button" class="brs-count-btn" data-brscount="30">30問</button>
+          <button type="button" class="brs-count-btn" data-brscount="40">40問</button>
+          <button type="button" class="brs-count-btn" data-brscount="50">50問</button>
+        </div>
+        <p class="brs-hint">未バックアップが指定問数に達したら通知します。</p>
+      </div>
+
+      <!-- 時間方式 -->
+      <div class="brs-panel" id="brs-panel-time" style="display:none">
+        <label class="field">通知する時刻(最大5件)</label>
+        <div id="brs-times-list" class="brs-times-list"></div>
+        <div class="brs-time-add-row">
+          <input type="time" id="brs-time-input" class="brs-time-input" value="07:00">
+          <button type="button" class="brs-time-add" id="brs-time-add-btn">＋追加</button>
+        </div>
+        <p class="brs-hint">設定例 — 通常日:07:00 / 12:00 / 17:00、休日:07:00 / 11:00 / 17:00 / 23:00。<br>その時刻を過ぎて未バックアップがあるときに通知します(「後で」でその枠は当日再表示しません)。</p>
+      </div>
+
+      <!-- 通知しない -->
+      <div class="brs-panel" id="brs-panel-off" style="display:none">
+        <p class="brs-hint">バックアップ通知バナーは表示されません。<br>(タブを閉じる際の確認ダイアログは安全のため残ります。)</p>
       </div>
     </div>
   </aside>
@@ -3124,6 +3231,11 @@
           <option value="y">黄</option>
           <option value="g">緑</option>
           <option value="b">青</option>
+          <option value="w">紫(why)</option>
+          <option value="s">橙(千本)</option>
+          <option value="k">黒(撃墜)</option>
+          <option value="f">薄黄(修正)</option>
+          <option value="v">青赤(VS)</option>
         </select>
       </div>
     </div>
@@ -4744,7 +4856,10 @@ function loadState(){
       s.history ||= [];
       s.bookmarks ||= {};
       s.myNotes ||= {};
+      s.vsNotes ||= {};
       s.frameAttempts ||= {};
+      // 改修48_改修02: 自動バックアップ通知設定(後方互換)
+      s.backupReminderSettings = normalizeBackupReminderSettings(s.backupReminderSettings);
       s.session ||= {mode:'seq',currentIndex:0,filterLaw:'',filterYear:'',filterBm:'',filterCat:'',filterFrame:''};
       s.session.answered ||= false;
       s.session.userAnswer ??= null;
@@ -4957,6 +5072,7 @@ function loadState(){
     history: [],
     bookmarks: {},
     myNotes: {},
+    vsNotes: {},
     frameAttempts: {},
     session: {mode:'seq',currentIndex:0,filterLaw:'',filterYear:'',filterBm:'',filterMyNote:'',filterCat:'',filterFrame:'',frameMode:null,answered:false,userAnswer:null,kindMode:'both'},
     selectQuestions: SAMPLE_SELECT_QUESTIONS.slice(),
@@ -4981,7 +5097,12 @@ function loadState(){
     articleView: {mode:'subjects', subject:null, frameNo:null, indexId:null, subFrameKey:null},
     whys: {},
     whyView: {mode:'subjects', subject:null, frameNo:null, indexId:null, subFrameKey:null},
-    whyIntro: DEFAULT_WHY_INTRO
+    whyIntro: DEFAULT_WHY_INTRO,
+    // 改修48_改修02: 自動バックアップ通知設定
+    //  mode: 'count'(問題数方式) / 'time'(時間方式) / 'off'(通知しない)
+    //  countN: 問題数方式のしきい値(10/20/30/40/50)
+    //  times: 時間方式の通知時刻(最大5件, "HH:MM" 文字列)
+    backupReminderSettings: {mode:'count', countN:30, times:['07:00','12:00','17:00']}
   };
 }
 function saveState(){
@@ -5318,6 +5439,11 @@ function renderQuiz(){
   card.querySelectorAll('[data-note-save]').forEach(b=>b.addEventListener('click',()=>saveMyNote(b.dataset.noteSave)));
   card.querySelectorAll('[data-note-cancel]').forEach(b=>b.addEventListener('click',()=>cancelEditMyNote()));
   card.querySelectorAll('[data-note-syntax]').forEach(b=>b.addEventListener('click',()=>insertNoteSyntax(b.dataset.noteSyntax)));
+  // 改修48_改修04: VS_識別_ロックwhy® メモのボタン
+  card.querySelectorAll('[data-vsnote-edit]').forEach(b=>b.addEventListener('click',()=>startEditVsNote(b.dataset.vsnoteEdit)));
+  card.querySelectorAll('[data-vsnote-save]').forEach(b=>b.addEventListener('click',()=>saveVsNote(b.dataset.vsnoteSave)));
+  card.querySelectorAll('[data-vsnote-cancel]').forEach(b=>b.addEventListener('click',()=>cancelEditVsNote()));
+  card.querySelectorAll('[data-vsnote-syntax]').forEach(b=>b.addEventListener('click',()=>insertVsNoteSyntax(b.dataset.vsnoteSyntax)));
   card.querySelectorAll('.linked-fig-chip').forEach(chip=>{
     chip.addEventListener('click',()=>{
       const i = parseInt(chip.dataset.figidx, 10);
@@ -5408,6 +5534,37 @@ function renderMyNoteSection(q){
       <button type="button" class="mynote-editbtn" data-note-edit="${q.id}">＋ 追記する</button></div>`;
 }
 
+/* 改修48_改修04: VS_識別_ロックwhy® メモ欄(表示/編集)。renderResult から ③5why の後に呼ばれる。 */
+function renderVsNoteSection(q){
+  const editing = state._editingVsNote === q.id;
+  const note = getVsNote(q.id);
+  if(editing){
+    return `
+      <div class="section-h vsnote-h">VS_識別_ロックwhy®</div>
+      <div class="vsnote-edit">
+        <div class="vsnote-toolbar">
+          <button type="button" class="vsnote-tool" data-vsnote-syntax="bold">太字</button>
+          <button type="button" class="vsnote-tool" data-vsnote-syntax="list">・箇条書き</button>
+          <span class="vsnote-hint">**で囲むと太字 / 行頭・で箇条書き</span>
+        </div>
+        <textarea id="vsnote-textarea" class="vsnote-textarea" placeholder="比較・識別のポイント(VS_識別_ロックwhy®)を入力します。似た論点の違い、引っかけの分かれ目、判断の決め手などを蓄積していきます。">${escapeHtml(note)}</textarea>
+        <div class="vsnote-actions">
+          <button type="button" class="vsnote-save" data-vsnote-save="${q.id}">保存</button>
+          <button type="button" class="vsnote-cancel" data-vsnote-cancel="1">キャンセル</button>
+        </div>
+      </div>`;
+  }
+  if(hasVsNote(q.id)){
+    return `
+      <div class="section-h vsnote-h">VS_識別_ロックwhy® <span class="vsnote-badge">記載あり</span>
+        <button type="button" class="vsnote-editbtn" data-vsnote-edit="${q.id}">編集</button></div>
+      <div class="section-body vsnote-body">${renderVsNoteHtml(note)}</div>`;
+  }
+  return `
+    <div class="section-h vsnote-h">VS_識別_ロックwhy®
+      <button type="button" class="vsnote-editbtn" data-vsnote-edit="${q.id}">＋ 記載する</button></div>`;
+}
+
 function renderResult(q,correct){
   // 紐付けブロックが1件でもあれば articleText はデフォルト折りたたみ(優先表示は紐付けブロック)
   // 紐付けが空なら従来通り articleText を展開表示
@@ -5431,6 +5588,7 @@ function renderResult(q,correct){
       </div>
       ${renderLinkedArticlesSection(q, 'quiz')}
       ${(() => { try { return renderLinkedWhysSection(q, 'quiz'); } catch(e) { console.error('[5why] renderLinkedWhysSection(quiz) error:', e); return ''; } })()}
+      ${(() => { try { return renderVsNoteSection(q); } catch(e) { console.error('[改修48_04] renderVsNoteSection(quiz) error:', e); return ''; } })()}
       ${q.articleText?`<div class="section-h">条文等(問題付属) <button class="article-toggle">${artBtnLbl}</button></div><div class="article-box"${artBoxStyle}>${escapeHtml(q.articleText).replace(/\n/g,'<br>')}</div>`:''}
     </div>
   `;
@@ -5568,11 +5726,11 @@ function wireQuizNavButtons(total){
 
 /* 改修01: 付箋の色と種別ラベルの対応(択一・選択・弱点 全モード共用)
    r=重要 / p=事例 / y=注意 / g=確認 / b=紐づけ / w=why / s=千本
-   ※ w(why)・s(千本) は択一モードのみで表示。ラベル定義は全モード共用で問題ない
-     (選択・弱点の描画は r〜b の5色配列のみを使うため w/s は出現しない)。 */
-const BM_LABELS = { r:'重要', p:'事例', y:'注意', g:'確認', b:'紐づけ', w:'why', s:'千本' };
-/* 改修01: 択一モードで表示する付箋色の並び(既存5色 + why + 千本) */
-const BM_COLORS_TANITSU = ['r','p','y','g','b','w','s'];
+   k=撃墜(黒) / f=修正(薄黄) / v=VS(青赤2色)
+   ※ 付箋追加改修により、択一・選択・弱点の全モードで全色を表示するように統一。 */
+const BM_LABELS = { r:'重要', p:'事例', y:'注意', g:'確認', b:'紐づけ', w:'why', s:'千本', k:'撃墜', f:'修正', v:'VS' };
+/* 改修01: 択一モードで表示する付箋色の並び(既存5色 + why + 千本 + 撃墜/修正/VS) */
+const BM_COLORS_TANITSU = ['r','p','y','g','b','w','s','k','f','v'];
 /* 付箋1色分のHTMLを生成。activeなら✓付き表示。ラベルは色の四角の下に縦表示。 */
 function renderBmChip(color, isActive){
   return `<div class="bm-chip">`
@@ -5664,6 +5822,79 @@ function insertNoteSyntax(kind){
     ta.selectionEnd   = before.length + 2 + inner.length;
   }else if(kind==='list'){
     // 行頭に「・」を付ける
+    const needNl = (before.length>0 && !before.endsWith('\n')) ? '\n' : '';
+    ta.value = before + needNl + '・' + (sel||'') + after;
+    ta.focus();
+    const pos = before.length + needNl.length + 1 + (sel?sel.length:0);
+    ta.selectionStart = ta.selectionEnd = pos;
+  }
+}
+
+/* ===== 改修48_改修04: VS_識別_ロックwhy® メモ =====
+   TAC「比較認識法®」と同趣旨だが、オリジナル仕様として独自にデータを蓄積する。
+   ⑤5why の後に表示し、内容を state.vsNotes[qid] に保存する(択一の問題ID単位)。
+   記法・保存挙動は改修02(自分の追記メモ)と同等で、表示色は薄紫テーマ。 */
+function getVsNote(qid){
+  return (state.vsNotes && state.vsNotes[qid]) ? state.vsNotes[qid] : '';
+}
+function hasVsNote(qid){
+  return getVsNote(qid).trim().length > 0;
+}
+function setVsNote(qid, text){
+  state.vsNotes ||= {};
+  const t = (text||'').trim();
+  if(t) state.vsNotes[qid] = text;   // trim前の元テキストを保存
+  else delete state.vsNotes[qid];     // 空なら削除(=記載なし扱い)
+  saveState();
+}
+/* 簡易記法を安全にHTMLへ変換(追記メモと同仕様)。 */
+function renderVsNoteHtml(text){
+  if(!text) return '';
+  let safe = escapeHtml(text);
+  safe = safe.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  const lines = safe.split('\n');
+  let html = '';
+  let inList = false;
+  for(const ln of lines){
+    const m = ln.match(/^\s*(?:・|-\s)(.*)$/);
+    if(m){
+      if(!inList){ html += '<ul class="vsnote-ul">'; inList = true; }
+      html += '<li>' + m[1] + '</li>';
+    }else{
+      if(inList){ html += '</ul>'; inList = false; }
+      html += ln + '<br>';
+    }
+  }
+  if(inList) html += '</ul>';
+  html = html.replace(/<br>$/, '');
+  return html;
+}
+function startEditVsNote(qid){
+  state._editingVsNote = qid;
+  renderQuiz();
+}
+function cancelEditVsNote(){
+  state._editingVsNote = null;
+  renderQuiz();
+}
+function saveVsNote(qid){
+  const ta = document.getElementById('vsnote-textarea');
+  if(ta) setVsNote(qid, ta.value);
+  state._editingVsNote = null;
+  renderQuiz();
+}
+function insertVsNoteSyntax(kind){
+  const ta = document.getElementById('vsnote-textarea');
+  if(!ta) return;
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  const before = ta.value.slice(0,s), sel = ta.value.slice(s,e), after = ta.value.slice(e);
+  if(kind==='bold'){
+    const inner = sel || '太字';
+    ta.value = before + '**' + inner + '**' + after;
+    ta.focus();
+    ta.selectionStart = before.length + 2;
+    ta.selectionEnd   = before.length + 2 + inner.length;
+  }else if(kind==='list'){
     const needNl = (before.length>0 && !before.endsWith('\n')) ? '\n' : '';
     ta.value = before + needNl + '・' + (sel||'') + after;
     ta.focus();
@@ -6072,6 +6303,8 @@ function renderSidebar(){
   // 改修02: 自分の追記フィルタの値を復元
   const fMyNoteEl = document.getElementById('filter-mynote');
   if(fMyNoteEl) fMyNoteEl.value = state.session.filterMyNote || '';
+  // 改修48_改修02: バックアップ通知設定UIを現在値で再描画
+  try{ renderBackupReminderSettings(); }catch(_){}
 }
 function fillSelect(id,options,current){
   const sel = document.getElementById(id);
@@ -6686,7 +6919,8 @@ async function runStorageDiagnostic(){
    - 防御線2: タブ閉じ・リロード時の beforeunload 確認ダイアログ
    ============================================================ */
 
-// しきい値定義(変更したい場合はここを編集)
+// しきい値定義(改修48_改修02 で「問題数方式」のしきい値はユーザー設定に移行。
+//  下記は時間経過による旧来の補助しきい値で、現在は beforeunload 判定にのみ間接利用)
 const BACKUP_REMINDER_THRESHOLDS = {
   soft:    {count: 10, minutes:  30},  // 🟡 軽い注意
   warn:    {count: 30, minutes:  90},  // 🟠 中程度
@@ -6695,9 +6929,36 @@ const BACKUP_REMINDER_THRESHOLDS = {
 const BACKUP_REMINDER_DISMISS_MIN = 20; // 「後で」で何分間非表示にするか
 const BACKUP_BEFOREUNLOAD_THRESHOLD = 5; // この件数以上ならタブ閉じ時に確認
 
+// 改修48_改修02: 問題数方式で選べるしきい値
+const BACKUP_COUNT_OPTIONS = [10, 20, 30, 40, 50];
+const BACKUP_TIMES_MAX = 5; // 時間方式で設定できる時刻の最大数
+
+/** 通知設定を正規化(欠損・不正値を既定値で補完)。後方互換にも使う。 */
+function normalizeBackupReminderSettings(s){
+  s = (s && typeof s === 'object') ? s : {};
+  let mode = s.mode;
+  if(mode !== 'count' && mode !== 'time' && mode !== 'off') mode = 'count';
+  let countN = parseInt(s.countN, 10);
+  if(!BACKUP_COUNT_OPTIONS.includes(countN)) countN = 30;
+  let times = Array.isArray(s.times) ? s.times.slice(0, BACKUP_TIMES_MAX) : [];
+  times = times.filter(t => typeof t === 'string' && /^([01]?\d|2[0-3]):[0-5]\d$/.test(t.trim()))
+               .map(t => {
+                 // "7:0" 等を "07:00" に整える
+                 const m = t.trim().match(/^(\d{1,2}):(\d{1,2})$/);
+                 if(!m) return t.trim();
+                 return String(m[1]).padStart(2,'0') + ':' + String(m[2]).padStart(2,'0');
+               });
+  // 重複除去 + 昇順
+  times = Array.from(new Set(times)).sort();
+  if(!times.length) times = ['07:00','12:00','17:00'];
+  return {mode, countN, times};
+}
+
 // モジュール内変数(セッション中のみ保持。リロードでリセット)
 let _backupReminderDismissedUntil = 0;   // dismiss が効いている期限(timestamp)
-let _backupReminderDismissedLevel = '';  // dismiss した時のレベル(これを上回ったら自動再表示)
+// 改修48_改修02: 時間方式で「今日すでに発火した時刻」を記録(日付が変わるとリセット)
+let _backupTimeFiredDate = '';           // 'YYYY-MM-DD'
+let _backupTimeFired = {};               // { "07:00": true, ... }
 
 /** 現在のバックアップ未取得状況を計算
  *  履歴系(択一/選択式/事例)+ 千本ノックの解答も合算する。
@@ -6719,28 +6980,73 @@ function getBackupStatus(){
   return {count, minutes, level};
 }
 
+/** 通知設定を取得(正規化済みを返す) */
+function getBackupReminderSettings(){
+  state.backupReminderSettings = normalizeBackupReminderSettings(state.backupReminderSettings);
+  return state.backupReminderSettings;
+}
+
+/** "HH:MM" を当日の分(0-1439)に変換 */
+function _hhmmToMinutes(t){
+  const m = /^(\d{1,2}):(\d{1,2})$/.exec(t||'');
+  if(!m) return null;
+  return parseInt(m[1],10)*60 + parseInt(m[2],10);
+}
+function _todayKey(){
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+/** 時間方式: 今この瞬間に通知を出すべきか判定。
+ *  今日の予定時刻のうち、現在時刻を過ぎていて、まだ「発火済み(=既に閉じた/バックアップした)」
+ *  になっていないものが1つでもあれば true。未バックアップ件数が0なら出さない。 */
+function _shouldShowTimeReminder(status){
+  if(status.count <= 0) return false;
+  const today = _todayKey();
+  if(_backupTimeFiredDate !== today){ _backupTimeFiredDate = today; _backupTimeFired = {}; }
+  const settings = getBackupReminderSettings();
+  const nowMin = (()=>{ const d=new Date(); return d.getHours()*60 + d.getMinutes(); })();
+  for(const t of settings.times){
+    const tm = _hhmmToMinutes(t);
+    if(tm == null) continue;
+    if(nowMin >= tm && !_backupTimeFired[t]) return true;
+  }
+  return false;
+}
+
 /** リマインダーバナーの表示・非表示を制御 */
 function updateBackupReminderBanner(){
   const banner = document.getElementById('backup-reminder-banner');
   if(!banner) return;
   const status = getBackupStatus();
+  const settings = getBackupReminderSettings();
 
-  // dismiss 判定: 期限内 AND レベル未エスカレーション なら非表示
+  // 改修48_改修02: モードによる表示ゲート
+  let shouldShow = false;
+  if(settings.mode === 'off'){
+    shouldShow = false;
+  }else if(settings.mode === 'count'){
+    shouldShow = status.count >= settings.countN;
+  }else if(settings.mode === 'time'){
+    shouldShow = _shouldShowTimeReminder(status);
+  }
+
+  // dismiss 判定: 期限内なら一時的に非表示(モード共通)
   const now = Date.now();
   const dismissed = now < _backupReminderDismissedUntil;
-  const levelOrder = ['none','soft','warn','urgent'];
-  const curIdx = levelOrder.indexOf(status.level);
-  const dismIdx = levelOrder.indexOf(_backupReminderDismissedLevel || 'none');
-  const escalated = curIdx > dismIdx;
 
-  if(status.level === 'none' || (dismissed && !escalated)){
+  if(!shouldShow || dismissed){
     banner.style.display = 'none';
     return;
   }
 
-  // 表示内容を組み立て
+  // バナーのレベル(色)は未バックアップ件数で簡易判定
+  let level = 'soft';
+  if(status.count >= BACKUP_REMINDER_THRESHOLDS.urgent.count) level = 'urgent';
+  else if(status.count >= BACKUP_REMINDER_THRESHOLDS.warn.count) level = 'warn';
+
   banner.classList.remove('level-soft','level-warn','level-urgent');
-  banner.classList.add('level-' + status.level);
+  banner.classList.add('level-' + level);
   banner.style.display = 'flex';
 
   const textEl = document.getElementById('br-count-text');
@@ -6754,9 +7060,9 @@ function updateBackupReminderBanner(){
       timeText = h + '時間' + (m>0 ? m+'分' : '') + '前';
     }
     let msg = '';
-    if(status.level === 'urgent'){
+    if(level === 'urgent'){
       msg = `<strong>未バックアップ ${status.count}問</strong> / 最終取得 ${escapeHtml(timeText)} — バックアップを取りましょう`;
-    }else if(status.level === 'warn'){
+    }else if(level === 'warn'){
       msg = `<strong>未バックアップ ${status.count}問</strong> / 最終取得 ${escapeHtml(timeText)}`;
     }else{
       msg = `未バックアップ <strong>${status.count}問</strong> / 最終取得 ${escapeHtml(timeText)}`;
@@ -6767,9 +7073,18 @@ function updateBackupReminderBanner(){
 
 /** 「後で」ボタンの handler */
 function _dismissBackupReminder(){
-  const status = getBackupStatus();
+  // 時間方式: 現在時刻までに到来済みの予定時刻を「本日発火済み」にして、同じ枠での再表示を止める
+  const settings = getBackupReminderSettings();
+  if(settings.mode === 'time'){
+    const today = _todayKey();
+    if(_backupTimeFiredDate !== today){ _backupTimeFiredDate = today; _backupTimeFired = {}; }
+    const nowMin = (()=>{ const d=new Date(); return d.getHours()*60 + d.getMinutes(); })();
+    for(const t of settings.times){
+      const tm = _hhmmToMinutes(t);
+      if(tm != null && nowMin >= tm) _backupTimeFired[t] = true;
+    }
+  }
   _backupReminderDismissedUntil = Date.now() + BACKUP_REMINDER_DISMISS_MIN * 60 * 1000;
-  _backupReminderDismissedLevel = status.level;
   updateBackupReminderBanner();
 }
 
@@ -6791,6 +7106,113 @@ function _startBackupReminderTicker(){
   _backupReminderInterval = setInterval(()=>{
     try{ updateBackupReminderBanner() }catch(_){}
   }, 60 * 1000);
+}
+
+/* ===== 改修48_改修02: バックアップ通知設定UI ===== */
+
+/** 設定カードを現在の state 値で再描画 */
+function renderBackupReminderSettings(){
+  const card = document.getElementById('backup-reminder-settings-card');
+  if(!card) return;
+  const s = getBackupReminderSettings();
+
+  // モードボタンの active
+  card.querySelectorAll('.brs-mode-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.brsmode === s.mode);
+  });
+  // パネルの表示切替
+  const pc = document.getElementById('brs-panel-count');
+  const pt = document.getElementById('brs-panel-time');
+  const po = document.getElementById('brs-panel-off');
+  if(pc) pc.style.display = (s.mode === 'count') ? '' : 'none';
+  if(pt) pt.style.display = (s.mode === 'time')  ? '' : 'none';
+  if(po) po.style.display = (s.mode === 'off')   ? '' : 'none';
+
+  // 問題数ボタンの active
+  card.querySelectorAll('.brs-count-btn').forEach(b=>{
+    b.classList.toggle('active', parseInt(b.dataset.brscount,10) === s.countN);
+  });
+
+  // 時刻リスト
+  const list = document.getElementById('brs-times-list');
+  if(list){
+    if(!s.times.length){
+      list.innerHTML = '<p class="brs-hint" style="margin:0">時刻が未設定です。下の欄から追加してください。</p>';
+    }else{
+      list.innerHTML = s.times.map(t=>(
+        `<div class="brs-time-item"><span class="brs-time-val">${escapeHtml(t)}</span>`
+        + `<button type="button" class="brs-time-del" data-brstimedel="${escapeHtml(t)}" aria-label="${escapeHtml(t)} を削除" title="削除">×</button></div>`
+      )).join('');
+    }
+  }
+  // 追加ボタンの活性(最大数まで)
+  const addBtn = document.getElementById('brs-time-add-btn');
+  if(addBtn) addBtn.disabled = s.times.length >= BACKUP_TIMES_MAX;
+}
+
+/** 設定カードのイベント配線(初期化時に1回だけ呼ぶ。委譲方式で再描画後も有効) */
+function wireBackupReminderSettings(){
+  const card = document.getElementById('backup-reminder-settings-card');
+  if(!card || card.dataset.brsWired) return;
+  card.dataset.brsWired = '1';
+
+  // モード切替
+  card.querySelectorAll('.brs-mode-btn').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const s = getBackupReminderSettings();
+      s.mode = b.dataset.brsmode;
+      saveState();
+      renderBackupReminderSettings();
+      // 「後で」抑制をリセットしてから即時反映
+      _backupReminderDismissedUntil = 0;
+      updateBackupReminderBanner();
+    });
+  });
+
+  // 問題数選択
+  card.querySelectorAll('.brs-count-btn').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const s = getBackupReminderSettings();
+      s.countN = parseInt(b.dataset.brscount,10);
+      saveState();
+      renderBackupReminderSettings();
+      _backupReminderDismissedUntil = 0;
+      updateBackupReminderBanner();
+    });
+  });
+
+  // 時刻削除(委譲)
+  const list = document.getElementById('brs-times-list');
+  if(list){
+    list.addEventListener('click', (e)=>{
+      const del = e.target.closest('[data-brstimedel]');
+      if(!del) return;
+      const s = getBackupReminderSettings();
+      s.times = s.times.filter(t => t !== del.dataset.brstimedel);
+      delete _backupTimeFired[del.dataset.brstimedel];
+      saveState();
+      renderBackupReminderSettings();
+    });
+  }
+
+  // 時刻追加
+  const addBtn = document.getElementById('brs-time-add-btn');
+  const input = document.getElementById('brs-time-input');
+  if(addBtn && input){
+    addBtn.addEventListener('click', ()=>{
+      const s = getBackupReminderSettings();
+      let v = (input.value||'').trim();
+      const m = /^(\d{1,2}):(\d{1,2})$/.exec(v);
+      if(!m){ alert('時刻の形式が正しくありません(例: 07:30)。'); return; }
+      v = String(m[1]).padStart(2,'0') + ':' + String(m[2]).padStart(2,'0');
+      if(parseInt(m[1],10) > 23 || parseInt(m[2],10) > 59){ alert('時刻の値が範囲外です。'); return; }
+      if(s.times.includes(v)){ alert('その時刻はすでに設定されています。'); return; }
+      if(s.times.length >= BACKUP_TIMES_MAX){ alert('時刻は最大' + BACKUP_TIMES_MAX + '件までです。'); return; }
+      s.times = Array.from(new Set([...s.times, v])).sort();
+      saveState();
+      renderBackupReminderSettings();
+    });
+  }
 }
 
 async function backupAll(){
@@ -6917,6 +7339,7 @@ function _mergeBackupsCore(oldD, newD){
     whys:{addedPaths:0},
     studyPlans:{addedPaths:0},
     myNotes:{addedPaths:0},
+    vsNotes:{addedPaths:0},
     studySessions:{addedPaths:0},
     senbon:{addedPaths:0},
     senbonHistory:{addedPaths:0},
@@ -7084,6 +7507,9 @@ function _mergeBackupsCore(oldD, newD){
   // 改修(追記メモ): 自分の追記メモも add-only マージ(片方にしかないメモを失わない)
   result.myNotes = (result.myNotes && typeof result.myNotes==='object') ? result.myNotes : {};
   deepMergeAddOnly(oldD.myNotes||{}, result.myNotes, stats.myNotes);
+  // 改修48_改修04: VS_識別_ロックwhy® メモも add-only マージ
+  result.vsNotes = (result.vsNotes && typeof result.vsNotes==='object') ? result.vsNotes : {};
+  deepMergeAddOnly(oldD.vsNotes||{}, result.vsNotes, stats.vsNotes);
 
   // 改修31d: タイパの計測セッション(studySessions)も差分マージ対象にする。
   //   studySessions は配列のため deepMergeAddOnly(オブジェクト専用)では扱えない。
@@ -7287,6 +7713,7 @@ function renderMergePreview(){
     stats.bookmarks.added + stats.articles.addedPaths + stats.whys.addedPaths +
     (stats.studyPlans?stats.studyPlans.addedPaths:0) +
     (stats.myNotes?stats.myNotes.addedPaths:0) +
+    (stats.vsNotes?stats.vsNotes.addedPaths:0) +
     (stats.studySessions?stats.studySessions.addedPaths:0) +
     stats.figures.imageSupplemented;
 
@@ -7322,6 +7749,7 @@ function renderMergePreview(){
   if(stats.whys.addedPaths>0) subrow('5why(階層)', stats.whys.addedPaths);
   if(stats.studyPlans && stats.studyPlans.addedPaths>0) subrow('勉強の予定', stats.studyPlans.addedPaths);
   if(stats.myNotes && stats.myNotes.addedPaths>0) subrow('自分の追記メモ', stats.myNotes.addedPaths);
+  if(stats.vsNotes && stats.vsNotes.addedPaths>0) subrow('VS_識別_ロックwhy®', stats.vsNotes.addedPaths);
   if(stats.studySessions && stats.studySessions.addedPaths>0) subrow('タイパ計測セッション', stats.studySessions.addedPaths);
   if(stats.senbon && stats.senbon.addedPaths>0) subrow('千本ノック(一問一答)', stats.senbon.addedPaths);
   if(stats.senbonHistory && stats.senbonHistory.addedPaths>0) subrow('千本ノック解答ログ', stats.senbonHistory.addedPaths);
@@ -7541,6 +7969,7 @@ function restoreBackup(){
         state.history ||= [];
         state.bookmarks ||= {};
         state.myNotes ||= {};
+        state.vsNotes ||= {};
         state.frameAttempts ||= {};
         state.selectQuestions ||= [];
         state.selectHistory ||= [];
@@ -7797,7 +8226,7 @@ function renderSelectQuiz(){
 
     <div class="bookmark-row">
       <span class="lbl">FUSEN</span>
-      ${['r','p','y','g','b'].map(c=>`<div class="bm ${c} ${bms.includes(c)?'active':''}" data-bm="${c}"></div>`).join('')}
+      ${BM_COLORS_TANITSU.map(c=>renderBmChip(c, bms.includes(c))).join('')}
       <span style="font-size:11px;color:var(--ink-muted);margin-left:auto">クリックでつける/外す</span>
     </div>
   `;
@@ -12415,7 +12844,7 @@ function _renderWeakInner(){
     ${answered?renderWeakResult(q,correct):''}
     <div class="bookmark-row">
       <span class="lbl">FUSEN</span>
-      ${['r','p','y','g','b'].map(c=>`<div class="bm ${c} ${bms.includes(c)?'active':''}" data-bm="${c}"></div>`).join('')}
+      ${BM_COLORS_TANITSU.map(c=>renderBmChip(c, bms.includes(c))).join('')}
       <span style="font-size:11px;color:var(--ink-muted);margin-left:auto">クリックでつける/外す</span>
     </div>
   </div>`;
@@ -13217,9 +13646,23 @@ function fmtHM(ts){
   return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
 }
 
+// 改修48_改修03: セッションが「実際に行われた日」のキーを返す。
+//   従来は予定日(dateKey)で実績を表示していたため、前日に予定したフレームを
+//   翌日に実施しても前日のタイムテーブルに計上されてしまっていた。
+//   実績(タイムテーブル/学習時間集計)は startTs(=実施開始時刻)から導いた
+//   「実施日」で計上する。startTs が無い古いデータは dateKey にフォールバック。
+//   ※ plan.done[dateKey](予定の完了フラグ)は予定日基準のまま維持する。
+function sessionActualDateKey(s){
+  if(s && s.startTs != null){
+    try{ return _gDateKey(new Date(s.startTs)); }catch(_){}
+  }
+  return s ? s.dateKey : null;
+}
+
 // 指定日 dateKey の「完了したセッション」を返す(タイムテーブル/集計用)
+//   改修48_改修03: 予定日ではなく「実施日」で絞り込む。
 function getSessionsForDate(dateKey){
-  return (state.studySessions||[]).filter(s=> s.dateKey===dateKey && s.status==='done' && s.startTs!=null && s.endTs!=null);
+  return (state.studySessions||[]).filter(s=> s.status==='done' && s.startTs!=null && s.endTs!=null && sessionActualDateKey(s)===dateKey);
 }
 
 /* ===== 予定編集モーダル ===== */
@@ -15648,7 +16091,8 @@ function renderStudyTimeView(){
   const byDay = {}; // dateKey -> {totalMs, activeMs}
   for(const s of (state.studySessions||[])){
     if(s.status!=='done') continue;
-    const dk = s.dateKey;
+    // 改修48_改修03: 予定日ではなく実施日で日別集計する
+    const dk = sessionActualDateKey(s);
     if(!dk) continue;
     byDay[dk] ||= {totalMs:0, activeMs:0};
     byDay[dk].totalMs += sessionTotalMs(s);
@@ -16327,6 +16771,8 @@ function init(){
   // 起動時に1回バナー状態を計算 + 1分ごとの自動更新を開始
   updateBackupReminderBanner();
   _startBackupReminderTicker();
+  // 改修48_改修02: バックアップ通知設定UIの配線 + 初期描画
+  try{ wireBackupReminderSettings(); renderBackupReminderSettings(); }catch(e){ console.error('[改修48_02] backup reminder settings init:', e); }
 
   // Keyboard shortcuts
   document.addEventListener('keydown',e=>{
