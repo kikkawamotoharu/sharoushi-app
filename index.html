@@ -179,6 +179,11 @@
     font-variant-numeric:tabular-nums;letter-spacing:.02em;
   }
   .btn-nav.btn-nav-step:hover{color:var(--indigo);border-color:var(--indigo)}
+  /* 改修48_改修05: 未解答へジャンプ(目立たせる) */
+  .btn-nav.btn-nav-unanswered{
+    background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600;
+  }
+  .btn-nav.btn-nav-unanswered:hover{filter:brightness(1.08);color:#fff}
 
   /* Result */
   .result{
@@ -5280,6 +5285,11 @@ function formatAnswerHistory(qid){
 
 /* ===== Render: quiz ===== */
 function renderQuiz(){
+  // 改修48_改修05: フレーム演習中に画面を描くたび、完了済みなら完了バナーへ移行させる。
+  //   (最終問で停止した既存の演習も、開き直し/再描画の瞬間に救済される。再入はガード済み)
+  if(state.session.frameMode && !state.session.frameCompleted && !_inCheckFrameComplete){
+    checkFrameComplete();
+  }
   const card = document.getElementById('quiz-card');
   const q = currentQuestion();
 
@@ -5680,16 +5690,59 @@ function computeNavStep(total){
   return null;
 }
 
+/* 改修48_改修05: フレーム演習で「まだ解答していない問題」のプール内インデックス一覧を返す。
+   現在のプール(getPool)順で、当該演習回の answeredIds に含まれない問題の位置を集める。
+   フレーム演習中でない、または進行中の演習が無い場合は空配列。 */
+function getFrameUnansweredIndices(){
+  const s = state.session;
+  if(!s.frameMode) return [];
+  const fm = s.frameMode;
+  const subject = fm.subject || fm.law;
+  let fmKind = fm.kind || 'pastA'; if(fmKind === 'past') fmKind = 'pastA';
+  const keyN = fm.subFrameKey ? fm.subFrameKey : fm.frameNo;
+  const k = frameKey(subject, keyN, fmKind);
+  const fa = state.frameAttempts[k];
+  if(!fa || !fa.current) return [];
+  const answered = new Set(Array.isArray(fa.current.answeredIds) ? fa.current.answeredIds : []);
+  const pool = getPool();
+  const out = [];
+  for(let i=0;i<pool.length;i++){
+    if(!answered.has(pool[i].id)) out.push(i);
+  }
+  return out;
+}
+
+/* 改修48_改修05: 次の未解答問題へジャンプ(現在位置より後ろを優先、無ければ先頭から探す)。
+   最終問で「次へ」が無効でも、解き残した問題へ確実に移動できるようにするための導線。 */
+function navToNextUnanswered(){
+  const idxs = getFrameUnansweredIndices();
+  if(!idxs.length) return;
+  const cur = state.session.currentIndex;
+  const after = idxs.find(i=>i>cur);
+  const target = (after != null) ? after : idxs[0];
+  navTo(target);
+}
+
 /* ナビ行 HTML を組み立てる(択一タブ用) — 改修1 */
 function renderQuizNavRow(idx, total){
   const step = computeNavStep(total);
   const atFirst = idx === 0;
   const atLast  = idx === total - 1;
+  // 改修48_改修05: フレーム演習中で未解答が残っている場合の「未解答へ」導線。
+  //   特に最終問では「次へ」が無効になるため、解き残しがあると先に進めなくなる事象への対策。
+  const unanswered = getFrameUnansweredIndices();
+  const remain = unanswered.length;
+  // 現在表示中の問題「以外」に未解答が残っていれば導線を出す
+  const hasOtherUnanswered = unanswered.some(i=>i!==idx);
+  const jumpUnansweredBtn = (state.session.frameMode && hasOtherUnanswered)
+    ? `<button class="btn-nav btn-nav-unanswered" id="btn-next-unanswered" title="まだ解答していない問題へ移動">未解答へ (残り${remain}問)</button>`
+    : '';
   if(step === null){
     // 5問未満:シンプル
     return `<div class="nav-row">
       <button class="btn-nav" id="btn-prev" ${atFirst?'disabled':''}>← 前へ</button>
       <button class="btn-nav" id="btn-next" ${atLast?'disabled':''}>次へ →</button>
+      ${jumpUnansweredBtn}
     </div>`;
   }
   // 5問以上:ステップボタン付き
@@ -5702,6 +5755,7 @@ function renderQuizNavRow(idx, total){
     <button class="btn-nav" id="btn-next" ${atLast?'disabled':''}>次へ →</button>
     <button class="btn-nav btn-nav-step" id="btn-jump-fwd" ${stepDisableNext?'disabled':''} title="${step}問後へ">${step}問後 ⟫</button>
     <button class="btn-nav" id="btn-last" ${atLast?'disabled':''} title="最後の問題へ">最後へ ⏭</button>
+    ${jumpUnansweredBtn}
   </div>`;
 }
 
@@ -5722,6 +5776,9 @@ function wireQuizNavButtons(total){
     if(bJB) bJB.addEventListener('click', ()=>navJump(-step));
     if(bJF) bJF.addEventListener('click', ()=>navJump(step));
   }
+  // 改修48_改修05: 未解答へジャンプ
+  const bUn = document.getElementById('btn-next-unanswered');
+  if(bUn) bUn.addEventListener('click', ()=>navToNextUnanswered());
 }
 
 /* 改修01: 付箋の色と種別ラベルの対応(択一・選択・弱点 全モード共用)
@@ -6144,6 +6201,16 @@ function abandonFrameAttempt(){
 }
 
 function checkFrameComplete(){
+  if(_inCheckFrameComplete) return;   // 改修48_改修05: 再入防止
+  _inCheckFrameComplete = true;
+  try{
+    _checkFrameCompleteImpl();
+  } finally {
+    _inCheckFrameComplete = false;
+  }
+}
+let _inCheckFrameComplete = false;
+function _checkFrameCompleteImpl(){
   if(!state.session.frameMode) return;
   const fm = state.session.frameMode;
   const subject = fm.subject || fm.law;
@@ -6171,13 +6238,25 @@ function checkFrameComplete(){
   {
     // この演習回(attemptNo)に属する解答履歴を集め、answeredIds を補完する
     const attemptNo = fa.current.attemptNo;
+    const startedAt = fa.current.startedAt || 0;
     const recovered = new Set(fa.current.answeredIds);
+    // この演習回の対象問題集合(questionIds)。時間窓フォールバックの誤混入を防ぐスコープ。
+    const scopeIds = new Set(fa.current.questionIds || []);
     for(const h of state.history){
       if(!h || !h.fm || !h.qid) continue;
       let hk = h.fm.k || 'pastA'; if(hk==='past') hk='pastA';
       // fm: {s:科目, f:フレーム参照(整数or"2.1"), k:kind, a:attemptNo}
-      if(h.fm.s===subject && String(h.fm.f)===String(keyN) && hk===fmKind &&
-         (h.fm.a==null || h.fm.a===attemptNo)){
+      const sameFrame = (h.fm.s===subject && String(h.fm.f)===String(keyN) && hk===fmKind);
+      if(!sameFrame) continue;
+      // ① attemptNo が一致(または未記録)なら採用
+      if(h.fm.a==null || h.fm.a===attemptNo){
+        recovered.add(h.qid);
+        continue;
+      }
+      // ② 改修48_改修05: attemptNo がズレていても、この演習開始後(時間窓内)に
+      //    当該フレームの対象問題を解答していれば採用する。
+      //    (attemptNo メタの取り違えで answeredIds が1問足りず永久未完了になる事象への保険)
+      if(startedAt && h.ts!=null && h.ts>=startedAt && scopeIds.has(h.qid)){
         recovered.add(h.qid);
       }
     }
