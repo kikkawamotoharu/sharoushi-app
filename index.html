@@ -250,8 +250,14 @@
   .bm.v{                                    /* VS: 対角線(右上→左下)で左=赤/右=青 */
     background:linear-gradient(to bottom right,#D14B3F 0%,#D14B3F 49.5%,#fff 49.5%,#fff 50.5%,#4A6B8A 50.5%,#4A6B8A 100%);
   }
+  .bm.t{background:#8A8D91}                  /* 改修51/52/53: 罠問(灰・「死=灰」) */
   .bm.active{border-color:var(--ink);box-shadow:0 0 0 2px var(--bg)}
   .bm.active::after{content:"✓";color:#fff;font-size:11px;font-weight:700}
+  /* 改修51: 絵文字マーク(💣/🪤)を四角の中央に重ねる。 */
+  .bm-mark{font-size:13px;line-height:1;pointer-events:none;filter:drop-shadow(0 0 1px rgba(0,0,0,.55))}
+  /* 改修51: マーク付き付箋は active でも ✓ を出さず、マークを残す(アイコンで識別)。
+     選択状態は枠線(border)で判別できる。 */
+  .bm.y.active::after, .bm.t.active::after{content:""}
   /* 改修01: 付箋チップ(色の四角の下に種別ラベルを縦表示) */
   .bm-chip{display:flex;flex-direction:column;align-items:center;gap:3px}
   .bm-label{font-size:10px;color:var(--ink-muted);letter-spacing:.02em;line-height:1;white-space:nowrap}
@@ -3117,7 +3123,8 @@
           <option value="">指定なし</option>
           <option value="r">赤(重要)</option>
           <option value="p">桃(事例)</option>
-          <option value="y">黄(注意)</option>
+          <option value="y">黄(地雷💣)</option>
+          <option value="t">灰(罠問☠)</option>
           <option value="g">緑(確認)</option>
           <option value="b">青(紐づけ)</option>
           <option value="w">紫(why)</option>
@@ -3244,7 +3251,8 @@
           <option value="">指定なし</option>
           <option value="r">赤</option>
           <option value="p">桃</option>
-          <option value="y">黄</option>
+          <option value="y">黄(地雷💣)</option>
+          <option value="t">灰(罠問☠)</option>
           <option value="g">緑</option>
           <option value="b">青</option>
           <option value="w">紫(why)</option>
@@ -5924,17 +5932,24 @@ function wireQuizNavButtons(total){
   if(bUn) bUn.addEventListener('click', ()=>navToNextUnanswered());
 }
 
-/* 改修01: 付箋の色と種別ラベルの対応(択一・選択・弱点 全モード共用)
-   r=重要 / p=事例 / y=注意 / g=確認 / b=紐づけ / w=why / s=千本
-   k=撃墜(黒) / f=修正(薄黄) / v=VS(青赤2色)
-   ※ 付箋追加改修により、択一・選択・弱点の全モードで全色を表示するように統一。 */
-const BM_LABELS = { r:'重要', p:'事例', y:'注意', g:'確認', b:'紐づけ', w:'why', s:'千本', k:'撃墜', f:'修正', v:'VS' };
-/* 改修01: 択一モードで表示する付箋色の並び(既存5色 + why + 千本 + 撃墜/修正/VS) */
-const BM_COLORS_TANITSU = ['r','p','y','g','b','w','s','k','f','v'];
-/* 付箋1色分のHTMLを生成。activeなら✓付き表示。ラベルは色の四角の下に縦表示。 */
+/* 改修01 / 改修51: 付箋の色と種別ラベルの対応(択一・選択・弱点 全モード共用)
+   r=重要 / p=事例 / y=地雷 / g=確認 / b=紐づけ / w=why / s=千本
+   k=撃墜(黒) / f=修正(薄黄) / v=VS(青赤2色) / t=罠問(濃橙赤)
+   ※ 付箋追加改修により、択一・選択・弱点の全モードで全色を表示するように統一。
+   改修51: y「注意」→「地雷」に改称(💣マーク付与)。t「罠問」(🪤マーク)を新設。 */
+const BM_LABELS = { r:'重要', p:'事例', y:'地雷', g:'確認', b:'紐づけ', w:'why', s:'千本', k:'撃墜', f:'修正', v:'VS', t:'罠問' };
+/* 改修51: 付箋に絵文字マークを重ねる対応表(空なら無し)。
+   y(地雷)=💣 / t(罠問)=☠。マークでひと目で識別できるようにする。 */
+const BM_MARKS = { y:'💣', t:'☠' };
+/* 改修01 / 改修51: 択一モードで表示する付箋色の並び(既存 + 罠問 t を地雷 y の隣へ) */
+const BM_COLORS_TANITSU = ['r','p','y','t','g','b','w','s','k','f','v'];
+/* 付箋1色分のHTMLを生成。activeなら✓付き表示。ラベルは色の四角の下に縦表示。
+   改修51: BM_MARKS に該当する色には絵文字マークを四角の中央に重ねる。 */
 function renderBmChip(color, isActive){
+  const mark = BM_MARKS[color] || '';
+  const markHtml = mark ? `<span class="bm-mark">${mark}</span>` : '';
   return `<div class="bm-chip">`
-    + `<div class="bm ${color}${isActive?' active':''}" data-bm="${color}"></div>`
+    + `<div class="bm ${color}${isActive?' active':''}" data-bm="${color}">${markHtml}</div>`
     + `<span class="bm-label">${BM_LABELS[color]||''}</span>`
     + `</div>`;
 }
