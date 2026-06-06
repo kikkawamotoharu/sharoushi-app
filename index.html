@@ -5712,15 +5712,49 @@ function getFrameUnansweredIndices(){
   return out;
 }
 
-/* 改修48_改修05: 次の未解答問題へジャンプ(現在位置より後ろを優先、無ければ先頭から探す)。
-   最終問で「次へ」が無効でも、解き残した問題へ確実に移動できるようにするための導線。 */
+/* 改修49: 軽量トースト(自己完結・他機能に影響なし)。
+   画面下部に短時間だけメッセージを出す。連打されても1つだけ表示する。 */
+function showQuizToast(msg){
+  try{
+    let el = document.getElementById('quiz-toast');
+    if(!el){
+      el = document.createElement('div');
+      el.id = 'quiz-toast';
+      el.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);'
+        + 'background:rgba(30,41,59,.96);color:#fff;padding:10px 18px;border-radius:10px;'
+        + 'font-size:14px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.25);'
+        + 'z-index:99999;max-width:90vw;text-align:center;pointer-events:none;'
+        + 'opacity:0;transition:opacity .2s ease';
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    // 強制リフロー後にフェードイン
+    void el.offsetWidth;
+    el.style.opacity = '1';
+    clearTimeout(el._t);
+    el._t = setTimeout(()=>{ el.style.opacity = '0'; }, 2200);
+  }catch(_){ /* トースト失敗は致命的でないので握りつぶす */ }
+}
+
+/* 改修48_改修05 / 改修49: 次の未解答問題へジャンプ(現在位置より後ろを優先、無ければ先頭から探す)。
+   最終問で「次へ」が無効でも、解き残した問題へ確実に移動できるようにするための導線。
+   改修49: 移動先の問題番号をトーストで明示し、「なぜ前に戻ったように見えるのか」の混乱を解消する。 */
 function navToNextUnanswered(){
   const idxs = getFrameUnansweredIndices();
-  if(!idxs.length) return;
+  if(!idxs.length){
+    showQuizToast('未解答の問題はありません(すべて解答済みです)');
+    return;
+  }
   const cur = state.session.currentIndex;
   const after = idxs.find(i=>i>cur);
   const target = (after != null) ? after : idxs[0];
   navTo(target);
+  // 移動先の問題番号(1始まり)と残数を案内
+  const remain = idxs.length;
+  const posNo = target + 1;
+  const wentBack = (after == null); // 後ろに無く、先頭の未解答へ戻った場合
+  const dir = wentBack ? '前の方の' : '';
+  showQuizToast(`${dir}未解答の${posNo}問目へ移動しました(残り${remain}問)`);
 }
 
 /* ナビ行 HTML を組み立てる(択一タブ用) — 改修1 */
@@ -5728,15 +5762,21 @@ function renderQuizNavRow(idx, total){
   const step = computeNavStep(total);
   const atFirst = idx === 0;
   const atLast  = idx === total - 1;
-  // 改修48_改修05: フレーム演習中で未解答が残っている場合の「未解答へ」導線。
+  // 改修48_改修05 / 改修49: フレーム演習中で未解答が残っている場合の「未解答へ」導線。
   //   特に最終問では「次へ」が無効になるため、解き残しがあると先に進めなくなる事象への対策。
+  //   改修49: 飛ぶ先の問題番号をラベルに明示し、「前に戻った?」という混乱を防ぐ。
   const unanswered = getFrameUnansweredIndices();
   const remain = unanswered.length;
   // 現在表示中の問題「以外」に未解答が残っていれば導線を出す
   const hasOtherUnanswered = unanswered.some(i=>i!==idx);
-  const jumpUnansweredBtn = (state.session.frameMode && hasOtherUnanswered)
-    ? `<button class="btn-nav btn-nav-unanswered" id="btn-next-unanswered" title="まだ解答していない問題へ移動">未解答へ (残り${remain}問)</button>`
-    : '';
+  // ボタンを押したときに実際に飛ぶ先(現在位置より後ろ優先・無ければ先頭の未解答)を先読みしてラベルに出す
+  let jumpUnansweredBtn = '';
+  if(state.session.frameMode && hasOtherUnanswered){
+    const after = unanswered.find(i=>i>idx);
+    const target = (after != null) ? after : unanswered[0];
+    const posNo = target + 1;
+    jumpUnansweredBtn = `<button class="btn-nav btn-nav-unanswered" id="btn-next-unanswered" title="まだ解答していない問題(${posNo}問目)へ移動">未解答へ (残り${remain}問 → ${posNo}問目)</button>`;
+  }
   if(step === null){
     // 5問未満:シンプル
     return `<div class="nav-row">
