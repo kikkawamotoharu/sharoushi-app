@@ -3174,6 +3174,17 @@
       <div class="brs-panel" id="brs-panel-off" style="display:none">
         <p class="brs-hint">バックアップ通知バナーは表示されません。<br>(タブを閉じる際の確認ダイアログは安全のため残ります。)</p>
       </div>
+
+      <!-- 改修50: 自動JSONダウンロード -->
+      <div style="margin-top:14px;padding-top:12px;border-top:1px dashed #d0d0d0">
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+          <input type="checkbox" id="brs-autodl-toggle" style="margin-top:3px;flex:0 0 auto">
+          <span>
+            <strong>自動バックアップ(JSON自動保存)</strong><br>
+            <span class="brs-hint" style="margin:0">ONにすると、未バックアップが通知のしきい値に達したとき、および別アプリへ切替・タブを閉じる直前に、バックアップJSONを自動でダウンロードします(最短10分間隔)。<br>iPhoneでは保存先に「ファイル」アプリやGドライブを選べます。外出先での消失対策に有効です。</span>
+          </span>
+        </label>
+      </div>
     </div>
   </aside>
 
@@ -4848,12 +4859,56 @@ async function initFigureStorage(){
 
 /* ===== State & Storage ===== */
 const STORAGE_KEY = 'sharoushi_kakomon_v1';
+
+/* 改修50: データ喪失防止のための保存凍結フラグ群。
+   ・_saveFrozen … 読み込みに「失敗の疑い」があるとき true。true の間は saveState を拒否し、
+                   空/壊れた state による localStorage 上書き(=全データ消失)を物理的に防ぐ。
+   ・_loadHadRawData … 起動時に localStorage に生データが存在したか。
+                       存在したのにフォールバック(空state)へ落ちたら、それは異常=凍結対象。
+   ・_lastGoodCounts … 直近の正常な件数。極端な目減りを検知して保存を止めるために使う。 */
+let _saveFrozen = false;
+let _loadHadRawData = false;
+let _lastGoodCounts = null;
+
 let state = loadState();
 
+/* 改修50: state の主要件数のスナップショットを取る(保存ガードの比較用)。 */
+function _snapshotCounts(s){
+  if(!s) return null;
+  return {
+    questions: Array.isArray(s.questions) ? s.questions.length : 0,
+    history: Array.isArray(s.history) ? s.history.length : 0,
+    selectQuestions: Array.isArray(s.selectQuestions) ? s.selectQuestions.length : 0,
+    cases: Array.isArray(s.cases) ? s.cases.length : 0,
+    senbon: Array.isArray(s.senbon) ? s.senbon.length : 0,
+    frameAttempts: s.frameAttempts ? Object.keys(s.frameAttempts).length : 0,
+    figures: Array.isArray(s.figures) ? s.figures.length : 0
+  };
+}
+
+/* 改修50: 読込失敗時の強い警告。誤って操作して保存されると上書きの危険があるため、
+   ユーザーに「いったんアプリを閉じて開き直す/バックアップから復元」を促す。 */
+function _showLoadFailureWarning(){
+  alert(
+    '⚠️ データの読み込みに問題が発生しました。\n\n'
+    + '安全のため、データの自動保存を一時停止しています。\n'
+    + '(この状態では新しい操作は保存されません — 既存データを守るためです)\n\n'
+    + '【対処】\n'
+    + '1. このページをいったん閉じて、開き直してください。\n'
+    + '   多くの場合これで正常に戻ります。\n'
+    + '2. それでも直らない場合は、保存済みの完全バックアップ(JSON)から\n'
+    + '   「バックアップ復元」を行ってください。\n\n'
+    + '※ この警告中に操作してもデータは上書きされません。ご安心ください。'
+  );
+}
+
 function loadState(){
+  let rawForGuard = null;
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
+    rawForGuard = raw;
     if(raw){
+      _loadHadRawData = true;
       const s = JSON.parse(raw);
       if(!s.questions || !s.questions.length){
         s.questions = SAMPLE_QUESTIONS.slice();
@@ -5069,9 +5124,21 @@ function loadState(){
         if(stashed>0) console.log(`Stashed ${stashed} figure images from localStorage to in-memory cache`);
       }
 
+      // 改修50: 正常に復元できた件数を記録(以後の保存ガードの基準値)
+      _lastGoodCounts = _snapshotCounts(s);
       return s;
     }
   }catch(e){console.warn('Load error',e)}
+  // 改修50: ここに来た=「生データが存在したのに解析/復元に失敗」または「生データが無い」。
+  //   生データが在ったのにフォールバックへ落ちた場合は、壊れた読込の可能性が高いので
+  //   保存を凍結し、空のサンプルデータで localStorage を上書きしてしまう事故を防ぐ。
+  //   (生データが無い=本当の初回起動なら凍結しない。)
+  if(rawForGuard){
+    _saveFrozen = true;
+    console.error('[改修50] 読込に失敗したため保存を凍結しました。データ上書きを防止します。');
+    // 起動直後の DOM 準備後に強い警告を出す(関数定義順の都合で遅延実行)
+    setTimeout(()=>{ try{ _showLoadFailureWarning(); }catch(_){ } }, 800);
+  }
   return {
     questions: SAMPLE_QUESTIONS.slice(),
     history: [],
@@ -5111,6 +5178,40 @@ function loadState(){
   };
 }
 function saveState(){
+  // 改修50: 保存凍結中は何も書き込まない。
+  //   読込失敗の疑いがある状態(空/壊れた state)で保存すると、localStorage の
+  //   正常データを空データで上書きして全消失する事故が起きる。これを物理的に防ぐ。
+  if(_saveFrozen){
+    console.warn('[改修50] 保存は凍結中のためスキップしました(データ保護)。');
+    return;
+  }
+  // 改修50: 急減ガード。直前の正常件数に比べて、問題・履歴・フレーム履歴が
+  //   「いきなりほぼ全部消えた」ように見える場合は、異常とみなして保存を止め、確認を取る。
+  //   ユーザーの正規操作(全削除等)を妨げないよう、確認を取ってから続行できるようにする。
+  if(_lastGoodCounts){
+    const now = _snapshotCounts(state);
+    const dangerous =
+      (_lastGoodCounts.questions >= 5 && now.questions === 0) ||
+      (_lastGoodCounts.history   >= 20 && now.history   === 0) ||
+      (_lastGoodCounts.frameAttempts >= 3 && now.frameAttempts === 0);
+    if(dangerous){
+      const msg = '⚠️ データが大幅に減っています。保存して上書きすると元に戻せません。\n\n'
+        + `問題: ${_lastGoodCounts.questions} → ${now.questions}\n`
+        + `解答履歴: ${_lastGoodCounts.history} → ${now.history}\n`
+        + `フレーム演習履歴: ${_lastGoodCounts.frameAttempts} → ${now.frameAttempts}\n\n`
+        + 'これは意図した操作ですか?\n'
+        + '[OK]=このまま保存する　[キャンセル]=保存せず守る(推奨)';
+      let proceed = false;
+      try{ proceed = confirm(msg); }catch(_){ proceed = false; }
+      if(!proceed){
+        // 保存を中止し、以後の誤上書きも防ぐため凍結する
+        _saveFrozen = true;
+        console.error('[改修50] 急減を検知し保存を中止・凍結しました。');
+        return;
+      }
+      // ユーザーが意図的に続行した場合は、新しい件数を基準に更新する
+    }
+  }
   // 改修6 防御層: 万一 state.figures に imageData が残っていたら、
   // 書き込み前に figureImageCache へ退避して state からは削除する。
   // これにより、どんな経路でも localStorage の 5MB 制限超過を未然に防ぐ。
@@ -5124,6 +5225,8 @@ function saveState(){
   }
   try{
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    // 改修50: 書き込み成功時点の件数を「正常な基準値」として更新
+    _lastGoodCounts = _snapshotCounts(state);
   }catch(e){
     // ここに来るのは、画像以外のメタ情報だけで 5MB を超えた極端なケース。
     // 画像本体はすでに IndexedDB / キャッシュ側に分離済みなので、再試行しても
@@ -7070,11 +7173,17 @@ function normalizeBackupReminderSettings(s){
   // 重複除去 + 昇順
   times = Array.from(new Set(times)).sort();
   if(!times.length) times = ['07:00','12:00','17:00'];
-  return {mode, countN, times};
+  // 改修50: 自動JSONダウンロード設定(後方互換: 既定OFF)。
+  //   autoDownload … true で「閾値到達時」と「タブ離脱時」に自動でJSONを保存する。
+  const autoDownload = (s.autoDownload === true);
+  return {mode, countN, times, autoDownload};
 }
 
 // モジュール内変数(セッション中のみ保持。リロードでリセット)
 let _backupReminderDismissedUntil = 0;   // dismiss が効いている期限(timestamp)
+// 改修50: 自動JSONダウンロードの連続発火防止
+let _lastAutoBackupAt = 0;
+const _AUTO_BACKUP_MIN_INTERVAL_MS = 10 * 60 * 1000; // 自動保存は最短10分間隔
 // 改修48_改修02: 時間方式で「今日すでに発火した時刻」を記録(日付が変わるとリセット)
 let _backupTimeFiredDate = '';           // 'YYYY-MM-DD'
 let _backupTimeFired = {};               // { "07:00": true, ... }
@@ -7154,6 +7263,17 @@ function updateBackupReminderBanner(){
   const now = Date.now();
   const dismissed = now < _backupReminderDismissedUntil;
 
+  // 改修50: 自動JSONダウンロード。
+  //   閾値に達して通知が出る状況(shouldShow)で、autoDownload が ON なら自動保存する。
+  //   連続発火を避けるため、前回自動保存から最低 _AUTO_BACKUP_MIN_INTERVAL_MS は空ける。
+  if(shouldShow && settings.autoDownload && !_saveFrozen){
+    if(now - _lastAutoBackupAt >= _AUTO_BACKUP_MIN_INTERVAL_MS){
+      _lastAutoBackupAt = now;
+      // backupAll は非同期。失敗してもバナー処理は続行する。
+      try{ backupAll({auto:true}); }catch(_){}
+    }
+  }
+
   if(!shouldShow || dismissed){
     banner.style.display = 'none';
     return;
@@ -7218,6 +7338,24 @@ function _backupBeforeUnloadHandler(e){
   }
 }
 
+/* 改修50: タブが隠れる(別アプリ切替・タブ閉じ前)タイミングでの自動保存。
+   iPhone Safari は beforeunload 中の非同期ダウンロードが間に合わないため、
+   より確実な visibilitychange(hidden) で自動バックアップを試みる。
+   autoDownload が ON かつ未バックアップが閾値以上のときのみ発火し、連続発火は抑制する。 */
+function _backupOnHideHandler(){
+  try{
+    if(document.visibilityState !== 'hidden') return;
+    const settings = getBackupReminderSettings();
+    if(!settings.autoDownload || _saveFrozen) return;
+    const status = getBackupStatus();
+    if(status.count < BACKUP_BEFOREUNLOAD_THRESHOLD) return;
+    const now = Date.now();
+    if(now - _lastAutoBackupAt < _AUTO_BACKUP_MIN_INTERVAL_MS) return;
+    _lastAutoBackupAt = now;
+    backupAll({auto:true});
+  }catch(_){}
+}
+
 // 1分ごとに「経過時間」の表示を自動更新(解答していなくても時間で表示が変わる)
 let _backupReminderInterval = null;
 function _startBackupReminderTicker(){
@@ -7251,6 +7389,9 @@ function renderBackupReminderSettings(){
   card.querySelectorAll('.brs-count-btn').forEach(b=>{
     b.classList.toggle('active', parseInt(b.dataset.brscount,10) === s.countN);
   });
+  // 改修50: 自動ダウンロードトグルの状態反映
+  const autoDl = document.getElementById('brs-autodl-toggle');
+  if(autoDl) autoDl.checked = !!s.autoDownload;
 
   // 時刻リスト
   const list = document.getElementById('brs-times-list');
@@ -7332,9 +7473,24 @@ function wireBackupReminderSettings(){
       renderBackupReminderSettings();
     });
   }
+  // 改修50: 自動ダウンロードトグルの配線
+  const autoDl = document.getElementById('brs-autodl-toggle');
+  if(autoDl){
+    autoDl.addEventListener('change', ()=>{
+      const s = getBackupReminderSettings();
+      s.autoDownload = autoDl.checked;
+      saveState();
+      renderBackupReminderSettings();
+      if(autoDl.checked){
+        alert('自動バックアップをONにしました。\n\niPhoneでは、自動保存時に保存先を選ぶ画面が出ることがあります。\n「ファイル」アプリやGoogleドライブを選ぶと、端末外にも残せて安心です。');
+      }
+    });
+  }
 }
 
-async function backupAll(){
+async function backupAll(opts){
+  // 改修50: opts.auto=true のとき「自動バックアップ」。失敗時もダイアログを出さず静かに記録する。
+  const auto = !!(opts && opts.auto);
   try{
     // IndexedDB から全画像を取得し、メタとマージしてバックアップに含める
     const imageMap = new Map();
@@ -7358,13 +7514,18 @@ async function backupAll(){
       }
     }
     const blob = new Blob([JSON.stringify(snapshot,null,2)],{type:'application/json'});
-    download(blob,`sharoushi_backup_${Date.now()}.json`);
+    const prefix = auto ? 'sharoushi_AUTO_backup_' : 'sharoushi_backup_';
+    download(blob, `${prefix}${Date.now()}.json`);
     // 改修46: バックアップ取得成功時に最終取得時刻を記録(リマインダーバナーが消える)
     state.lastBackupAt = Date.now();
     saveState();
     if(typeof updateBackupReminderBanner === 'function') updateBackupReminderBanner();
+    if(auto){
+      try{ showQuizToast('自動バックアップを保存しました(ダウンロード)'); }catch(_){}
+    }
   }catch(err){
-    alert('バックアップ作成に失敗しました: '+err.message);
+    if(!auto) alert('バックアップ作成に失敗しました: '+err.message);
+    else console.warn('auto backup failed', err);
   }
 }
 
@@ -8021,6 +8182,10 @@ async function _applyMergeRestore(){
   // 改修46: マージ復元完了時点で「最終バックアップ取得済」とみなす
   state.lastBackupAt = Date.now();
 
+  // 改修50: 正規のマージ復元操作なので、保存凍結と急減ガードの基準を解除・初期化する。
+  _saveFrozen = false;
+  _lastGoodCounts = null;
+
   saveState();
   closeMergeRestoreModal();
 
@@ -8083,6 +8248,10 @@ function restoreBackup(){
         }
 
         state = s;
+        // 改修50: 正規の復元操作なので、保存凍結と急減ガードの基準を解除・初期化する。
+        //   (復元はユーザーが意図的にデータを置き換える操作なので、保存を許可する)
+        _saveFrozen = false;
+        _lastGoodCounts = null;
         // 全フィールドの初期化を保証(後方互換)
         state.questions ||= [];
         state.history ||= [];
@@ -16854,7 +17023,7 @@ function init(){
   document.getElementById('import-do').addEventListener('click',doImport);
 
   // Data tab
-  document.getElementById('btn-backup').addEventListener('click',backupAll);
+  document.getElementById('btn-backup').addEventListener('click', ()=>backupAll());
   document.getElementById('btn-restore').addEventListener('click',restoreBackup);
   // 改修: ストレージ診断ボタン
   const btnDiag = document.getElementById('btn-storage-diag');
@@ -16887,6 +17056,8 @@ function init(){
   if(brDismiss) brDismiss.addEventListener('click', _dismissBackupReminder);
   // タブ閉じ/リロード時の確認(防御線2)
   window.addEventListener('beforeunload', _backupBeforeUnloadHandler);
+  // 改修50: タブが隠れるタイミングでの自動バックアップ(iPhone Safari 対策の確実な経路)
+  document.addEventListener('visibilitychange', _backupOnHideHandler);
   // 起動時に1回バナー状態を計算 + 1分ごとの自動更新を開始
   updateBackupReminderBanner();
   _startBackupReminderTicker();
