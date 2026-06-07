@@ -8863,10 +8863,7 @@ function renderSelectQuiz(){
       </div>`:'<div></div>'}
     </div>
 
-    <div class="nav-row">
-      <button class="btn-nav" id="select-btn-prev" ${idx===0?'disabled':''}>← 前へ</button>
-      <button class="btn-nav" id="select-btn-next">次へ →</button>
-    </div>
+    ${renderSelectNavRow(idx, pool.length)}
 
     ${answered ? renderSelectResult(q, isCorrect) : ''}
 
@@ -8881,8 +8878,21 @@ function renderSelectQuiz(){
   card.querySelectorAll('.choice-btn').forEach(b=>{
     if(!b.disabled) b.addEventListener('click',()=>answerSelectQuestion(parseInt(b.dataset.idx,10)));
   });
-  document.getElementById('select-btn-prev').addEventListener('click',()=>navSelect(-1));
-  document.getElementById('select-btn-next').addEventListener('click',()=>navSelect(1));
+  const _selStep = computeNavStep(getSelectPool().length);
+  const _selPrev = document.getElementById('select-btn-prev');
+  if(_selPrev) _selPrev.addEventListener('click',()=>navSelectJump(-1));
+  const _selNext = document.getElementById('select-btn-next');
+  if(_selNext) _selNext.addEventListener('click',()=>navSelectJump(1));
+  const _selFirst = document.getElementById('select-btn-first');
+  if(_selFirst) _selFirst.addEventListener('click',()=>navSelectTo(0));
+  const _selLast = document.getElementById('select-btn-last');
+  if(_selLast) _selLast.addEventListener('click',()=>navSelectTo(getSelectPool().length-1));
+  if(_selStep !== null){
+    const _selJB = document.getElementById('select-btn-jump-back');
+    if(_selJB) _selJB.addEventListener('click',()=>navSelectJump(-_selStep));
+    const _selJF = document.getElementById('select-btn-jump-fwd');
+    if(_selJF) _selJF.addEventListener('click',()=>navSelectJump(_selStep));
+  }
   card.querySelectorAll('.bm').forEach(b=>b.addEventListener('click',()=>toggleBmSelect(q.id,b.dataset.bm)));
 
   renderSelectSidebar();
@@ -8927,6 +8937,58 @@ function navSelect(dir){
   state.selectSession.userChoice = null;
   saveState();
   renderSelectQuiz();
+}
+
+/* 改修: 選択式のページ送りを択一と同等に(最初/N問前/前へ/次へ/N問後/最後)。
+   絶対位置へ移動(クランプ式)。 */
+function navSelectTo(idx){
+  const pool = getSelectPool();
+  if(!pool.length) return;
+  if(idx < 0) idx = 0;
+  if(idx > pool.length - 1) idx = pool.length - 1;
+  state.selectSession.currentIndex = idx;
+  state.selectSession.answered = false;
+  state.selectSession.userChoice = null;
+  saveState();
+  renderSelectQuiz();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+/* 改修: 選択式の相対ジャンプ(±step。端でクランプ) */
+function navSelectJump(delta){
+  const pool = getSelectPool();
+  if(!pool.length) return;
+  let target = state.selectSession.currentIndex + delta;
+  if(target < 0) target = 0;
+  if(target > pool.length - 1) target = pool.length - 1;
+  if(target === state.selectSession.currentIndex) return;
+  state.selectSession.currentIndex = target;
+  state.selectSession.answered = false;
+  state.selectSession.userChoice = null;
+  saveState();
+  renderSelectQuiz();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+/* 改修: 選択式のナビ行HTML(択一の renderQuizNavRow に準拠。未解答導線は無し) */
+function renderSelectNavRow(idx, total){
+  const step = computeNavStep(total);
+  const atFirst = idx === 0;
+  const atLast  = idx === total - 1;
+  if(step === null){
+    // 5問未満:シンプル(従来どおり前へ/次へ)
+    return `<div class="nav-row">
+      <button class="btn-nav" id="select-btn-prev" ${atFirst?'disabled':''}>← 前へ</button>
+      <button class="btn-nav" id="select-btn-next" ${atLast?'disabled':''}>次へ →</button>
+    </div>`;
+  }
+  // 5問以上:ステップボタン付き
+  return `<div class="nav-row">
+    <button class="btn-nav" id="select-btn-first" ${atFirst?'disabled':''} title="最初の問題へ">⏮ 最初へ</button>
+    <button class="btn-nav btn-nav-step" id="select-btn-jump-back" ${atFirst?'disabled':''} title="${step}問前へ">⟪ ${step}問前</button>
+    <button class="btn-nav" id="select-btn-prev" ${atFirst?'disabled':''}>← 前へ</button>
+    <button class="btn-nav" id="select-btn-next" ${atLast?'disabled':''}>次へ →</button>
+    <button class="btn-nav btn-nav-step" id="select-btn-jump-fwd" ${atLast?'disabled':''} title="${step}問後へ">${step}問後 ⟫</button>
+    <button class="btn-nav" id="select-btn-last" ${atLast?'disabled':''} title="最後の問題へ">最後へ ⏭</button>
+  </div>`;
 }
 
 function toggleBmSelect(qid, color){
