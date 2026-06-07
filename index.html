@@ -4910,6 +4910,140 @@ function _showLoadFailureWarning(){
   );
 }
 
+/* === 改修57_05: 国民年金法フレーム9 の重複問題を削除する共通処理 ===
+   国民年金法・フレーム9(通則等、不服申立て、雑則等)に、JSONインポートで
+   同一問題(text 完全一致)が重複登録されているケースを是正する。
+   ・各 text につき「最初に出現した1件(=1〜45問目側)」を残し、それ以降を削除。
+   ・削除する問題に紐づく解答履歴(history)・ブックマーク・各種メモは、
+     実績を失わないよう「残す側の問題ID」へ統合(マージ)してから削除する。
+   ・誤削除に備え、opts.takeBackup が真なら削除実行前に1回限りの退避を取る。
+   引数 s は state(またはそれ相当)。s を破壊的に編集し、削除件数を返す。
+   loadState(読込時)と restoreBackup(復元時)の両方から呼ぶ。 */
+function _dedupNenkinF9(s, opts){
+  opts = opts || {};
+  if(!s || !Array.isArray(s.questions)) return 0;
+
+  // 国民年金法フレーム9 判定(法名の表記ゆれに配慮)
+  const isNenkinF9 = (q)=>{
+    if(!q) return false;
+    const law = (q.law||'').trim();
+    const isKokumin = (law === '国民年金法' || law === '国年法' || law === '国年');
+    return isKokumin && Number(q.frameNo) === 9;
+  };
+  const targetQs = s.questions.filter(isNenkinF9);
+
+  // text 完全一致でグループ化(出現順を保持)
+  const seenByText = new Map();   // text → 残す問題(keeper)
+  const dupPairs = [];            // {dup, keeper}
+  const normText = (t)=> (t==null ? '' : String(t));
+  for(const q of targetQs){
+    const key = normText(q.text);
+    if(!key) continue; // text が無い問題は重複判定の対象外
+    if(seenByText.has(key)){
+      dupPairs.push({dup:q, keeper:seenByText.get(key)});
+    }else{
+      seenByText.set(key, q);
+    }
+  }
+  if(dupPairs.length === 0) return 0;
+
+  // --- 削除前バックアップ(localStorage に1回限り退避) ---
+  if(opts.takeBackup){
+    try{
+      const bkey = 'sharoushi_dedup57_05_backup';
+      if(!localStorage.getItem(bkey)){
+        localStorage.setItem(bkey, JSON.stringify({
+          ts: Date.now(),
+          reason: '改修57_05 国民年金法F9 重複削除の直前バックアップ',
+          questions: s.questions,
+          history: s.history
+        }));
+      }
+    }catch(_){ /* 退避失敗は致命的でないため握りつぶす */ }
+  }
+
+  const dupIds = new Set(dupPairs.map(p=>p.dup.id));
+  const idRemap = new Map(); // dupId → keeperId
+  for(const {dup, keeper} of dupPairs){ idRemap.set(dup.id, keeper.id); }
+
+  // (1) 解答履歴を残す側へ付け替え(実績保全)
+  let histRemapped = 0;
+  if(Array.isArray(s.history)){
+    for(const h of s.history){
+      if(h && idRemap.has(h.qid)){ h.qid = idRemap.get(h.qid); histRemapped++; }
+    }
+  }
+
+  // (2) ブックマークを統合(色は和集合)
+  if(s.bookmarks){
+    for(const {dup, keeper} of dupPairs){
+      const ds = s.bookmarks[dup.id];
+      if(Array.isArray(ds) && ds.length){
+        const ks = Array.isArray(s.bookmarks[keeper.id]) ? s.bookmarks[keeper.id] : [];
+        s.bookmarks[keeper.id] = Array.from(new Set([...ks, ...ds]));
+      }
+      if(s.bookmarks[dup.id] !== undefined) delete s.bookmarks[dup.id];
+    }
+  }
+
+  // (3) 追記メモ(myNotes)を統合(keeper が空のときのみ dup を採用)
+  if(s.myNotes){
+    for(const {dup, keeper} of dupPairs){
+      const dn = s.myNotes[dup.id];
+      if(dn && !s.myNotes[keeper.id]) s.myNotes[keeper.id] = dn;
+      if(s.myNotes[dup.id] !== undefined) delete s.myNotes[dup.id];
+    }
+  }
+
+  // (4) 横断メモ(vsNotes)を統合(同上)
+  if(s.vsNotes){
+    for(const {dup, keeper} of dupPairs){
+      const dn = s.vsNotes[dup.id];
+      if(dn && !s.vsNotes[keeper.id]) s.vsNotes[keeper.id] = dn;
+      if(s.vsNotes[dup.id] !== undefined) delete s.vsNotes[dup.id];
+    }
+  }
+
+  // (5) 他問題の linkedWhys が削除対象を参照していれば付け替え
+  for(const q of s.questions){
+    if(Array.isArray(q.linkedWhys) && q.linkedWhys.length){
+      q.linkedWhys = Array.from(new Set(
+        q.linkedWhys.map(id => idRemap.has(id) ? idRemap.get(id) : id)
+      ));
+    }
+  }
+
+  // (6) frameAttempts の questionIds から削除対象IDを除去/付け替え
+  if(s.frameAttempts){
+    for(const k of Object.keys(s.frameAttempts)){
+      const fa = s.frameAttempts[k];
+      if(fa && Array.isArray(fa.questionIds)){
+        fa.questionIds = fa.questionIds
+          .map(id => idRemap.has(id) ? idRemap.get(id) : id)
+          .filter((id,i,arr)=> arr.indexOf(id)===i); // 重複ID除去
+      }
+      if(fa && Array.isArray(fa.history)){
+        for(const hh of fa.history){
+          if(hh && Array.isArray(hh.questionIds)){
+            hh.questionIds = hh.questionIds
+              .map(id => idRemap.has(id) ? idRemap.get(id) : id)
+              .filter((id,i,arr)=> arr.indexOf(id)===i);
+          }
+        }
+      }
+    }
+  }
+
+  // (7) 重複問題本体を削除
+  const before = s.questions.length;
+  s.questions = s.questions.filter(q => !dupIds.has(q.id));
+  const removed = before - s.questions.length;
+
+  console.log(`[改修57_05] 国民年金法F9 重複削除: ${removed}件削除 / 履歴 ${histRemapped}件を付け替え`);
+  s._dedupNenkinF9Removed = removed; // 起動後/復元後の通知用
+  return removed;
+}
+
 function loadState(){
   let rawForGuard = null;
   try{
@@ -5092,6 +5226,16 @@ function loadState(){
         if(q.kind === 'past'){ q.kind = 'pastA'; kindAMigrated++ }
       }
       if(kindAMigrated>0) console.log(`Migrated ${kindAMigrated} questions: kind 'past' → 'pastA'`);
+
+      // === 改修57_05: 国民年金法フレーム9 の重複問題を自動削除 ===
+      // 読込時に一度だけ実行(端末ごとに _dedupNenkinF9Done フラグで管理)。
+      // 詳細ロジックは _dedupNenkinF9() に集約(復元時にも再利用するため)。
+      try{
+        if(!s._dedupNenkinF9Done){
+          _dedupNenkinF9(s, {takeBackup:true});
+          s._dedupNenkinF9Done = true; // 端末ごとに一度だけ実行
+        }
+      }catch(e){ console.warn('[改修57_05] 重複削除中にエラー', e); }
 
       // frameAttempts キーの '|past' を '|pastA' に変換
       let faKindMigrated = 0;
@@ -8201,13 +8345,22 @@ async function _applyMergeRestore(){
   _saveFrozen = false;
   _lastGoodCounts = null;
 
+  // 改修57_05: マージ後に国民年金法F9の重複が再混入していれば是正する。
+  let _dedupMerged = 0;
+  try{
+    _dedupMerged = _dedupNenkinF9(state, {takeBackup:true}) || 0;
+    state._dedupNenkinF9Done = true;
+    delete state._dedupNenkinF9Removed;
+  }catch(_){ }
+
   saveState();
   closeMergeRestoreModal();
 
   // 集計を表示
   // (renderMergePreview の stats を表示済なので、ここでは件数サマリを alert で出す)
   const a = _analyzeForMerge(state);
-  alert(`マージ復元が完了しました。\n\n■ 択一問題: ${state.questions.length}問\n■ 選択式: ${state.selectQuestions.length}問\n■ 事例: ${state.cases.length}件\n■ 図表: ${state.figures.length}件\n■ 千本ノック: ${(state.senbon||[]).length}問\n■ 解答履歴: ${state.history.length}件\n■ フレーム履歴: ${Object.keys(state.frameAttempts).length}件`);
+  alert(`マージ復元が完了しました。\n\n■ 択一問題: ${state.questions.length}問\n■ 選択式: ${state.selectQuestions.length}問\n■ 事例: ${state.cases.length}件\n■ 図表: ${state.figures.length}件\n■ 千本ノック: ${(state.senbon||[]).length}問\n■ 解答履歴: ${state.history.length}件\n■ フレーム履歴: ${Object.keys(state.frameAttempts).length}件`
+    + (_dedupMerged>0 ? `\n\n※ 国民年金法F9の重複問題 ${_dedupMerged}件を自動削除しました。` : ''));
 
   // 画面再描画
   try{ renderQuiz() }catch(_){}
@@ -8351,6 +8504,14 @@ function restoreBackup(){
         if(state.progressView && state.progressView.kindMode === 'past'){
           state.progressView.kindMode = 'pastA';
         }
+        // 改修57_05: 復元したデータに国民年金法F9の重複が含まれていれば是正する。
+        //   (古いバックアップには重複が残っている可能性があるため、復元のたびに適用)
+        let _dedupRestored = 0;
+        try{
+          _dedupRestored = _dedupNenkinF9(state, {takeBackup:false}) || 0;
+          state._dedupNenkinF9Done = true; // 復元後の通常起動で再実行しないように
+          delete state._dedupNenkinF9Removed; // 通知は下のサマリーに含めるのでフラグは消す
+        }catch(_){ }
         saveState();
         renderQuiz();renderManage();renderSidebar();
         // 進捗管理画面も明示的に更新
@@ -8365,7 +8526,8 @@ function restoreBackup(){
           if(fa[k].current) inProgressCount++;
           completedCount += (fa[k].history||[]).length;
         }
-        alert(`復元完了しました。\n\n■ 択一問題: ${state.questions.length}問\n■ 選択式問題: ${state.selectQuestions.length}問\n■ 事例問題: ${state.cases.length}件\n■ 図表: ${state.figures.length}件\n■ 千本ノック: ${(state.senbon||[]).length}問\n■ 進行中のフレーム演習: ${inProgressCount}フレーム\n■ 完了済み演習: 合計${completedCount}回分\n■ 解答履歴: ${state.history.length}件`);
+        alert(`復元完了しました。\n\n■ 択一問題: ${state.questions.length}問\n■ 選択式問題: ${state.selectQuestions.length}問\n■ 事例問題: ${state.cases.length}件\n■ 図表: ${state.figures.length}件\n■ 千本ノック: ${(state.senbon||[]).length}問\n■ 進行中のフレーム演習: ${inProgressCount}フレーム\n■ 完了済み演習: 合計${completedCount}回分\n■ 解答履歴: ${state.history.length}件`
+          + (_dedupRestored>0 ? `\n\n※ 国民年金法F9の重複問題 ${_dedupRestored}件を自動削除しました。` : ''));
       }catch(err){alert('復元失敗: '+err.message)}
     };
     r.readAsText(f);
@@ -17101,6 +17263,19 @@ function init(){
   // IndexedDB を初期化し、既存 localStorage 画像を移行 + キャッシュを構築
   // (非同期。完了後に図表タブが開いていれば再描画される)
   initFigureStorage().catch(err=>console.warn('initFigureStorage failed', err));
+
+  // 改修57_05: 重複削除が行われた場合、起動後に一度だけ結果を通知する
+  if(state && state._dedupNenkinF9Removed && state._dedupNenkinF9Removed > 0){
+    const n = state._dedupNenkinF9Removed;
+    // 通知後はフラグをクリアし、保存して次回以降は通知しない
+    delete state._dedupNenkinF9Removed;
+    setTimeout(()=>{
+      try{
+        alert('【自動メンテナンス】\n\n国民年金法 フレーム9 の重複登録問題 '+n+'件を自動削除しました。\n\n解答履歴・ブックマーク・メモは残した問題側へ引き継いでいます。\n(念のため、削除直前のデータはブラウザ内に1回分退避しています)');
+      }catch(_){ }
+      try{ saveState(); }catch(_){ }
+    }, 1000);
+  }
 }
 init();
 </script>
