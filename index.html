@@ -2499,7 +2499,17 @@
     box-shadow:0 1px 2px rgba(0,0,0,.06);
   }
   .taipa-block.plan{border-style:dashed;border-left-style:solid}
-  .taipa-block.plan.done{opacity:.62}
+  /* 改修57_01②-3: 完了予定は「薄表示」を維持しつつ、右端に【済】(黒・太字)を表示。
+     帯全体を薄くすると【済】も薄くなるため、薄さは内側の文字要素だけに適用し、
+     【済】バッジは opacity:1 のままはっきり見せる。 */
+  .taipa-block.plan.done{opacity:1}
+  .taipa-block.plan.done .taipa-block-sub,
+  .taipa-block.plan.done .taipa-block-frame{opacity:.62}
+  .taipa-done-badge{
+    position:absolute;top:1px;right:3px;z-index:3;
+    font-size:11px;font-weight:700;color:#000;line-height:1.1;
+    opacity:1;pointer-events:none;letter-spacing:-.02em;
+  }
   /* 改修05: 予定ハコのドラッグ移動・長さ変更 */
   .taipa-block.plan{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
   .taipa-block.plan:active{cursor:grabbing}
@@ -2521,6 +2531,10 @@
   .taipa-state-badge.partial{background:#c98d00}
   .taipa-state-cnt{font-size:10px;color:var(--ink-muted);margin-left:4px}
   .taipa-tiny{margin-top:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--line);border-radius:8px}
+  /* 改修57_01②-2: タイムテーブルを横2セットで並べる(PC)。
+     各セットは独立スクロール。狭い画面では2セット目を隠して従来の1セット表示。 */
+  .taipa-tt-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+  .taipa-tt-2col .taipa-tt-wrap{margin-top:0}
   .taipa-tiny-title{font-size:12px;font-weight:600;margin-bottom:6px;color:var(--ink-soft)}
   .taipa-tiny-item{display:flex;align-items:center;gap:6px;font-size:12px;padding:3px 0}
   .taipa-tiny-meta{margin-left:auto;color:var(--ink-muted);font-size:11px;font-feature-settings:"tnum"}
@@ -2528,6 +2542,9 @@
     .taipa-sumcards{grid-template-columns:1fr}
     .taipa-tt{grid-template-columns:40px 1fr 1fr}
     .stats-subtab{padding:8px 11px;font-size:12px}
+    /* 改修57_01②-2: 狭い画面では2セット目を隠し、従来どおり1セットだけ表示する */
+    .taipa-tt-2col{grid-template-columns:1fr}
+    .taipa-tt-2col .taipa-tt-set2{display:none}
   }
 
   .stats-h2{margin:0 0 6px 0;font-size:20px;font-weight:600;display:flex;align-items:center;gap:8px}
@@ -16110,7 +16127,7 @@ function _wireStatsSubTabs(root){
    ============================================================ */
 
 const TAIPA_SLOT_MIN = 5;           // 1スロット=5分
-const TAIPA_ROW_PX = 14;            // 1スロットの高さ(px)
+const TAIPA_ROW_PX = 18;            // 1スロットの高さ(px) ※改修57_01②-1: 14→18 に拡大(約30%)
 const TAIPA_SLOTS_PER_DAY = (24*60)/TAIPA_SLOT_MIN; // 288
 
 // "HH:MM" → その日の0時からの分。失敗時 null。
@@ -16163,7 +16180,14 @@ function renderTaipaView(){
   html += renderTaipaSummary(dateKey, sessions);
 
   // タイムテーブル本体
-  html += `<div class="taipa-tt-wrap">${renderTaipaTimetable(dateKey, plans, sessions)}</div>`;
+  // 改修57_01②-2: PCではタイムテーブルを横に2セット並べて、1画面での俯瞰性を高める。
+  //   (同じ全時間帯を2セット表示。狭い画面=iPhoneでは2セット目をCSSで非表示にし従来の1セット表示)
+  //   2セットの予定ハコは data-plan-key が同じだが、確定時は studyPlans を更新して全体を
+  //   再描画するため、どちらのセットでドラッグしても正しく反映される。
+  html += `<div class="taipa-tt-2col">
+    <div class="taipa-tt-wrap taipa-tt-set1">${renderTaipaTimetable(dateKey, plans, sessions, 1)}</div>
+    <div class="taipa-tt-wrap taipa-tt-set2">${renderTaipaTimetable(dateKey, plans, sessions, 2)}</div>
+  </div>`;
 
   // 5分未満などタイムテーブルに乗らなかった実績
   const tinyList = sessions.filter(s=> sessionTotalMs(s) < TAIPA_SLOT_MIN*60000);
@@ -16176,7 +16200,7 @@ function renderTaipaView(){
       html += `<div class="taipa-tiny-item">
         <span class="plan-subj-dot" style="background:${col}"></span>
         <span>${escapeHtml(s.subject)}　${escapeHtml(lbl)}</span>
-        <span class="taipa-tiny-meta">${fmtHM(s.startTs)} / 解答${s.answered}問</span>
+        <span class="taipa-tiny-meta">${fmtHM(s.startTs)} / 解答${s.answered}問 (正答${s.correct})</span>
       </div>`;
     }
     html += `</div>`;
@@ -16187,7 +16211,9 @@ function renderTaipaView(){
 }
 
 // タイムテーブル(5分刻み)。左=時刻軸+予定、右=実績。
-function renderTaipaTimetable(dateKey, plans, sessions){
+// set: 1 or 2(改修57_01②-2 で2セット横並び表示する際の識別子。grid の id を分けるため)
+function renderTaipaTimetable(dateKey, plans, sessions, set){
+  set = set || 1;
   // 表示範囲を、予定・実績がある時間帯に絞ると見やすい(無ければ 6:00〜24:00)
   let minMin = 6*60, maxMin = 24*60;
   const marks = [];
@@ -16238,8 +16264,12 @@ function renderTaipaTimetable(dateKey, plans, sessions){
     const col = statsSubjectColor(p.subject);
     const lbl = frameOrSubFrameLabel(p.subject, p.frameRef);
     const kindB = p.kind==='review' ? `<span class="taipa-mini-badge">復${p.offset}</span>` : `<span class="taipa-mini-badge first">初</span>`;
+    // 改修57_01②-3: 完了済みの予定には右端に【済】(黒・太字)を表示。
+    //   従来の「薄く表示(.done)」は維持しつつ、完了を明確に分かるようにする。
+    const doneB = p.done ? `<span class="taipa-done-badge">【済】</span>` : '';
     planBlocks += `<div class="taipa-block plan ${p.done?'done':''}" data-plan-key="${escapeHtml(p.key)}" data-plan-start="${escapeHtml(p.startTime)}" data-plan-dur="${e-s}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.10)}" title="ドラッグで時間帯を移動 / 上下の端で長さ変更">
       <div class="taipa-resize top"></div>
+      ${doneB}
       <div class="taipa-block-sub">${escapeHtml(shortSubject(p.subject))}${kindB}</div>
       <div class="taipa-block-frame">${escapeHtml(_taipaFrameFull(p.subject,p.frameRef))}</div>
       <div class="taipa-resize bottom"></div>
@@ -16274,7 +16304,7 @@ function renderTaipaTimetable(dateKey, plans, sessions){
     </div>
     <div class="taipa-col taipa-col-plan">
       <div class="taipa-colhead">予定</div>
-      <div class="taipa-grid" id="taipa-plan-grid" data-start-slot="${startSlot}" data-row-px="${TAIPA_ROW_PX}" data-slot-min="${TAIPA_SLOT_MIN}" data-n-slots="${nSlots}" style="height:${gridH}px">${hourLines}${planBlocks}</div>
+      <div class="taipa-grid" id="taipa-plan-grid-${set}" data-start-slot="${startSlot}" data-row-px="${TAIPA_ROW_PX}" data-slot-min="${TAIPA_SLOT_MIN}" data-n-slots="${nSlots}" style="height:${gridH}px">${hourLines}${planBlocks}</div>
     </div>
     <div class="taipa-col taipa-col-act">
       <div class="taipa-colhead">実績</div>
@@ -16357,9 +16387,9 @@ function renderTaipaSummary(dateKey, sessions){
       <span class="sub">うち通常演習(A) ${fmtDurationMs(activeMs)}</span>
     </div>
     <div class="taipa-sumcard">
-      <span class="label">トータル解答数</span>
-      <span class="value">${totalAns}<span style="font-size:12px;font-weight:400">問</span></span>
-      <span class="sub">正答 ${totalCorrect} (${pct(totalCorrect,totalAns)})</span>
+      <span class="label">トータル解答数 / 正答数</span>
+      <span class="value">${totalAns}<span style="font-size:12px;font-weight:400"> / </span>${totalCorrect}<span style="font-size:12px;font-weight:400">問</span></span>
+      <span class="sub">正答率 ${pct(totalCorrect,totalAns)}　ミス ${Math.max(0,totalAns-totalCorrect)}問</span>
     </div>
     <div class="taipa-sumcard accent">
       <span class="label">タイパ(A基準・1問あたり)</span>
@@ -16375,14 +16405,14 @@ function renderTaipaSummary(dateKey, sessions){
   });
   html += `<div class="taipa-tbl-title">科目別</div>
     <div class="taipa-tbl-wrap"><table class="taipa-tbl">
-    <thead><tr><th>科目</th><th>学習時間</th><th>解答</th><th>正答率</th><th>タイパ(A)</th></tr></thead><tbody>`;
+    <thead><tr><th>科目</th><th>学習時間</th><th>解答/正答</th><th>正答率</th><th>タイパ(A)</th></tr></thead><tbody>`;
   for(const subj of subjKeys){
     const d = bySubject[subj];
     const col = statsSubjectColor(subj);
     html += `<tr>
       <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(subj)}</td>
       <td>${fmtDurationMs(d.totalMs)}</td>
-      <td>${d.ans}</td>
+      <td>${d.ans} / ${d.correct}</td>
       <td>${pct(d.correct,d.ans)}</td>
       <td>${fmtPerQ(perQ(d.activeMs,d.ans))}</td>
     </tr>`;
@@ -16399,7 +16429,7 @@ function renderTaipaSummary(dateKey, sessions){
   });
   html += `<div class="taipa-tbl-title">フレーム別</div>
     <div class="taipa-tbl-wrap"><table class="taipa-tbl">
-    <thead><tr><th>科目 / フレーム</th><th>状態</th><th>学習時間</th><th>解答</th><th>正答率</th><th>タイパ(A)</th></tr></thead><tbody>`;
+    <thead><tr><th>科目 / フレーム</th><th>状態</th><th>学習時間</th><th>解答/正答</th><th>正答率</th><th>タイパ(A)</th></tr></thead><tbody>`;
   for(const fk of frameKeys){
     const d = byFrame[fk];
     const col = statsSubjectColor(d.subject);
@@ -16412,7 +16442,7 @@ function renderTaipaSummary(dateKey, sessions){
       <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(shortSubject(d.subject))} ${escapeHtml(frameOrSubFrameLabel(d.subject,d.frameRef))}</td>
       <td>${stateBadge}${cntNote}</td>
       <td>${fmtDurationMs(d.totalMs)}</td>
-      <td>${d.ans}</td>
+      <td>${d.ans} / ${d.correct}</td>
       <td>${pct(d.correct,d.ans)}</td>
       <td>${fmtPerQ(perQ(d.activeMs,d.ans))}</td>
     </tr>`;
@@ -16444,7 +16474,13 @@ function _wireTaipaView(root){
    確定時に studyPlans[key] の startTime/endTime を書き戻して保存。
    ============================================================ */
 function _wireTaipaDrag(root){
-  const grid = root.querySelector('#taipa-plan-grid');
+  // 改修57_01②-2: 2セット(taipa-plan-grid-1 / -2)それぞれに配線する。
+  const grids = root.querySelectorAll('[id^="taipa-plan-grid"]');
+  grids.forEach(g => _wireTaipaDragGrid(root, g));
+}
+
+// 1つのグリッド要素に対してドラッグ配線を行う(改修05のロジックを踏襲)
+function _wireTaipaDragGrid(root, grid){
   if(!grid) return;
   const rowPx   = parseFloat(grid.dataset.rowPx) || TAIPA_ROW_PX;
   const slotMin = parseInt(grid.dataset.slotMin,10) || TAIPA_SLOT_MIN;
@@ -16569,11 +16605,10 @@ function _wireTaipaDrag(root){
 /* 改修05修正: 同じ予定キーの他のハコ(同一画面内の復習回など)の表示位置も、
    再描画せずにその場で更新する。startMin/endMin はドラッグ確定後の分。 */
 function _taipaSyncSameKeyBlocks(root, key, draggedBlock, startMin, endMin, startSlot, rowPx, slotMin){
-  const grid = root.querySelector('#taipa-plan-grid');
-  if(!grid) return;
+  // 改修57_01②-2: 2セット表示のため、root 内の全グリッドにある同一キーのハコを同期する。
   const top = ((startMin/slotMin) - startSlot) * rowPx;
   const h = Math.max(rowPx, ((endMin-startMin)/slotMin) * rowPx);
-  grid.querySelectorAll('.taipa-block.plan').forEach(b=>{
+  root.querySelectorAll('.taipa-block.plan').forEach(b=>{
     if(b === draggedBlock) return;
     if(b.dataset.planKey !== key) return;
     b.style.top = top + 'px';
