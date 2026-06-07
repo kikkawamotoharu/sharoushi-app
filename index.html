@@ -3266,6 +3266,17 @@
     <div class="stat-card">
       <h3>絞り込み</h3>
       <div class="field-group">
+        <label class="field">種類</label>
+        <select id="select-filter-kind">
+          <option value="both">すべて(A+B+予想)</option>
+          <option value="past">過去問(A+B)</option>
+          <option value="pastA_forecast">過去問A+予想問</option>
+          <option value="pastA">過去問A</option>
+          <option value="pastB">過去問B</option>
+          <option value="forecast">予想問</option>
+        </select>
+      </div>
+      <div class="field-group">
         <label class="field">法律</label>
         <select id="select-filter-law"><option value="">すべて</option></select>
       </div>
@@ -5140,6 +5151,7 @@ function loadState(){
       s.selectSession.answered ||= false;
       s.selectSession.userChoice ??= null;
       s.selectSession.filterCat ??= '';
+      s.selectSession.kindMode ||= 'both';
       // 弱点問題の追加 (後方互換)
       s.weakSession ||= {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu'};
       s.weakSession.answered ||= false;
@@ -5366,7 +5378,7 @@ function loadState(){
     session: {mode:'seq',currentIndex:0,filterLaw:'',filterYear:'',filterBm:'',filterMyNote:'',filterCat:'',filterFrame:'',frameMode:null,answered:false,userAnswer:null,kindMode:'both'},
     selectQuestions: SAMPLE_SELECT_QUESTIONS.slice(),
     selectHistory: [],
-    selectSession: {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null},
+    selectSession: {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null,kindMode:'both'},
     weakSession: {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'},
     figures: [],
     figuresView: {filterSubject:'',filterFrame:''},
@@ -8481,7 +8493,7 @@ async function _applyMergeRestore(){
   state.selectHistory ||= [];
   state.session ||= {mode:'seq',currentIndex:0,filterLaw:'',filterYear:'',filterBm:'',filterCat:'',filterFrame:'',frameMode:null,answered:false,userAnswer:null,kindMode:'both'};
   state.session.kindMode ||= 'both';
-  state.selectSession ||= {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null};
+  state.selectSession ||= {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null,kindMode:'both'}; state.selectSession.kindMode ||= 'both';
   state.weakSession ||= {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'};
   state.weakSession.kindMode ||= 'both';
   state.figures ||= [];
@@ -8596,7 +8608,7 @@ function restoreBackup(){
         state.selectHistory ||= [];
         state.session ||= {mode:'seq',currentIndex:0,filterLaw:'',filterYear:'',filterBm:'',filterCat:'',filterFrame:'',frameMode:null,answered:false,userAnswer:null,kindMode:'both'};
         state.session.kindMode ||= 'both';
-        state.selectSession ||= {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null};
+        state.selectSession ||= {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null,kindMode:'both'}; state.selectSession.kindMode ||= 'both';
         state.weakSession ||= {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'};
         state.weakSession.kindMode ||= 'both';
         state.figures ||= [];
@@ -8717,6 +8729,9 @@ function escapeHtml(s){
 function getSelectPool(){
   let pool = state.selectQuestions.slice();
   const s = state.selectSession;
+  // 改修: 選択式にも種類モード(過去問A/B/予想問)フィルタを適用
+  const kindMode = s.kindMode || 'both';
+  pool = pool.filter(q => questionMatchesKindMode(q, kindMode));
   if(s.filterLaw) pool = pool.filter(q=>q.law===s.filterLaw);
   if(s.filterCat) pool = pool.filter(q=>q.category===s.filterCat);
   if(s.filterYear) pool = pool.filter(q=>q.year===s.filterYear);
@@ -8957,11 +8972,16 @@ function renderSelectSidebar(){
   });
 
   // Filter selects
-  const laws = [...new Set(state.selectQuestions.map(q=>q.law))].sort();
-  const years = [...new Set(state.selectQuestions.map(q=>q.year))].sort();
-  let catSource = state.selectQuestions;
+  // 改修: 種類モード(過去問A/B/予想問)に応じて法律・年度・カテゴリの候補を絞る
+  const selKindMode = state.selectSession.kindMode || 'both';
+  const kmSelQs = state.selectQuestions.filter(q => questionMatchesKindMode(q, selKindMode));
+  const laws = [...new Set(kmSelQs.map(q=>q.law))].sort();
+  const years = [...new Set(kmSelQs.map(q=>q.year).filter(Boolean))].sort();
+  let catSource = kmSelQs;
   if(state.selectSession.filterLaw) catSource = catSource.filter(q=>q.law===state.selectSession.filterLaw);
   const cats = [...new Set(catSource.map(q=>q.category).filter(Boolean))].sort();
+  const kindSel = document.getElementById('select-filter-kind');
+  if(kindSel) kindSel.value = selKindMode;
   fillSelect('select-filter-law',laws,state.selectSession.filterLaw);
   fillSelect('select-filter-cat',cats,state.selectSession.filterCat);
   fillSelect('select-filter-year',years,state.selectSession.filterYear);
@@ -17396,6 +17416,18 @@ function init(){
   }));
 
   // ===== Select tab: filters =====
+  const selKindEl = document.getElementById('select-filter-kind');
+  if(selKindEl) selKindEl.addEventListener('change',e=>{
+    state.selectSession.kindMode = e.target.value;
+    // 種類変更時、現在のフィルタ(法律/年度/カテゴリ)が新しいプールに無ければクリア
+    const km = state.selectSession.kindMode;
+    const kmf = q => questionMatchesKindMode(q, km);
+    const newQs = state.selectQuestions.filter(kmf);
+    if(state.selectSession.filterLaw && !newQs.some(q=>q.law===state.selectSession.filterLaw)) state.selectSession.filterLaw='';
+    if(state.selectSession.filterYear && !newQs.some(q=>q.year===state.selectSession.filterYear)) state.selectSession.filterYear='';
+    if(state.selectSession.filterCat && !newQs.some(q=>q.category===state.selectSession.filterCat)) state.selectSession.filterCat='';
+    state.selectSession.currentIndex=0;state.selectSession.answered=false;saveState();renderSelectQuiz();renderSelectSidebar();
+  });
   document.getElementById('select-filter-law').addEventListener('change',e=>{
     state.selectSession.filterLaw = e.target.value;
     if(state.selectSession.filterCat){
