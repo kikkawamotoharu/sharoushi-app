@@ -4932,17 +4932,47 @@ function _dedupNenkinF9(s, opts){
   };
   const targetQs = s.questions.filter(isNenkinF9);
 
-  // text 完全一致でグループ化(出現順を保持)
-  const seenByText = new Map();   // text → 残す問題(keeper)
-  const dupPairs = [];            // {dup, keeper}
-  const normText = (t)=> (t==null ? '' : String(t));
+  // --- 正規化キー生成 ---
+  // 46〜90問目は「【冬山の登山中に行方不明になり】、…」のように、問題文の一部を
+  // 罠問用の【】で囲んで強調しているだけで、中身の文章は1〜45問目と同一。
+  // そこで「【】の記号だけを取り除き(中の文字は残す)、各種空白・改行を除去した
+  // 正規化テキスト」で一致を判定する。これにより【】の有無に関わらず同一問題を
+  // 重複と認識できる。
+  //   例)「【冬山の登山中に…】、その者の…」 と 「冬山の登山中に…、その者の…」
+  //       → どちらも正規化後は「冬山の登山中に…その者の…」で一致。
+  const normKey = (t)=>{
+    if(t==null) return '';
+    return String(t)
+      .replace(/[【】]/g, '')  // 【 と 】 の記号のみ除去(中身の文字は残す)
+      .replace(/\s+/g, '')      // 半角空白・改行・タブ等を除去
+      .replace(/\u3000/g, '')   // 全角空白を除去
+      .trim();
+  };
+  // text に【】マーカーを含むか(含まない方=1〜45問目側 を残したい)
+  const hasMarker = (q)=> /[【】]/.test(String(q && q.text || ''));
+
+  // 正規化キーでグループ化
+  const groups = new Map(); // normKey → [問題, ...](出現順)
   for(const q of targetQs){
-    const key = normText(q.text);
+    const key = normKey(q.text);
     if(!key) continue; // text が無い問題は重複判定の対象外
-    if(seenByText.has(key)){
-      dupPairs.push({dup:q, keeper:seenByText.get(key)});
-    }else{
-      seenByText.set(key, q);
+    if(!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(q);
+  }
+
+  // 各グループで keeper(残す側)を決定し、それ以外を dup(削除側)にする。
+  // keeper の優先順位:
+  //   ① 【】マーカーを含まない問題(=1〜45問目側)を優先
+  //   ② 同条件なら、出現順が先のもの(先に登録された=1〜45問目側)
+  const dupPairs = [];            // {dup, keeper}
+  for(const [key, arr] of groups){
+    if(arr.length < 2) continue;  // 重複なし
+    // keeper を選定:【】なしを優先、なければ先頭
+    let keeper = arr.find(q => !hasMarker(q));
+    if(!keeper) keeper = arr[0];
+    for(const q of arr){
+      if(q === keeper) continue;
+      dupPairs.push({dup:q, keeper});
     }
   }
   if(dupPairs.length === 0) return 0;
@@ -5228,12 +5258,15 @@ function loadState(){
       if(kindAMigrated>0) console.log(`Migrated ${kindAMigrated} questions: kind 'past' → 'pastA'`);
 
       // === 改修57_05: 国民年金法フレーム9 の重複問題を自動削除 ===
-      // 読込時に一度だけ実行(端末ごとに _dedupNenkinF9Done フラグで管理)。
+      // 読込時に一度だけ実行(端末ごとに _dedupNenkinF9DoneV2 フラグで管理)。
       // 詳細ロジックは _dedupNenkinF9() に集約(復元時にも再利用するため)。
+      // ※ V2: 【】マーカー付きの問題も同一とみなす正規化比較に改良したため、
+      //   旧フラグ(_dedupNenkinF9Done)が立っていても、V2 が未実行なら再度走らせる。
       try{
-        if(!s._dedupNenkinF9Done){
+        if(!s._dedupNenkinF9DoneV2){
           _dedupNenkinF9(s, {takeBackup:true});
-          s._dedupNenkinF9Done = true; // 端末ごとに一度だけ実行
+          s._dedupNenkinF9DoneV2 = true; // 端末ごとに一度だけ実行(V2)
+          s._dedupNenkinF9Done = true;   // 旧フラグも立てておく(後方互換)
         }
       }catch(e){ console.warn('[改修57_05] 重複削除中にエラー', e); }
 
@@ -8349,6 +8382,7 @@ async function _applyMergeRestore(){
   let _dedupMerged = 0;
   try{
     _dedupMerged = _dedupNenkinF9(state, {takeBackup:true}) || 0;
+    state._dedupNenkinF9DoneV2 = true;
     state._dedupNenkinF9Done = true;
     delete state._dedupNenkinF9Removed;
   }catch(_){ }
@@ -8509,7 +8543,8 @@ function restoreBackup(){
         let _dedupRestored = 0;
         try{
           _dedupRestored = _dedupNenkinF9(state, {takeBackup:false}) || 0;
-          state._dedupNenkinF9Done = true; // 復元後の通常起動で再実行しないように
+          state._dedupNenkinF9DoneV2 = true; // 復元後の通常起動で再実行しないように
+          state._dedupNenkinF9Done = true;
           delete state._dedupNenkinF9Removed; // 通知は下のサマリーに含めるのでフラグは消す
         }catch(_){ }
         saveState();
