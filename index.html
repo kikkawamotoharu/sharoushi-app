@@ -1461,6 +1461,8 @@
   .plan-box-top{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:1px}
   .plan-box-time{font-size:12px;font-weight:700;color:var(--ink)}
   .plan-box-dur{font-size:11px;color:var(--ink-muted)}
+  /* 改修57_04: 解答すべき問題数バッジ(予定タブ) */
+  .plan-box-qcount{font-size:11px;font-weight:600;color:#1F4F8F;background:#E4ECF7;border-radius:4px;padding:1px 6px;font-feature-settings:"tnum"}
   .plan-badge{
     font-size:10px;font-weight:700;padding:1px 7px;border-radius:9px;
   }
@@ -9070,8 +9072,13 @@ function saveFigMetaModal(){
 function getFiguresPool(){
   let pool = state.figures.slice();
   const v = state.figuresView;
-  if(v.filterSubject) pool = pool.filter(f=>f.subject===v.filterSubject);
-  if(v.filterFrame) pool = pool.filter(f=>String(f.frameNo)===String(v.filterFrame));
+  // 改修57_02: 「横断整理」選択時は isCrossSubject の図表だけを表示(フレーム絞り込みは無視)。
+  if(v.filterSubject === '__cross__'){
+    pool = pool.filter(f=>f.isCrossSubject);
+  } else {
+    if(v.filterSubject) pool = pool.filter(f=>f.subject===v.filterSubject);
+    if(v.filterFrame) pool = pool.filter(f=>String(f.frameNo)===String(v.filterFrame));
+  }
   // ソート: 科目順→フレーム番号→タイトル
   pool.sort((a,b)=>{
     const sa = SUBJECTS_ORDER.indexOf(a.subject||'');
@@ -9090,13 +9097,23 @@ function renderFigures(){
   const v = state.figuresView;
   // 科目選択肢
   const usedSubjects = [...new Set(state.figures.map(f=>f.subject).filter(Boolean))];
+  // 改修57_02: 1段目の絞り込み窓に「横断整理」を追加。
+  //   横断整理フラグ(isCrossSubject)の図表だけを直接検索できるようにする。
+  //   科目名と区別するため、内部値は '__cross__' を使う。
+  const hasCross = state.figures.some(f=>f.isCrossSubject);
+  const crossOpt = hasCross
+    ? `<option value="__cross__" ${v.filterSubject==='__cross__'?'selected':''}>🌐 横断整理</option>`
+    : '';
   const subjOpts = '<option value="">すべて</option>' +
+    crossOpt +
     SUBJECTS_ORDER.filter(s=>usedSubjects.includes(s)).map(s=>
       `<option value="${escapeHtml(s)}" ${v.filterSubject===s?'selected':''}>${escapeHtml(s)}</option>`
     ).join('');
   // フレーム選択肢
+  // 改修57_02: 「横断整理」選択時はフレーム横断のためフレーム絞り込みは無効化する。
+  const isCrossMode = (v.filterSubject === '__cross__');
   let frameSource = state.figures;
-  if(v.filterSubject) frameSource = frameSource.filter(f=>f.subject===v.filterSubject);
+  if(v.filterSubject && !isCrossMode) frameSource = frameSource.filter(f=>f.subject===v.filterSubject);
   const usedFrames = [...new Set(frameSource.map(f=>f.frameNo).filter(n=>n!=null))].sort((a,b)=>a-b);
   const frameOpts = '<option value="">すべて</option>' +
     usedFrames.map(n=>`<option value="${n}" ${String(v.filterFrame)===String(n)?'selected':''}>F${n}</option>`).join('');
@@ -9107,7 +9124,7 @@ function renderFigures(){
       <button class="upload-btn" id="fig-upload-btn">📤 図表をアップロード</button>
       <input type="file" id="fig-upload-input" accept="image/*" style="display:none">
       <select id="fig-filter-subj">${subjOpts}</select>
-      <select id="fig-filter-frame">${frameOpts}</select>
+      <select id="fig-filter-frame" ${isCrossMode?'disabled title="横断整理はフレーム横断のためフレーム絞り込みは無効です"':''}>${frameOpts}</select>
       <span class="upload-status" id="fig-upload-status"></span>
     </div>
   </div>`;
@@ -13859,6 +13876,23 @@ function planLearningContent(subject, frameRef){
   return fr ? fr.t : '';
 }
 
+/* 改修57_04: 予定タブ表示用 — 指定の科目・フレームに属する「過去問A」の問題数を返す。
+   進捗管理「予定」タブで、各フレームの解答すべき問題数(=学習ボリュームの目安)を
+   表示するために使う。kind は予定タブの標準基準である 'pastA' に固定。
+   サブフレーム指定がある場合はサブフレームでも絞り込む。 */
+function planFrameQuestionCount(subject, frameRef){
+  try{
+    const r = resolveFrameRef(subject, frameRef);
+    if(r.frameNo == null) return 0;
+    let qs = state.questions.filter(q=>
+      lawToSubject(q.law)===subject && q.frameNo===r.frameNo && getKind(q)==='pastA');
+    if(r.isSubFrame && r.subFrame){
+      qs = qs.filter(q=>questionMatchesSubFrame(q.law, r.subFrame));
+    }
+    return qs.length;
+  }catch(_){ return 0; }
+}
+
 // 指定日(dateKey)に発生する予定オカレンスを、開始時刻順 → 科目/フレーム順 で返す
 function getPlanOccurrencesForDate(dateKey){
   const list = [];
@@ -14330,6 +14364,9 @@ function renderProgressPlan(root){
       const subjCol = statsSubjectColor(o.subject);  // 改修30b: 科目カラー
       const timeStr = o.startTime ? (o.endTime ? `${o.startTime}〜${o.endTime}` : `${o.startTime}〜`) : '時刻未設定';
       const durStr = (o.durationMin!=null && o.durationMin>0) ? `<span class="plan-box-dur">(見込み ${o.durationMin}分)</span>` : '';
+      // 改修57_04: 解答すべき問題数(過去問A基準)を表示。学習ボリュームの見立てに使う。
+      const qCount = planFrameQuestionCount(o.subject, o.frameRef);
+      const qcountStr = qCount>0 ? `<span class="plan-box-qcount">📝 ${qCount}問</span>` : '';
       const badge = o.kind==='review'
         ? `<span class="plan-badge review">復習 ${o.offset}日後</span>`
         : `<span class="plan-badge first">初回</span>`;
@@ -14383,7 +14420,7 @@ function renderProgressPlan(root){
       html += `<div class="plan-box ${o.done?'done':''}" style="border-left-color:${subjCol}">
         <div class="plan-box-main">
           <div class="plan-box-top">
-            <span class="plan-box-time">🕒 ${timeStr}</span>${durStr}${badge}
+            <span class="plan-box-time">🕒 ${timeStr}</span>${durStr}${qcountStr}${badge}
           </div>
           <div class="plan-box-title"><span class="plan-subj-dot" style="background:${subjCol}"></span>${escapeHtml(o.subject)}　${escapeHtml(label)}</div>
           ${itemsHtml}
