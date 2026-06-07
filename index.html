@@ -274,7 +274,20 @@
   .mynote-tool{font-size:12px;padding:4px 12px;border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:5px;cursor:pointer}
   .mynote-tool:hover{background:var(--bg)}
   .mynote-hint{font-size:11px;color:var(--ink-muted)}
-  .mynote-textarea{width:100%;min-height:120px;box-sizing:border-box;padding:10px;border:1px solid var(--line);border-radius:6px;font-family:inherit;font-size:14px;line-height:1.7;resize:vertical;background:var(--paper);color:var(--ink)}
+  /* 改修57_06: 入力枠を約3倍に拡大(120px → 380px) */
+  .mynote-textarea{width:100%;min-height:380px;box-sizing:border-box;padding:10px;border:1px solid var(--line);border-radius:6px;font-family:inherit;font-size:14px;line-height:1.7;resize:vertical;background:var(--paper);color:var(--ink)}
+  /* 改修57_06: 装飾スタイル(本文・プレビュー共通) */
+  .mynote-body .mynote-kakko,.mynote-preview .mynote-kakko{color:#c0392b;font-weight:700}
+  .mynote-body .mynote-u,.mynote-preview .mynote-u{text-decoration:underline;text-underline-offset:2px}
+  .mynote-body .mynote-mk-red,.mynote-preview .mynote-mk-red{background:linear-gradient(transparent 55%, rgba(231,76,60,.45) 55%);color:inherit;padding:0 1px;border-radius:2px}
+  .mynote-body .mynote-mk-yellow,.mynote-preview .mynote-mk-yellow{background:linear-gradient(transparent 55%, rgba(241,196,15,.55) 55%);color:inherit;padding:0 1px;border-radius:2px}
+  /* 改修57_06: 消しゴムボタン */
+  .mynote-tool-eraser{border-color:#d7c2c2;color:#b04a3a}
+  .mynote-tool-eraser:hover{background:#f8efef}
+  /* 改修57_06: 編集中プレビュー枠 */
+  .mynote-preview-wrap{margin-top:8px}
+  .mynote-preview-label{font-size:11px;color:var(--ink-muted);margin-bottom:3px}
+  .mynote-preview{min-height:36px}
   .mynote-actions{display:flex;gap:10px;margin-top:8px}
   .mynote-save{font-size:13px;padding:6px 20px;border:none;background:#5E8A6A;color:#fff;border-radius:5px;cursor:pointer;font-weight:600}
   .mynote-save:hover{filter:brightness(1.08)}
@@ -5616,9 +5629,9 @@ function renderQuiz(){
           <span class="fb-mark">完了</span>
           <span class="fb-title">🎉 ${escapeHtml(fc.subject)} ${escapeHtml(titleStr)}${kindBadge}<br><span style="font-size:13px;font-weight:500;opacity:.95">(${kindLbl})${fc.attemptNo}回目の演習が完了しました!</span></span>
         </div>
-        <div class="fb-note">📖 最終問の解説をゆっくり確認したら、下のボタンで進捗管理に戻ってください。</div>
+        <div class="fb-note">📖 最終問の解説をゆっくり確認したら、下のボタンで実績(タイパ)を確認できます。計測中のストップウォッチは自動で停止します。</div>
         <div class="fb-actions">
-          <button class="primary" id="fc-back-progress">進捗管理に戻る</button>
+          <button class="primary" id="fc-back-progress">⏱ 実績(タイパ)を見る</button>
           <button id="fc-dismiss">この演習画面を続ける</button>
         </div>
       </div>`;
@@ -5756,6 +5769,9 @@ function renderQuiz(){
   card.querySelectorAll('[data-note-save]').forEach(b=>b.addEventListener('click',()=>saveMyNote(b.dataset.noteSave)));
   card.querySelectorAll('[data-note-cancel]').forEach(b=>b.addEventListener('click',()=>cancelEditMyNote()));
   card.querySelectorAll('[data-note-syntax]').forEach(b=>b.addEventListener('click',()=>insertNoteSyntax(b.dataset.noteSyntax)));
+  // 改修57_06: 入力中もプレビューを更新
+  const _mynoteTa = card.querySelector('#mynote-textarea');
+  if(_mynoteTa) _mynoteTa.addEventListener('input', ()=>{ try{ _updateMyNotePreview(); }catch(_){} });
   // 改修48_改修04: VS_識別_ロックwhy® メモのボタン
   card.querySelectorAll('[data-vsnote-edit]').forEach(b=>b.addEventListener('click',()=>startEditVsNote(b.dataset.vsnoteEdit)));
   card.querySelectorAll('[data-vsnote-save]').forEach(b=>b.addEventListener('click',()=>saveVsNote(b.dataset.vsnoteSave)));
@@ -5801,12 +5817,35 @@ function renderQuiz(){
   // フレーム完了バナーのボタン
   const fcBack = document.getElementById('fc-back-progress');
   if(fcBack) fcBack.addEventListener('click', ()=>{
+    // 改修57_07: 演習完了時に、進行中の計測(ストップウォッチ)を自動で「完了」させて止め、
+    //   実績の「タイパ」タブへ遷移する。
+    //   (従来は進捗管理タブの過去問A位置に戻り、ストップウォッチが動いたままになっていた)
+    const fc = state.session.frameCompleted;
+    // 完了した演習(subject/frameNo/subFrameKey)に対応する進行中セッションを探して止める
+    let stopped = false;
+    if(fc){
+      const frefStr = fc.subFrameKey != null ? String(fc.subFrameKey) : String(fc.frameNo);
+      const running = (state.studySessions||[]).filter(ss=>
+        (ss.status==='running'||ss.status==='paused'||ss.status==='resting') &&
+        ss.subject===fc.subject &&
+        (String(ss.frameRef)===frefStr || String(ss.frameRef)===String(fc.frameNo))
+      );
+      for(const ss of running){
+        finishStudySession(ss.id, {outcome:'done', silent:true});
+        stopped = true;
+      }
+    }
+    // セッション状態をクリア
     state.session.frameCompleted = null;
     state.session.frameMode = null;
     state.session.answered = false;
     state.session.userAnswer = null;
+    // 実績タブの「タイパ」を開く
+    state.statsView ||= {};
+    state.statsView.subTab = 'taipa';
+    state.statsView.taipaDate = _gDateKey(_gTodayDate()); // 今日のタイパを表示
     saveState();
-    switchTab('progress');
+    switchTab('stats');
   });
   const fcDis = document.getElementById('fc-dismiss');
   if(fcDis) fcDis.addEventListener('click', ()=>{
@@ -5830,10 +5869,18 @@ function renderMyNoteSection(q){
       <div class="mynote-edit">
         <div class="mynote-toolbar">
           <button type="button" class="mynote-tool" data-note-syntax="bold">太字</button>
+          <button type="button" class="mynote-tool" data-note-syntax="underline">下線</button>
+          <button type="button" class="mynote-tool" data-note-syntax="mark-red">赤マーカー</button>
+          <button type="button" class="mynote-tool" data-note-syntax="mark-yellow">黄マーカー</button>
           <button type="button" class="mynote-tool" data-note-syntax="list">・箇条書き</button>
-          <span class="mynote-hint">**で囲むと太字 / 行頭・で箇条書き</span>
+          <button type="button" class="mynote-tool mynote-tool-eraser" data-note-syntax="eraser">消しゴム</button>
         </div>
+        <div class="mynote-hint">文字を選んでボタンを押すと装飾できます。「消しゴム」は選択範囲の太字・下線・マーカーを解除します(【】内の赤太字は対象外)。【 】で囲んだ語句は赤太字で強調されます。</div>
         <textarea id="mynote-textarea" class="mynote-textarea" placeholder="ここに自分の追記・修正を入力します。予備校の解説には手を加えず、追加分のみ保存されます。">${escapeHtml(note)}</textarea>
+        <div class="mynote-preview-wrap">
+          <div class="mynote-preview-label">プレビュー</div>
+          <div class="mynote-preview section-body mynote-body" id="mynote-preview">${renderMyNoteHtml(note)}</div>
+        </div>
         <div class="mynote-actions">
           <button type="button" class="mynote-save" data-note-save="${q.id}">保存</button>
           <button type="button" class="mynote-cancel" data-note-cancel="1">キャンセル</button>
@@ -6177,12 +6224,29 @@ function setMyNote(qid, text){
   saveState();
 }
 /* 簡易記法を安全にHTMLへ変換。
-   先に escapeHtml で無害化 → 許可した記法( **太字** と 行頭「・」箇条書き )だけを装飾。 */
+   先に escapeHtml で無害化 → 許可した記法だけを装飾。
+   対応記法(改修57_06):
+     **太字**       → <strong>
+     __下線__       → <u class="mynote-u">
+     ==赤マーカー==  → <mark class="mynote-mk-red">
+     =Y= 黄マーカー =Y= → <mark class="mynote-mk-yellow">
+     【…】          → 赤字+太字(消しゴム対象外。常に強調)
+     行頭「・」「- 」 → 箇条書き<li>
+*/
 function renderMyNoteHtml(text){
   if(!text) return '';
   let safe = escapeHtml(text);
-  // **太字** → <strong>
+  // 【…】→ 赤字・太字(最優先で処理。中身に他記法があっても素の文字として強調する)
+  //   ※ escapeHtml 済みなので 【 】 はそのまま残っている。
+  safe = safe.replace(/【([^】]*)】/g, '<span class="mynote-kakko">【$1】</span>');
+  // 黄マーカー =Y=...=Y=(赤マーカー == より先に処理して誤マッチを防ぐ)
+  safe = safe.replace(/=Y=([^\n]+?)=Y=/g, '<mark class="mynote-mk-yellow">$1</mark>');
+  // 赤マーカー ==...==
+  safe = safe.replace(/==([^=\n]+?)==/g, '<mark class="mynote-mk-red">$1</mark>');
+  // 太字 **...**
   safe = safe.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  // 下線 __...__
+  safe = safe.replace(/__([^_\n]+)__/g, '<u class="mynote-u">$1</u>');
   // 行単位で処理し、行頭「・」または「- 」を箇条書き<li>に
   const lines = safe.split('\n');
   let html = '';
@@ -6219,26 +6283,63 @@ function saveMyNote(qid){
   state._editingNote = null;
   renderQuiz();
 }
-/* textareaのカーソル位置に記法を挿入(太字/箇条書きボタン用) */
+/* textareaの選択範囲に記法を適用(太字/下線/マーカー/箇条書き/消しゴム)。
+   改修57_06: 下線・2色マーカー・消しゴムを追加。適用後はプレビューを更新する。 */
 function insertNoteSyntax(kind){
   const ta = document.getElementById('mynote-textarea');
   if(!ta) return;
   const s = ta.selectionStart, e = ta.selectionEnd;
   const before = ta.value.slice(0,s), sel = ta.value.slice(s,e), after = ta.value.slice(e);
-  if(kind==='bold'){
-    const inner = sel || '太字';
-    ta.value = before + '**' + inner + '**' + after;
-    ta.focus();
-    ta.selectionStart = before.length + 2;
-    ta.selectionEnd   = before.length + 2 + inner.length;
-  }else if(kind==='list'){
-    // 行頭に「・」を付ける
+
+  // 記法ラッパー定義
+  const WRAPS = {
+    'bold':        {pre:'**',  post:'**',  ph:'太字'},
+    'underline':   {pre:'__',  post:'__',  ph:'下線'},
+    'mark-red':    {pre:'==',  post:'==',  ph:'赤マーカー'},
+    'mark-yellow': {pre:'=Y=', post:'=Y=', ph:'黄マーカー'},
+  };
+
+  if(kind==='list'){
     const needNl = (before.length>0 && !before.endsWith('\n')) ? '\n' : '';
     ta.value = before + needNl + '・' + (sel||'') + after;
     ta.focus();
     const pos = before.length + needNl.length + 1 + (sel?sel.length:0);
     ta.selectionStart = ta.selectionEnd = pos;
+  }else if(kind==='eraser'){
+    // 選択範囲から太字・下線・マーカー記法を除去(【】内の赤太字は記法ではないため対象外)
+    const cleaned = _stripNoteSyntax(sel);
+    ta.value = before + cleaned + after;
+    ta.focus();
+    ta.selectionStart = before.length;
+    ta.selectionEnd   = before.length + cleaned.length;
+  }else if(WRAPS[kind]){
+    const w = WRAPS[kind];
+    const inner = sel || w.ph;
+    ta.value = before + w.pre + inner + w.post + after;
+    ta.focus();
+    ta.selectionStart = before.length + w.pre.length;
+    ta.selectionEnd   = before.length + w.pre.length + inner.length;
   }
+  _updateMyNotePreview();
+}
+
+/* 消しゴム用: 文字列から太字(**)・下線(__)・赤マーカー(==)・黄マーカー(=Y=)記法だけを外す。
+   記号を取り除き、中身の文字は残す。【】はそのまま(記法ではなく強調指定なので対象外)。 */
+function _stripNoteSyntax(str){
+  if(!str) return str;
+  let out = str;
+  out = out.replace(/=Y=([^\n]*?)=Y=/g, '$1');   // 黄マーカー
+  out = out.replace(/==([^=\n]*?)==/g, '$1');     // 赤マーカー
+  out = out.replace(/\*\*([^*\n]*?)\*\*/g, '$1'); // 太字
+  out = out.replace(/__([^_\n]*?)__/g, '$1');     // 下線
+  return out;
+}
+
+/* 編集中のライブプレビューを更新する(改修57_06) */
+function _updateMyNotePreview(){
+  const ta = document.getElementById('mynote-textarea');
+  const pv = document.getElementById('mynote-preview');
+  if(ta && pv) pv.innerHTML = renderMyNoteHtml(ta.value) || '<span style="color:var(--ink-muted)">(プレビュー)</span>';
 }
 
 /* ===== 改修48_改修04: VS_識別_ロックwhy® メモ =====
@@ -7361,6 +7462,10 @@ const BACKUP_REMINDER_THRESHOLDS = {
 };
 const BACKUP_REMINDER_DISMISS_MIN = 20; // 「後で」で何分間非表示にするか
 const BACKUP_BEFOREUNLOAD_THRESHOLD = 5; // この件数以上ならタブ閉じ時に確認
+// 改修57_03(②): 通知バナーの「最低表示件数」。
+//   時間方式でも問題数方式でも、未バックアップがこの件数未満のときはバナーを出さない。
+//   (朝アプリを開いて1問解いただけで時刻超過により全画面的にバナーが出る煩わしさを防ぐ)
+const BACKUP_REMINDER_MIN_COUNT = 10;
 
 // 改修48_改修02: 問題数方式で選べるしきい値
 const BACKUP_COUNT_OPTIONS = [10, 20, 30, 40, 50];
@@ -7468,6 +7573,13 @@ function updateBackupReminderBanner(){
     shouldShow = status.count >= settings.countN;
   }else if(settings.mode === 'time'){
     shouldShow = _shouldShowTimeReminder(status);
+  }
+
+  // 改修57_03(②): 未バックアップが少数(既定10問未満)のときは、どのモードでもバナーを出さない。
+  //   時間方式で「朝7時を過ぎて1問解いただけ」でバナーが出る煩わしさを防ぐ。
+  //   ※ 問題数方式で countN を 10 未満に設定することは UI 上できないため、count モードの挙動は実質不変。
+  if(status.count < BACKUP_REMINDER_MIN_COUNT){
+    shouldShow = false;
   }
 
   // dismiss 判定: 期限内なら一時的に非表示(モード共通)
@@ -16139,6 +16251,17 @@ function renderStats(){
     });
   });
   _wireStatsSubTabs(root);
+
+  // 改修57_08: 30日間/全期間の表示では、横スクロールの初期位置を「今日」(右端)中心にする。
+  //   従来は左端(=最も古い日)が表示され、今日を見るのにスクロールが必要だった。
+  //   日別グラフと日別詳細の両方のスクロール領域を右端へ寄せる。
+  if(range === '30d' || range === 'all'){
+    requestAnimationFrame(()=>{
+      root.querySelectorAll('.stats-chart-svg-wrap').forEach(wrap=>{
+        try{ wrap.scrollLeft = wrap.scrollWidth; }catch(_){}
+      });
+    });
+  }
 }
 
 // 改修31: 実績タブのサブタブ(レゴ/タイパ/学習時間)の切替配線
