@@ -3837,6 +3837,12 @@
 <script>
 'use strict';
 
+/* ===== 改修69: LZString (MIT, pieroxy/lz-string v1.5.0) — localStorage圧縮用 =====
+   iOS Safari の localStorage 5MB 制限に対し、保存データ(JSON)を UTF-16 セーフに
+   圧縮して格納することで、実効容量を数倍に拡張する。全ブラウザの localStorage で安全。 */
+var LZString=function(){var r=String.fromCharCode,o="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=",n="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$",e={};function t(r,o){if(!e[r]){e[r]={};for(var n=0;n<r.length;n++)e[r][r.charAt(n)]=n}return e[r][o]}var i={compressToBase64:function(r){if(null==r)return"";var n=i._compress(r,6,function(r){return o.charAt(r)});switch(n.length%4){default:case 0:return n;case 1:return n+"===";case 2:return n+"==";case 3:return n+"="}},decompressFromBase64:function(r){return null==r?"":""==r?null:i._decompress(r.length,32,function(n){return t(o,r.charAt(n))})},compressToUTF16:function(o){return null==o?"":i._compress(o,15,function(o){return r(o+32)})+" "},decompressFromUTF16:function(r){return null==r?"":""==r?null:i._decompress(r.length,16384,function(o){return r.charCodeAt(o)-32})},compressToUint8Array:function(r){for(var o=i.compress(r),n=new Uint8Array(2*o.length),e=0,t=o.length;e<t;e++){var s=o.charCodeAt(e);n[2*e]=s>>>8,n[2*e+1]=s%256}return n},decompressFromUint8Array:function(o){if(null==o)return i.decompress(o);for(var n=new Array(o.length/2),e=0,t=n.length;e<t;e++)n[e]=256*o[2*e]+o[2*e+1];var s=[];return n.forEach(function(o){s.push(r(o))}),i.decompress(s.join(""))},compressToEncodedURIComponent:function(r){return null==r?"":i._compress(r,6,function(r){return n.charAt(r)})},decompressFromEncodedURIComponent:function(r){return null==r?"":""==r?null:(r=r.replace(/ /g,"+"),i._decompress(r.length,32,function(o){return t(n,r.charAt(o))}))},compress:function(o){return i._compress(o,16,function(o){return r(o)})},_compress:function(r,o,n){if(null==r)return"";var e,t,i,s={},u={},a="",p="",c="",l=2,f=3,h=2,d=[],m=0,v=0;for(i=0;i<r.length;i+=1)if(a=r.charAt(i),Object.prototype.hasOwnProperty.call(s,a)||(s[a]=f++,u[a]=!0),p=c+a,Object.prototype.hasOwnProperty.call(s,p))c=p;else{if(Object.prototype.hasOwnProperty.call(u,c)){if(c.charCodeAt(0)<256){for(e=0;e<h;e++)m<<=1,v==o-1?(v=0,d.push(n(m)),m=0):v++;for(t=c.charCodeAt(0),e=0;e<8;e++)m=m<<1|1&t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t>>=1}else{for(t=1,e=0;e<h;e++)m=m<<1|t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t=0;for(t=c.charCodeAt(0),e=0;e<16;e++)m=m<<1|1&t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t>>=1}0==--l&&(l=Math.pow(2,h),h++),delete u[c]}else for(t=s[c],e=0;e<h;e++)m=m<<1|1&t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t>>=1;0==--l&&(l=Math.pow(2,h),h++),s[p]=f++,c=String(a)}if(""!==c){if(Object.prototype.hasOwnProperty.call(u,c)){if(c.charCodeAt(0)<256){for(e=0;e<h;e++)m<<=1,v==o-1?(v=0,d.push(n(m)),m=0):v++;for(t=c.charCodeAt(0),e=0;e<8;e++)m=m<<1|1&t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t>>=1}else{for(t=1,e=0;e<h;e++)m=m<<1|t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t=0;for(t=c.charCodeAt(0),e=0;e<16;e++)m=m<<1|1&t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t>>=1}0==--l&&(l=Math.pow(2,h),h++),delete u[c]}else for(t=s[c],e=0;e<h;e++)m=m<<1|1&t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t>>=1;0==--l&&(l=Math.pow(2,h),h++)}for(t=2,e=0;e<h;e++)m=m<<1|1&t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t>>=1;for(;;){if(m<<=1,v==o-1){d.push(n(m));break}v++}return d.join("")},decompress:function(r){return null==r?"":""==r?null:i._decompress(r.length,32768,function(o){return r.charCodeAt(o)})},_decompress:function(o,n,e){var t,i,s,u,a,p,c,l=[],f=4,h=4,d=3,m="",v=[],g={val:e(0),position:n,index:1};for(t=0;t<3;t+=1)l[t]=t;for(s=0,a=Math.pow(2,2),p=1;p!=a;)u=g.val&g.position,g.position>>=1,0==g.position&&(g.position=n,g.val=e(g.index++)),s|=(u>0?1:0)*p,p<<=1;switch(s){case 0:for(s=0,a=Math.pow(2,8),p=1;p!=a;)u=g.val&g.position,g.position>>=1,0==g.position&&(g.position=n,g.val=e(g.index++)),s|=(u>0?1:0)*p,p<<=1;c=r(s);break;case 1:for(s=0,a=Math.pow(2,16),p=1;p!=a;)u=g.val&g.position,g.position>>=1,0==g.position&&(g.position=n,g.val=e(g.index++)),s|=(u>0?1:0)*p,p<<=1;c=r(s);break;case 2:return""}for(l[3]=c,i=c,v.push(c);;){if(g.index>o)return"";for(s=0,a=Math.pow(2,d),p=1;p!=a;)u=g.val&g.position,g.position>>=1,0==g.position&&(g.position=n,g.val=e(g.index++)),s|=(u>0?1:0)*p,p<<=1;switch(c=s){case 0:for(s=0,a=Math.pow(2,8),p=1;p!=a;)u=g.val&g.position,g.position>>=1,0==g.position&&(g.position=n,g.val=e(g.index++)),s|=(u>0?1:0)*p,p<<=1;l[h++]=r(s),c=h-1,f--;break;case 1:for(s=0,a=Math.pow(2,16),p=1;p!=a;)u=g.val&g.position,g.position>>=1,0==g.position&&(g.position=n,g.val=e(g.index++)),s|=(u>0?1:0)*p,p<<=1;l[h++]=r(s),c=h-1,f--;break;case 2:return v.join("")}if(0==f&&(f=Math.pow(2,d),d++),l[c])m=l[c];else{if(c!==h)return null;m=i+i.charAt(0)}v.push(m),l[h++]=i+m.charAt(0),i=m,0==--f&&(f=Math.pow(2,d),d++)}}};return i}();"function"==typeof define&&define.amd?define(function(){return LZString}):"undefined"!=typeof module&&null!=module?module.exports=LZString:"undefined"!=typeof angular&&null!=angular&&angular.module("LZString",[]).factory("LZString",function(){return LZString});
+
+
 /* ===== Sample data: フレーム11 (uploaded PDF) + スクショの問題 ===== */
 const SAMPLE_QUESTIONS = [
   {id:"s1",year:"H18",law:"雇用保険法",frameNo:7,qno:"問6 肢A",category:"就職促進給付",
@@ -4913,6 +4919,46 @@ async function initFigureStorage(){
 /* ===== State & Storage ===== */
 const STORAGE_KEY = 'sharoushi_kakomon_v1';
 
+/* ===== 改修69: localStorage 圧縮保存ヘルパー =====
+   保存データ(state の JSON)を LZString.compressToUTF16 で圧縮して格納する。
+   iOS Safari の 5MB 制限に対し、日本語テキストは概ね 1/4〜1/6 に圧縮できるため、
+   実効容量を数倍に拡張できる。
+
+   後方互換のため、保存文字列の先頭に判別プレフィックスを付ける:
+     圧縮形式 … 先頭が LZ_PREFIX('\u0001LZ\u0001') で始まる。残りが compressToUTF16 出力。
+     生JSON  … 従来どおり '{' で始まる(プレフィックスなし)。
+   読込時はこのプレフィックスの有無で判定し、生JSONも引き続き読める。 */
+const LZ_PREFIX = '\u0001LZ\u0001';
+
+// state を圧縮文字列にして返す。LZString が無い/失敗時は生JSONにフォールバック。
+function _serializeState(s){
+  const json = JSON.stringify(s);
+  try{
+    if(typeof LZString !== 'undefined' && LZString.compressToUTF16){
+      const comp = LZString.compressToUTF16(json);
+      // 念のため: 圧縮結果が空や異常に長い場合は生JSONを使う
+      if(comp && comp.length > 0 && comp.length < json.length){
+        return LZ_PREFIX + comp;
+      }
+    }
+  }catch(e){ console.warn('[改修69] 圧縮に失敗、生JSONで保存', e); }
+  return json;
+}
+
+// localStorage から読んだ文字列を state オブジェクトにパースする。
+// 圧縮プレフィックスがあれば展開、なければ従来どおり JSON.parse。
+function _deserializeState(raw){
+  if(raw == null) return null;
+  if(raw.startsWith(LZ_PREFIX)){
+    const body = raw.slice(LZ_PREFIX.length);
+    const json = LZString.decompressFromUTF16(body);
+    if(json == null) throw new Error('圧縮データの展開に失敗しました');
+    return JSON.parse(json);
+  }
+  // 生JSON(従来形式)
+  return JSON.parse(raw);
+}
+
 /* 改修50: データ喪失防止のための保存凍結フラグ群。
    ・_saveFrozen … 読み込みに「失敗の疑い」があるとき true。true の間は saveState を拒否し、
                    空/壊れた state による localStorage 上書き(=全データ消失)を物理的に防ぐ。
@@ -5128,7 +5174,7 @@ function loadState(){
     rawForGuard = raw;
     if(raw){
       _loadHadRawData = true;
-      const s = JSON.parse(raw);
+      const s = _deserializeState(raw);
       if(!s.questions || !s.questions.length){
         s.questions = SAMPLE_QUESTIONS.slice();
       }
@@ -5457,7 +5503,7 @@ function saveState(){
     }
   }
   try{
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(STORAGE_KEY, _serializeState(state));
     // 改修50: 書き込み成功時点の件数を「正常な基準値」として更新
     _lastGoodCounts = _snapshotCounts(state);
   }catch(e){
@@ -7276,15 +7322,22 @@ async function runStorageDiagnostic(){
   result.innerHTML = '<p style="color:var(--mut);padding:10px">診断中...</p>';
 
   try{
-    // === localStorage 全体サイズ ===
+    // === localStorage 全体サイズ(実際に格納されているバイト数=圧縮後) ===
     const raw = localStorage.getItem(STORAGE_KEY) || '';
     // iPhone Safari の制限は UTF-16 換算で 5MB(=約 2.5M文字)とされるため
     // 安全側で 1文字 = 2バイト換算
     const totalBytes = raw.length * 2;
 
-    // === state を解析して内訳を取る ===
+    // === 改修69: 圧縮形式か生JSONかを判定し、内訳用に state を復元する ===
+    const isCompressed = raw.startsWith(LZ_PREFIX);
     let stateObj = {};
-    try{ stateObj = JSON.parse(raw) }catch(_){ stateObj = {} }
+    let uncompressedJson = '';
+    try{
+      stateObj = _deserializeState(raw) || {};
+      uncompressedJson = JSON.stringify(stateObj);
+    }catch(_){ stateObj = {}; uncompressedJson = ''; }
+    // 展開後(=非圧縮換算)の総バイト数。内訳の割合計算にはこちらを使う。
+    const uncompressedBytes = uncompressedJson.length * 2;
 
     const sections = [
       {label:'択一問題 (questions)',         key:'questions'},
@@ -7377,6 +7430,20 @@ async function runStorageDiagnostic(){
     html += `<div style="height:12px;background:#eee;border-radius:6px;overflow:hidden">
       <div style="height:100%;width:${pct.toFixed(2)}%;background:${pctColor};transition:width 0.6s ease-out"></div>
     </div>`;
+    // 改修69: 圧縮の状況を表示
+    if(isCompressed && uncompressedBytes > 0){
+      const ratio = totalBytes > 0 ? (totalBytes / uncompressedBytes * 100) : 100;
+      html += `<div style="margin-top:10px;font-size:12px;color:#1e8449;background:#eafaf1;border:1px solid #abebc6;padding:8px;border-radius:5px;line-height:1.6">
+        ✓ データは圧縮して保存されています。<br>
+        圧縮前 ${fmt(uncompressedBytes)} → 実際の使用 <strong>${fmt(totalBytes)}</strong>(${ratio.toFixed(0)}%に圧縮)。<br>
+        この圧縮により、5MBの枠に大幅に余裕が生まれています。
+      </div>`;
+    }else if(!isCompressed && totalBytes > 0){
+      html += `<div style="margin-top:10px;font-size:12px;color:#856404;background:#fff8e1;border:1px solid #ffe082;padding:8px;border-radius:5px;line-height:1.6">
+        現在のデータは未圧縮(従来形式)で保存されています。<br>
+        何か1つ操作して保存するか、いったん「保存エラーから復旧する」を押すと、自動的に圧縮形式へ切り替わり、使用量が大きく減ります。
+      </div>`;
+    }
     html += `</div>`;
 
     // マイグレーション漏れ警告(優先表示)
@@ -7391,7 +7458,7 @@ async function runStorageDiagnostic(){
 
     // 内訳テーブル
     html += `<div style="background:var(--bg);border:1px solid var(--line);padding:14px;border-radius:6px;margin-top:10px">`;
-    html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px">localStorage 内訳 (大きい順)</div>`;
+    html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px">データ内訳 (大きい順)${isCompressed?' <span style="font-weight:400;color:var(--mut);font-size:11px">※圧縮前の素のサイズ</span>':''}</div>`;
     html += `<table style="width:100%;font-size:12px;border-collapse:collapse">`;
     html += `<thead><tr style="border-bottom:1px solid var(--line);text-align:left;color:var(--mut)">
       <th style="padding:6px 8px;font-weight:500">項目</th>
@@ -7399,8 +7466,9 @@ async function runStorageDiagnostic(){
       <th style="padding:6px 8px;text-align:right;font-weight:500">サイズ</th>
       <th style="padding:6px 8px;text-align:right;font-weight:500">割合</th>
     </tr></thead><tbody>`;
+    const denom = uncompressedBytes > 0 ? uncompressedBytes : totalBytes;
     for(const item of breakdown){
-      const p = totalBytes > 0 ? (item.bytes / totalBytes * 100) : 0;
+      const p = denom > 0 ? (item.bytes / denom * 100) : 0;
       html += `<tr style="border-bottom:1px solid #f0f0f0">
         <td style="padding:6px 8px">${escapeHtml(item.label)}</td>
         <td style="padding:6px 8px;text-align:right">${item.count}</td>
@@ -7517,7 +7585,7 @@ async function recoverFromSaveFreeze(){
     // 3) 実際に保存を試みる。ここで通れば復旧成功。
     let saved = false, saveErr = null;
     try{
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(STORAGE_KEY, _serializeState(state));
       _lastGoodCounts = _snapshotCounts(state);
       saved = true;
     }catch(e){ saveErr = e; }
@@ -17684,6 +17752,22 @@ function init(){
 
   renderQuiz();
   renderSidebar();
+
+  // 改修69: 起動時の自動圧縮移行。
+  //   既存ユーザーの localStorage には未圧縮(生JSON)のデータが入っている。
+  //   読み込みに成功していて(=保存凍結でなく)、かつ保存形式が未圧縮なら、
+  //   起動直後に一度だけ圧縮形式で保存し直して使用量を一気に減らす。
+  //   これにより、5MB 満杯のユーザーが新版を開くだけで自動的に容量に余裕が生まれる。
+  try{
+    if(!_saveFrozen){
+      const cur = localStorage.getItem(STORAGE_KEY);
+      if(cur && !cur.startsWith(LZ_PREFIX)){
+        // 未圧縮データを検出 → 圧縮して保存し直す(saveState 経由で各種ガードも通る)
+        saveState();
+        console.log('[改修69] 起動時に未圧縮データを圧縮形式へ移行しました。');
+      }
+    }
+  }catch(e){ console.warn('[改修69] 起動時の圧縮移行に失敗', e); }
 
   // IndexedDB を初期化し、既存 localStorage 画像を移行 + キャッシュを構築
   // (非同期。完了後に図表タブが開いていれば再描画される)
