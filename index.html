@@ -4967,6 +4967,7 @@ function _deserializeState(raw){
    ・_lastGoodCounts … 直近の正常な件数。極端な目減りを検知して保存を止めるために使う。 */
 let _saveFrozen = false;
 let _loadHadRawData = false;
+let _lastLoadError = null;
 let _lastGoodCounts = null;
 
 let state = loadState();
@@ -4988,6 +4989,12 @@ function _snapshotCounts(s){
 /* 改修50: 読込失敗時の強い警告。誤って操作して保存されると上書きの危険があるため、
    ユーザーに「いったんアプリを閉じて開き直す/バックアップから復元」を促す。 */
 function _showLoadFailureWarning(){
+  var dbg = '';
+  try{
+    if(_lastLoadError){
+      dbg = '\n\n【技術情報(原因調査用)】\n' + (_lastLoadError.message || String(_lastLoadError));
+    }
+  }catch(_){}
   alert(
     '⚠️ データの読み込みに問題が発生しました。\n\n'
     + '安全のため、データの自動保存を一時停止しています。\n'
@@ -5000,6 +5007,7 @@ function _showLoadFailureWarning(){
     + '3. なお直らない場合は、保存済みの完全バックアップ(JSON)から\n'
     + '   「バックアップ復元」を行ってください。\n\n'
     + '※ この警告中に操作してもデータは上書きされません。ご安心ください。'
+    + dbg
   );
 }
 
@@ -5407,14 +5415,14 @@ function loadState(){
       _lastGoodCounts = _snapshotCounts(s);
       return s;
     }
-  }catch(e){console.warn('Load error',e)}
+  }catch(e){ console.warn('Load error',e); _lastLoadError = e; }
   // 改修50: ここに来た=「生データが存在したのに解析/復元に失敗」または「生データが無い」。
   //   生データが在ったのにフォールバックへ落ちた場合は、壊れた読込の可能性が高いので
   //   保存を凍結し、空のサンプルデータで localStorage を上書きしてしまう事故を防ぐ。
   //   (生データが無い=本当の初回起動なら凍結しない。)
   if(rawForGuard){
     _saveFrozen = true;
-    console.error('[改修50] 読込に失敗したため保存を凍結しました。データ上書きを防止します。');
+    console.error('[改修50] 読込に失敗したため保存を凍結しました。データ上書きを防止します。', _lastLoadError);
     // 起動直後の DOM 準備後に強い警告を出す(関数定義順の都合で遅延実行)
     setTimeout(()=>{ try{ _showLoadFailureWarning(); }catch(_){ } }, 800);
   }
