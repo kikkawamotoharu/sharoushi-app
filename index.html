@@ -4970,6 +4970,15 @@ let _loadHadRawData = false;
 let _lastLoadError = null;
 let _lastGoodCounts = null;
 
+/* 改修70: TDZ(初期化前アクセス)バグ修正。
+   normalizeBackupReminderSettings() は loadState() から呼ばれるが、その中で参照する
+   BACKUP_COUNT_OPTIONS / BACKUP_TIMES_MAX は従来コードのもっと後方で const 定義されていた。
+   const は宣言前に参照すると例外(Cannot access ... before initialization)になるため、
+   loadState 実行のたびに catch に落ち、毎起動「読み込みに問題」警告が出ていた。
+   そこで、これらの定数を loadState より前へ移動して定義する。 */
+const BACKUP_COUNT_OPTIONS = [10, 20, 30, 40, 50]; // 問題数方式で選べるしきい値
+const BACKUP_TIMES_MAX = 5; // 時間方式で設定できる時刻の最大数
+
 let state = loadState();
 
 /* 改修50: state の主要件数のスナップショットを取る(保存ガードの比較用)。 */
@@ -7654,8 +7663,8 @@ const BACKUP_BEFOREUNLOAD_THRESHOLD = 5; // この件数以上ならタブ閉じ
 const BACKUP_REMINDER_MIN_COUNT = 10;
 
 // 改修48_改修02: 問題数方式で選べるしきい値
-const BACKUP_COUNT_OPTIONS = [10, 20, 30, 40, 50];
-const BACKUP_TIMES_MAX = 5; // 時間方式で設定できる時刻の最大数
+//   (改修70: BACKUP_COUNT_OPTIONS と BACKUP_TIMES_MAX は loadState より前へ移動済み。
+//    ここでの再定義は TDZ/重複定義になるため削除した。)
 
 /** 通知設定を正規化(欠損・不正値を既定値で補完)。後方互換にも使う。 */
 function normalizeBackupReminderSettings(s){
