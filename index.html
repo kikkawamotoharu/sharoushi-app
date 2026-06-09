@@ -5474,7 +5474,50 @@ function loadState(){
     backupReminderSettings: {mode:'count', countN:30, times:['07:00','12:00','17:00']}
   };
 }
+/* ===== 改修72: 保存のデバウンス(遅延一括保存) =====
+   従来は操作のたびに saveState() が同期で「state全体をJSON化→LZ圧縮→localStorage書込」を
+   実行していた。データが大きい(素で数MB)と、付箋クリック等のたびに毎回フル圧縮が走り、
+   特に iPhone で体感のもたつき(クリックしてもチェックがすぐ付かない)が出ていた。
+
+   対策: saveState() は「予約」だけして即座に返し、最後の操作から一定時間(SAVE_DEBOUNCE_MS)
+   後に saveStateNow() を一度だけ実行する。連打しても圧縮は最後の1回で済む。
+   データ保護のため、ページ離脱時(pagehide/visibilitychange)とバックアップ取得直前などは
+   saveStateNow() / flushPendingSave() で確実に即時保存する。
+
+   呼び出し側(約150箇所)は saveState() のままでよい(中身がデバウンス化されるだけ)。 */
+const SAVE_DEBOUNCE_MS = 600;
+let _saveTimer = null;
+let _savePending = false;
+
+// 遅延保存の予約。即座に返るので UI 応答が速い。
 function saveState(){
+  // 凍結中は予約もしない(従来どおりデータ保護を最優先)
+  if(_saveFrozen){
+    console.warn('[改修50] 保存は凍結中のためスキップしました(データ保護)。');
+    return;
+  }
+  _savePending = true;
+  if(_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(()=>{
+    _saveTimer = null;
+    flushPendingSave();
+  }, SAVE_DEBOUNCE_MS);
+}
+
+// 予約済みの保存があれば、いま即座に実行する(離脱時・バックアップ前などに使う)。
+function flushPendingSave(){
+  if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; }
+  if(_savePending){
+    _savePending = false;
+    saveStateNow();
+  }
+}
+
+// 実際に localStorage へ書き込む本体(従来の saveState の中身)。即時保存が必要な場面で直接呼ぶ。
+function saveStateNow(){
+  // 予約フラグは消化済みにしておく(直接呼ばれた場合も二重保存を避ける)
+  _savePending = false;
+  if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; }
   // 改修50: 保存凍結中は何も書き込まない。
   //   読込失敗の疑いがある状態(空/壊れた state)で保存すると、localStorage の
   //   正常データを空データで上書きして全消失する事故が起きる。これを物理的に防ぐ。
@@ -8055,6 +8098,8 @@ function _dismissBackupReminder(){
 
 /** beforeunload ハンドラ: 未バックアップ件数が一定以上なら確認ダイアログ */
 function _backupBeforeUnloadHandler(e){
+  // 改修72: 未保存の遅延保存があれば、離脱前に確実に書き込む
+  try{ flushPendingSave(); }catch(_){}
   const status = getBackupStatus();
   if(status.count >= BACKUP_BEFOREUNLOAD_THRESHOLD){
     // 最新ブラウザは独自メッセージを無視するが、preventDefault + returnValue で標準確認を出せる
@@ -8071,6 +8116,8 @@ function _backupBeforeUnloadHandler(e){
 function _backupOnHideHandler(){
   try{
     if(document.visibilityState !== 'hidden') return;
+    // 改修72: タブが隠れる瞬間に、未保存の遅延保存を確実に書き込む(最優先)
+    try{ flushPendingSave(); }catch(_){}
     const settings = getBackupReminderSettings();
     if(!settings.autoDownload || _saveFrozen) return;
     const status = getBackupStatus();
@@ -8217,6 +8264,9 @@ function wireBackupReminderSettings(){
 async function backupAll(opts){
   // 改修50: opts.auto=true のとき「自動バックアップ」。失敗時もダイアログを出さず静かに記録する。
   const auto = !!(opts && opts.auto);
+  // 改修72: 未保存の遅延保存があれば、バックアップ前に確実に書き込む
+  //   (直前の操作がバックアップに含まれないのを防ぐ)
+  try{ flushPendingSave(); }catch(_){}
   try{
     // IndexedDB から全画像を取得し、メタとマージしてバックアップに含める
     const imageMap = new Map();
@@ -8921,7 +8971,7 @@ async function _applyMergeRestore(){
     delete state._dedupNenkinF9Removed;
   }catch(_){ }
 
-  saveState();
+  saveStateNow(); // 改修72: 復元結果は確実に即保存する
   closeMergeRestoreModal();
 
   // 集計を表示
@@ -9081,7 +9131,7 @@ function restoreBackup(){
           state._dedupNenkinF9Done = true;
           delete state._dedupNenkinF9Removed; // 通知は下のサマリーに含めるのでフラグは消す
         }catch(_){ }
-        saveState();
+        saveStateNow(); // 改修72: 復元結果は確実に即保存する
         renderQuiz();renderManage();renderSidebar();
         // 進捗管理画面も明示的に更新
         const progressContent = document.getElementById('progress-content');
@@ -17956,6 +18006,8 @@ function init(){
   window.addEventListener('beforeunload', _backupBeforeUnloadHandler);
   // 改修50: タブが隠れるタイミングでの自動バックアップ(iPhone Safari 対策の確実な経路)
   document.addEventListener('visibilitychange', _backupOnHideHandler);
+  // 改修72: iOS Safari は beforeunload が発火しにくいため、pagehide でも保存をフラッシュ(保険)
+  window.addEventListener('pagehide', ()=>{ try{ flushPendingSave(); }catch(_){} });
   // 起動時に1回バナー状態を計算 + 1分ごとの自動更新を開始
   updateBackupReminderBanner();
   _startBackupReminderTicker();
@@ -17990,8 +18042,8 @@ function init(){
     if(!_saveFrozen){
       const cur = localStorage.getItem(STORAGE_KEY);
       if(cur && !cur.startsWith(LZ_PREFIX)){
-        // 未圧縮データを検出 → 圧縮して保存し直す(saveState 経由で各種ガードも通る)
-        saveState();
+        // 未圧縮データを検出 → 圧縮して保存し直す(即時保存で確実に移行)
+        saveStateNow();
         console.log('[改修69] 起動時に未圧縮データを圧縮形式へ移行しました。');
       }
     }
@@ -18010,7 +18062,7 @@ function init(){
       try{
         alert('【自動メンテナンス】\n\n国民年金法 フレーム9 の重複登録問題 '+n+'件を自動削除しました。\n\n解答履歴・ブックマーク・メモは残した問題側へ引き継いでいます。\n(念のため、削除直前のデータはブラウザ内に1回分退避しています)');
       }catch(_){ }
-      try{ saveState(); }catch(_){ }
+      try{ saveStateNow(); }catch(_){ }
     }, 1000);
   }
 }
