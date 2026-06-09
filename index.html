@@ -3381,9 +3381,11 @@
       <!-- 改修: ストレージ診断機能 -->
       <div class="section-h" style="margin-top:24px">ストレージ診断</div>
       <p class="section-body dim">「保存に失敗しました」などのエラーが出るとき、または容量が気になるときに使ってください。<br>iPhone Safari の localStorage は約 5MB 制限です(図表画像は IndexedDB に分離保存されるためこの制限の対象外)。</p>
-      <div style="display:flex;gap:8px;margin-top:12px">
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
         <button class="btn ghost" id="btn-storage-diag">ストレージ状況を確認</button>
+        <button class="btn ghost" id="btn-storage-recover">保存エラーから復旧する</button>
       </div>
+      <p class="section-body dim" style="margin-top:8px">「保存に失敗しました」のエラーが繰り返し出て操作が保存できないときは、上の<strong>「保存エラーから復旧する」</strong>を押してください。図表画像(IndexedDB)はそのまま保ったまま、保存できる状態へ戻します。</p>
       <div id="storage-diag-result" style="margin-top:14px;display:none"></div>
 
       <div class="section-h" style="margin-top:24px">問題データの追加方法</div>
@@ -4947,7 +4949,9 @@ function _showLoadFailureWarning(){
     + '【対処】\n'
     + '1. このページをいったん閉じて、開き直してください。\n'
     + '   多くの場合これで正常に戻ります。\n'
-    + '2. それでも直らない場合は、保存済みの完全バックアップ(JSON)から\n'
+    + '2. それでも直らない場合は、「データ」タブの\n'
+    + '   「保存エラーから復旧する」ボタンを押してください。\n'
+    + '3. なお直らない場合は、保存済みの完全バックアップ(JSON)から\n'
     + '   「バックアップ復元」を行ってください。\n\n'
     + '※ この警告中に操作してもデータは上書きされません。ご安心ください。'
   );
@@ -5461,7 +5465,13 @@ function saveState(){
     // 画像本体はすでに IndexedDB / キャッシュ側に分離済みなので、再試行しても
     // 解消しない。ユーザーには明示的に通知する。
     console.error('saveState failed', e);
-    alert('保存に失敗しました: '+e.message+'\n\n画像本体は IndexedDB に分離済みです。\nブラウザのキャッシュ削除前に「データ」タブから完全バックアップを取得してください。');
+    alert('保存に失敗しました: '+e.message+'\n\n'
+      + '画像本体は IndexedDB に分離済みなので、再試行しても解消しません。\n\n'
+      + '【復旧方法】\n'
+      + '「データ」タブを開き、「保存エラーから復旧する」ボタンを押してください。\n'
+      + 'それでも直らない場合は、保存済みの完全バックアップ(JSON)から\n'
+      + '「バックアップ復元」を行ってください。\n\n'
+      + '※ ブラウザのキャッシュを削除する前に、必ず完全バックアップを取得してください。');
   }
   // 改修46: state の変更ごとにバナーを更新(未バックアップ件数の自動反映)
   // updateBackupReminderBanner は DOM 未生成の起動初期にも呼ばれうるので try で防御
@@ -7413,6 +7423,14 @@ async function runStorageDiagnostic(){
       // 整合性チェック
       if(metaCount !== idbCount){
         html += `<div style="font-size:12px;color:#d68910;margin-top:8px">⚠ メタ件数(${metaCount}) と IndexedDB枚数(${idbCount}) が一致しません。${idbCount<metaCount?'(マイグレーション未完了の可能性。図表タブを開き直してください)':'(古い未削除データが残っている可能性)'}</div>`;
+        // 改修68: メタ0件なのに画像が多数残っている = データが初期状態に戻った疑い。
+        //   この組み合わせは「過去に保存エラー→初期化」の典型パターンなので、明示的に案内する。
+        if(metaCount === 0 && idbCount > 0){
+          html += `<div style="font-size:12px;color:#c0392b;margin-top:8px;background:#fdecea;border:1px solid #f5c6cb;padding:10px;border-radius:5px;line-height:1.7">
+            <strong>図表メタが0件なのに画像が${idbCount}枚あります。</strong>これは、保存エラーの後にデータが初期状態(サンプルのみ)へ戻ってしまった可能性が高いサインです。<br>
+            画像本体(${fmt(idbBytes)})は IndexedDB に無事残っています。<strong>このまま操作を続けず</strong>、保存済みの完全バックアップ(JSON)から「バックアップ復元」を行ってデータを元に戻してください。
+          </div>`;
+        }
       }
     }else{
       html += `<div style="font-size:13px;color:#c0392b">状態: 利用不可<br>${escapeHtml(idbErrMsg)}</div>`;
@@ -7453,6 +7471,86 @@ async function runStorageDiagnostic(){
     result.innerHTML = `<div style="background:#fdecea;border:1px solid #f5c6cb;padding:14px;border-radius:6px;color:#c0392b">
       診断エラー: ${escapeHtml(e.message || String(e))}
     </div>`;
+  }
+}
+
+/* ===== 改修68: 保存エラー(保存凍結)からの復旧 =====
+   「保存に失敗しました」が繰り返し出て操作が保存できない状態を、ユーザー自身の
+   ワンタップで解消する。原因は大きく2つ:
+     (A) 過去に一度 QuotaExceeded を踏んで _saveFrozen が立ち、以後すべての
+         saveState が拒否され続けている(=操作のたびにエラー扱い)。
+     (B) 図表 imageData が何らかの経路で state に残ったまま localStorage を
+         圧迫している(通常は分離済みだが、古いデータ等での保険)。
+   いずれの場合も、図表画像本体は IndexedDB / in-memory キャッシュに温存されている
+   ため、それを壊さずに「メタだけの軽い state」を確実に保存し直し、凍結を解除する。 */
+async function recoverFromSaveFreeze(){
+  const result = document.getElementById('storage-diag-result');
+  const report = (html)=>{ if(result){ result.style.display='block'; result.innerHTML = html; } };
+
+  try{
+    // 1) state.figures に imageData が残っていれば IndexedDB / キャッシュへ退避して除去。
+    //    (これが localStorage 圧迫の主因になり得るため、まず確実に分離する)
+    let movedToIdb = 0;
+    if(Array.isArray(state.figures)){
+      const entries = [];
+      for(const fig of state.figures){
+        if(fig && fig.imageData){
+          figureImageCache.set(fig.id, fig.imageData);
+          entries.push([fig.id, fig.imageData]);
+          delete fig.imageData;
+        }
+      }
+      if(entries.length){
+        try{ await figureStore.putMany(entries); movedToIdb = entries.length; }
+        catch(idbErr){
+          // IDB 書込に失敗した場合でもキャッシュには載っているので画像表示は維持。
+          // ただし state からは外したので localStorage は軽くなる。
+          console.warn('[改修68] IndexedDB への退避に失敗(キャッシュは保持)', idbErr);
+        }
+      }
+    }
+
+    // 2) 凍結フラグと急減ガードの基準を解除。これ以降 saveState が通るようになる。
+    _saveFrozen = false;
+    _lastGoodCounts = null;
+
+    // 3) 実際に保存を試みる。ここで通れば復旧成功。
+    let saved = false, saveErr = null;
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      _lastGoodCounts = _snapshotCounts(state);
+      saved = true;
+    }catch(e){ saveErr = e; }
+
+    // 4) バナー等を更新
+    try{ if(typeof updateBackupReminderBanner === 'function') updateBackupReminderBanner(); }catch(_){}
+
+    if(saved){
+      const c = _snapshotCounts(state) || {};
+      report(`<div style="background:#eafaf1;border:1px solid #abebc6;padding:14px;border-radius:6px;color:#1e8449;line-height:1.7">
+        <div style="font-weight:600;margin-bottom:6px">✓ 復旧しました</div>
+        保存できる状態に戻りました。これ以降の操作は通常どおり保存されます。<br>
+        ${movedToIdb>0 ? `(図表画像 ${movedToIdb}件 を IndexedDB へ移動して localStorage を軽くしました)<br>` : ''}
+        <div style="margin-top:8px;font-size:12px;color:#555">
+          現在のデータ: 択一${c.questions||0}問 / 選択式${c.selectQuestions||0}問 / 事例${c.cases||0}件 / 図表${c.figures||0}件 / 千本ノック${c.senbon||0}問 / 解答履歴${c.history||0}件
+        </div>
+        <div style="margin-top:10px;font-size:12px;color:#856404;background:#fff8e1;border:1px solid #ffe082;padding:8px;border-radius:5px">
+          ⚠ もし上の件数が「思っていたより少ない／サンプルだけ」の場合は、データが初期状態に戻っている可能性があります。<br>
+          その場合は<strong>このまま操作を続けず</strong>、PC等で取得済みの<strong>完全バックアップ(JSON)から「バックアップ復元」</strong>を行ってください。
+        </div>
+      </div>`);
+    }else{
+      // ここに来る = imageData を外してもなお localStorage が溢れている極端なケース。
+      report(`<div style="background:#fdecea;border:1px solid #f5c6cb;padding:14px;border-radius:6px;color:#c0392b;line-height:1.7">
+        <div style="font-weight:600;margin-bottom:6px">まだ保存できません</div>
+        画像を分離しても localStorage の上限に達しています(${escapeHtml(saveErr ? (saveErr.message||String(saveErr)) : '原因不明')})。<br>
+        お手数ですが、保存済みの<strong>完全バックアップ(JSON)から「バックアップ復元」</strong>を実行してください。復元処理は画像を IndexedDB に書き戻すため、localStorage を最小化できます。
+      </div>`);
+    }
+  }catch(e){
+    report(`<div style="background:#fdecea;border:1px solid #f5c6cb;padding:14px;border-radius:6px;color:#c0392b">
+      復旧処理でエラー: ${escapeHtml(e.message || String(e))}
+    </div>`);
   }
 }
 
@@ -17529,6 +17627,9 @@ function init(){
   // 改修: ストレージ診断ボタン
   const btnDiag = document.getElementById('btn-storage-diag');
   if(btnDiag) btnDiag.addEventListener('click', runStorageDiagnostic);
+  // 改修68: 保存エラー(保存凍結)からの復旧ボタン
+  const btnRecover = document.getElementById('btn-storage-recover');
+  if(btnRecover) btnRecover.addEventListener('click', recoverFromSaveFreeze);
 
   // 改修25: 差分マージ復元
   const btnMergeRestore = document.getElementById('btn-merge-restore');
