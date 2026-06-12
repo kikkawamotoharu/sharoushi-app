@@ -3381,12 +3381,9 @@
       <!-- 改修: ストレージ診断機能 -->
       <div class="section-h" style="margin-top:24px">ストレージ診断</div>
       <p class="section-body dim">「保存に失敗しました」などのエラーが出るとき、または容量が気になるときに使ってください。<br>iPhone Safari の localStorage は約 5MB 制限です(図表画像は IndexedDB に分離保存されるためこの制限の対象外)。</p>
-      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;margin-top:12px">
         <button class="btn ghost" id="btn-storage-diag">ストレージ状況を確認</button>
-        <button class="btn ghost" id="btn-storage-recover">保存エラーから復旧する</button>
-        <button class="btn ghost" id="btn-articles-diag">条文・解説の内訳を調べる</button>
       </div>
-      <p class="section-body dim" style="margin-top:8px">「保存に失敗しました」のエラーが繰り返し出て操作が保存できないときは、上の<strong>「保存エラーから復旧する」</strong>を押してください。図表画像(IndexedDB)はそのまま保ったまま、保存できる状態へ戻します。</p>
       <div id="storage-diag-result" style="margin-top:14px;display:none"></div>
 
       <div class="section-h" style="margin-top:24px">問題データの追加方法</div>
@@ -3837,12 +3834,6 @@
 
 <script>
 'use strict';
-
-/* ===== 改修69: LZString (MIT, pieroxy/lz-string v1.5.0) — localStorage圧縮用 =====
-   iOS Safari の localStorage 5MB 制限に対し、保存データ(JSON)を UTF-16 セーフに
-   圧縮して格納することで、実効容量を数倍に拡張する。全ブラウザの localStorage で安全。 */
-var LZString=function(){var r=String.fromCharCode,o="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=",n="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$",e={};function t(r,o){if(!e[r]){e[r]={};for(var n=0;n<r.length;n++)e[r][r.charAt(n)]=n}return e[r][o]}var i={compressToBase64:function(r){if(null==r)return"";var n=i._compress(r,6,function(r){return o.charAt(r)});switch(n.length%4){default:case 0:return n;case 1:return n+"===";case 2:return n+"==";case 3:return n+"="}},decompressFromBase64:function(r){return null==r?"":""==r?null:i._decompress(r.length,32,function(n){return t(o,r.charAt(n))})},compressToUTF16:function(o){return null==o?"":i._compress(o,15,function(o){return r(o+32)})+" "},decompressFromUTF16:function(r){return null==r?"":""==r?null:i._decompress(r.length,16384,function(o){return r.charCodeAt(o)-32})},compressToUint8Array:function(r){for(var o=i.compress(r),n=new Uint8Array(2*o.length),e=0,t=o.length;e<t;e++){var s=o.charCodeAt(e);n[2*e]=s>>>8,n[2*e+1]=s%256}return n},decompressFromUint8Array:function(o){if(null==o)return i.decompress(o);for(var n=new Array(o.length/2),e=0,t=n.length;e<t;e++)n[e]=256*o[2*e]+o[2*e+1];var s=[];return n.forEach(function(o){s.push(r(o))}),i.decompress(s.join(""))},compressToEncodedURIComponent:function(r){return null==r?"":i._compress(r,6,function(r){return n.charAt(r)})},decompressFromEncodedURIComponent:function(r){return null==r?"":""==r?null:(r=r.replace(/ /g,"+"),i._decompress(r.length,32,function(o){return t(n,r.charAt(o))}))},compress:function(o){return i._compress(o,16,function(o){return r(o)})},_compress:function(r,o,n){if(null==r)return"";var e,t,i,s={},u={},a="",p="",c="",l=2,f=3,h=2,d=[],m=0,v=0;for(i=0;i<r.length;i+=1)if(a=r.charAt(i),Object.prototype.hasOwnProperty.call(s,a)||(s[a]=f++,u[a]=!0),p=c+a,Object.prototype.hasOwnProperty.call(s,p))c=p;else{if(Object.prototype.hasOwnProperty.call(u,c)){if(c.charCodeAt(0)<256){for(e=0;e<h;e++)m<<=1,v==o-1?(v=0,d.push(n(m)),m=0):v++;for(t=c.charCodeAt(0),e=0;e<8;e++)m=m<<1|1&t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t>>=1}else{for(t=1,e=0;e<h;e++)m=m<<1|t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t=0;for(t=c.charCodeAt(0),e=0;e<16;e++)m=m<<1|1&t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t>>=1}0==--l&&(l=Math.pow(2,h),h++),delete u[c]}else for(t=s[c],e=0;e<h;e++)m=m<<1|1&t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t>>=1;0==--l&&(l=Math.pow(2,h),h++),s[p]=f++,c=String(a)}if(""!==c){if(Object.prototype.hasOwnProperty.call(u,c)){if(c.charCodeAt(0)<256){for(e=0;e<h;e++)m<<=1,v==o-1?(v=0,d.push(n(m)),m=0):v++;for(t=c.charCodeAt(0),e=0;e<8;e++)m=m<<1|1&t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t>>=1}else{for(t=1,e=0;e<h;e++)m=m<<1|t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t=0;for(t=c.charCodeAt(0),e=0;e<16;e++)m=m<<1|1&t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t>>=1}0==--l&&(l=Math.pow(2,h),h++),delete u[c]}else for(t=s[c],e=0;e<h;e++)m=m<<1|1&t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t>>=1;0==--l&&(l=Math.pow(2,h),h++)}for(t=2,e=0;e<h;e++)m=m<<1|1&t,v==o-1?(v=0,d.push(n(m)),m=0):v++,t>>=1;for(;;){if(m<<=1,v==o-1){d.push(n(m));break}v++}return d.join("")},decompress:function(r){return null==r?"":""==r?null:i._decompress(r.length,32768,function(o){return r.charCodeAt(o)})},_decompress:function(o,n,e){var t,i,s,u,a,p,c,l=[],f=4,h=4,d=3,m="",v=[],g={val:e(0),position:n,index:1};for(t=0;t<3;t+=1)l[t]=t;for(s=0,a=Math.pow(2,2),p=1;p!=a;)u=g.val&g.position,g.position>>=1,0==g.position&&(g.position=n,g.val=e(g.index++)),s|=(u>0?1:0)*p,p<<=1;switch(s){case 0:for(s=0,a=Math.pow(2,8),p=1;p!=a;)u=g.val&g.position,g.position>>=1,0==g.position&&(g.position=n,g.val=e(g.index++)),s|=(u>0?1:0)*p,p<<=1;c=r(s);break;case 1:for(s=0,a=Math.pow(2,16),p=1;p!=a;)u=g.val&g.position,g.position>>=1,0==g.position&&(g.position=n,g.val=e(g.index++)),s|=(u>0?1:0)*p,p<<=1;c=r(s);break;case 2:return""}for(l[3]=c,i=c,v.push(c);;){if(g.index>o)return"";for(s=0,a=Math.pow(2,d),p=1;p!=a;)u=g.val&g.position,g.position>>=1,0==g.position&&(g.position=n,g.val=e(g.index++)),s|=(u>0?1:0)*p,p<<=1;switch(c=s){case 0:for(s=0,a=Math.pow(2,8),p=1;p!=a;)u=g.val&g.position,g.position>>=1,0==g.position&&(g.position=n,g.val=e(g.index++)),s|=(u>0?1:0)*p,p<<=1;l[h++]=r(s),c=h-1,f--;break;case 1:for(s=0,a=Math.pow(2,16),p=1;p!=a;)u=g.val&g.position,g.position>>=1,0==g.position&&(g.position=n,g.val=e(g.index++)),s|=(u>0?1:0)*p,p<<=1;l[h++]=r(s),c=h-1,f--;break;case 2:return v.join("")}if(0==f&&(f=Math.pow(2,d),d++),l[c])m=l[c];else{if(c!==h)return null;m=i+i.charAt(0)}v.push(m),l[h++]=i+m.charAt(0),i=m,0==--f&&(f=Math.pow(2,d),d++)}}};return i}();"function"==typeof define&&define.amd?define(function(){return LZString}):"undefined"!=typeof module&&null!=module?module.exports=LZString:"undefined"!=typeof angular&&null!=angular&&angular.module("LZString",[]).factory("LZString",function(){return LZString});
-
 
 /* ===== Sample data: フレーム11 (uploaded PDF) + スクショの問題 ===== */
 const SAMPLE_QUESTIONS = [
@@ -4920,46 +4911,6 @@ async function initFigureStorage(){
 /* ===== State & Storage ===== */
 const STORAGE_KEY = 'sharoushi_kakomon_v1';
 
-/* ===== 改修69: localStorage 圧縮保存ヘルパー =====
-   保存データ(state の JSON)を LZString.compressToUTF16 で圧縮して格納する。
-   iOS Safari の 5MB 制限に対し、日本語テキストは概ね 1/4〜1/6 に圧縮できるため、
-   実効容量を数倍に拡張できる。
-
-   後方互換のため、保存文字列の先頭に判別プレフィックスを付ける:
-     圧縮形式 … 先頭が LZ_PREFIX('\u0001LZ\u0001') で始まる。残りが compressToUTF16 出力。
-     生JSON  … 従来どおり '{' で始まる(プレフィックスなし)。
-   読込時はこのプレフィックスの有無で判定し、生JSONも引き続き読める。 */
-const LZ_PREFIX = '\u0001LZ\u0001';
-
-// state を圧縮文字列にして返す。LZString が無い/失敗時は生JSONにフォールバック。
-function _serializeState(s){
-  const json = JSON.stringify(s);
-  try{
-    if(typeof LZString !== 'undefined' && LZString.compressToUTF16){
-      const comp = LZString.compressToUTF16(json);
-      // 念のため: 圧縮結果が空や異常に長い場合は生JSONを使う
-      if(comp && comp.length > 0 && comp.length < json.length){
-        return LZ_PREFIX + comp;
-      }
-    }
-  }catch(e){ console.warn('[改修69] 圧縮に失敗、生JSONで保存', e); }
-  return json;
-}
-
-// localStorage から読んだ文字列を state オブジェクトにパースする。
-// 圧縮プレフィックスがあれば展開、なければ従来どおり JSON.parse。
-function _deserializeState(raw){
-  if(raw == null) return null;
-  if(raw.startsWith(LZ_PREFIX)){
-    const body = raw.slice(LZ_PREFIX.length);
-    const json = LZString.decompressFromUTF16(body);
-    if(json == null) throw new Error('圧縮データの展開に失敗しました');
-    return JSON.parse(json);
-  }
-  // 生JSON(従来形式)
-  return JSON.parse(raw);
-}
-
 /* 改修50: データ喪失防止のための保存凍結フラグ群。
    ・_saveFrozen … 読み込みに「失敗の疑い」があるとき true。true の間は saveState を拒否し、
                    空/壊れた state による localStorage 上書き(=全データ消失)を物理的に防ぐ。
@@ -4968,17 +4919,7 @@ function _deserializeState(raw){
    ・_lastGoodCounts … 直近の正常な件数。極端な目減りを検知して保存を止めるために使う。 */
 let _saveFrozen = false;
 let _loadHadRawData = false;
-let _lastLoadError = null;
 let _lastGoodCounts = null;
-
-/* 改修70: TDZ(初期化前アクセス)バグ修正。
-   normalizeBackupReminderSettings() は loadState() から呼ばれるが、その中で参照する
-   BACKUP_COUNT_OPTIONS / BACKUP_TIMES_MAX は従来コードのもっと後方で const 定義されていた。
-   const は宣言前に参照すると例外(Cannot access ... before initialization)になるため、
-   loadState 実行のたびに catch に落ち、毎起動「読み込みに問題」警告が出ていた。
-   そこで、これらの定数を loadState より前へ移動して定義する。 */
-const BACKUP_COUNT_OPTIONS = [10, 20, 30, 40, 50]; // 問題数方式で選べるしきい値
-const BACKUP_TIMES_MAX = 5; // 時間方式で設定できる時刻の最大数
 
 let state = loadState();
 
@@ -4999,12 +4940,6 @@ function _snapshotCounts(s){
 /* 改修50: 読込失敗時の強い警告。誤って操作して保存されると上書きの危険があるため、
    ユーザーに「いったんアプリを閉じて開き直す/バックアップから復元」を促す。 */
 function _showLoadFailureWarning(){
-  var dbg = '';
-  try{
-    if(_lastLoadError){
-      dbg = '\n\n【技術情報(原因調査用)】\n' + (_lastLoadError.message || String(_lastLoadError));
-    }
-  }catch(_){}
   alert(
     '⚠️ データの読み込みに問題が発生しました。\n\n'
     + '安全のため、データの自動保存を一時停止しています。\n'
@@ -5012,12 +4947,9 @@ function _showLoadFailureWarning(){
     + '【対処】\n'
     + '1. このページをいったん閉じて、開き直してください。\n'
     + '   多くの場合これで正常に戻ります。\n'
-    + '2. それでも直らない場合は、「データ」タブの\n'
-    + '   「保存エラーから復旧する」ボタンを押してください。\n'
-    + '3. なお直らない場合は、保存済みの完全バックアップ(JSON)から\n'
+    + '2. それでも直らない場合は、保存済みの完全バックアップ(JSON)から\n'
     + '   「バックアップ復元」を行ってください。\n\n'
     + '※ この警告中に操作してもデータは上書きされません。ご安心ください。'
-    + dbg
   );
 }
 
@@ -5192,7 +5124,7 @@ function loadState(){
     rawForGuard = raw;
     if(raw){
       _loadHadRawData = true;
-      const s = _deserializeState(raw);
+      const s = JSON.parse(raw);
       if(!s.questions || !s.questions.length){
         s.questions = SAMPLE_QUESTIONS.slice();
       }
@@ -5425,14 +5357,14 @@ function loadState(){
       _lastGoodCounts = _snapshotCounts(s);
       return s;
     }
-  }catch(e){ console.warn('Load error',e); _lastLoadError = e; }
+  }catch(e){console.warn('Load error',e)}
   // 改修50: ここに来た=「生データが存在したのに解析/復元に失敗」または「生データが無い」。
   //   生データが在ったのにフォールバックへ落ちた場合は、壊れた読込の可能性が高いので
   //   保存を凍結し、空のサンプルデータで localStorage を上書きしてしまう事故を防ぐ。
   //   (生データが無い=本当の初回起動なら凍結しない。)
   if(rawForGuard){
     _saveFrozen = true;
-    console.error('[改修50] 読込に失敗したため保存を凍結しました。データ上書きを防止します。', _lastLoadError);
+    console.error('[改修50] 読込に失敗したため保存を凍結しました。データ上書きを防止します。');
     // 起動直後の DOM 準備後に強い警告を出す(関数定義順の都合で遅延実行)
     setTimeout(()=>{ try{ _showLoadFailureWarning(); }catch(_){ } }, 800);
   }
@@ -5474,50 +5406,7 @@ function loadState(){
     backupReminderSettings: {mode:'count', countN:30, times:['07:00','12:00','17:00']}
   };
 }
-/* ===== 改修72: 保存のデバウンス(遅延一括保存) =====
-   従来は操作のたびに saveState() が同期で「state全体をJSON化→LZ圧縮→localStorage書込」を
-   実行していた。データが大きい(素で数MB)と、付箋クリック等のたびに毎回フル圧縮が走り、
-   特に iPhone で体感のもたつき(クリックしてもチェックがすぐ付かない)が出ていた。
-
-   対策: saveState() は「予約」だけして即座に返し、最後の操作から一定時間(SAVE_DEBOUNCE_MS)
-   後に saveStateNow() を一度だけ実行する。連打しても圧縮は最後の1回で済む。
-   データ保護のため、ページ離脱時(pagehide/visibilitychange)とバックアップ取得直前などは
-   saveStateNow() / flushPendingSave() で確実に即時保存する。
-
-   呼び出し側(約150箇所)は saveState() のままでよい(中身がデバウンス化されるだけ)。 */
-const SAVE_DEBOUNCE_MS = 600;
-let _saveTimer = null;
-let _savePending = false;
-
-// 遅延保存の予約。即座に返るので UI 応答が速い。
 function saveState(){
-  // 凍結中は予約もしない(従来どおりデータ保護を最優先)
-  if(_saveFrozen){
-    console.warn('[改修50] 保存は凍結中のためスキップしました(データ保護)。');
-    return;
-  }
-  _savePending = true;
-  if(_saveTimer) clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(()=>{
-    _saveTimer = null;
-    flushPendingSave();
-  }, SAVE_DEBOUNCE_MS);
-}
-
-// 予約済みの保存があれば、いま即座に実行する(離脱時・バックアップ前などに使う)。
-function flushPendingSave(){
-  if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; }
-  if(_savePending){
-    _savePending = false;
-    saveStateNow();
-  }
-}
-
-// 実際に localStorage へ書き込む本体(従来の saveState の中身)。即時保存が必要な場面で直接呼ぶ。
-function saveStateNow(){
-  // 予約フラグは消化済みにしておく(直接呼ばれた場合も二重保存を避ける)
-  _savePending = false;
-  if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; }
   // 改修50: 保存凍結中は何も書き込まない。
   //   読込失敗の疑いがある状態(空/壊れた state)で保存すると、localStorage の
   //   正常データを空データで上書きして全消失する事故が起きる。これを物理的に防ぐ。
@@ -5564,7 +5453,7 @@ function saveStateNow(){
     }
   }
   try{
-    localStorage.setItem(STORAGE_KEY, _serializeState(state));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     // 改修50: 書き込み成功時点の件数を「正常な基準値」として更新
     _lastGoodCounts = _snapshotCounts(state);
   }catch(e){
@@ -5572,13 +5461,7 @@ function saveStateNow(){
     // 画像本体はすでに IndexedDB / キャッシュ側に分離済みなので、再試行しても
     // 解消しない。ユーザーには明示的に通知する。
     console.error('saveState failed', e);
-    alert('保存に失敗しました: '+e.message+'\n\n'
-      + '画像本体は IndexedDB に分離済みなので、再試行しても解消しません。\n\n'
-      + '【復旧方法】\n'
-      + '「データ」タブを開き、「保存エラーから復旧する」ボタンを押してください。\n'
-      + 'それでも直らない場合は、保存済みの完全バックアップ(JSON)から\n'
-      + '「バックアップ復元」を行ってください。\n\n'
-      + '※ ブラウザのキャッシュを削除する前に、必ず完全バックアップを取得してください。');
+    alert('保存に失敗しました: '+e.message+'\n\n画像本体は IndexedDB に分離済みです。\nブラウザのキャッシュ削除前に「データ」タブから完全バックアップを取得してください。');
   }
   // 改修46: state の変更ごとにバナーを更新(未バックアップ件数の自動反映)
   // updateBackupReminderBanner は DOM 未生成の起動初期にも呼ばれうるので try で防御
@@ -5986,8 +5869,6 @@ function renderQuiz(){
   });
 
   renderSidebar();
-  // 改修73: ナビ由来の遷移ロック中なら、描画完了後にクリック受付を再開する
-  _releaseNavLockAfterRender();
 }
 
 /* 改修02: 追記メモ欄(表示モード/編集モード)を生成。renderResult から呼ばれる。 */
@@ -6090,8 +5971,6 @@ function renderResult(q,correct){
 }
 
 function answerQuestion(userAns){
-  // 改修73: 画面遷移直後のロック中は解answ を受け付けない(連打が次問の誤答に化けるのを防ぐ)
-  if(_navLock) return;
   const q = currentQuestion();
   if(!q || state.session.answered) return;
   const correct = userAns===q.answer;
@@ -6129,10 +6008,8 @@ function answerQuestion(userAns){
 }
 
 function nav(dir){
-  if(_navLock) return;        // 改修73: 連打による多重遷移を防ぐ
   const pool = getPool();
   if(!pool.length) return;
-  _lockNav();                 // 改修73: 遷移開始。ごく短時間クリックを無効化
   state.session.currentIndex = (state.session.currentIndex + dir + pool.length) % pool.length;
   state.session.answered = false;
   state.session.userAnswer = null;
@@ -6142,13 +6019,11 @@ function nav(dir){
 
 /* 指定インデックスへ直接ジャンプ(「最初へ」「最後へ」用) */
 function navTo(idx){
-  if(_navLock) return;        // 改修73
   const pool = getPool();
   if(!pool.length) return;
   // 範囲外を安全にクランプ
   if(idx < 0) idx = 0;
   if(idx > pool.length - 1) idx = pool.length - 1;
-  _lockNav();                 // 改修73
   state.session.currentIndex = idx;
   state.session.answered = false;
   state.session.userAnswer = null;
@@ -6160,14 +6035,12 @@ function navTo(idx){
 
 /* 相対ジャンプ(±N問) — 改修1 */
 function navJump(delta){
-  if(_navLock) return;        // 改修73
   const pool = getPool();
   if(!pool.length) return;
   let target = state.session.currentIndex + delta;
   if(target < 0) target = 0;
   if(target > pool.length - 1) target = pool.length - 1;
   if(target === state.session.currentIndex) return;
-  _lockNav();                 // 改修73
   state.session.currentIndex = target;
   state.session.answered = false;
   state.session.userAnswer = null;
@@ -6804,25 +6677,6 @@ function checkFrameComplete(){
   }
 }
 let _inCheckFrameComplete = false;
-
-/* ===== 改修73: 画面遷移ロック(連打による誤答・取りこぼし防止) =====
-   低スペックPCでは renderQuiz の描画に時間がかかり、「次へ」を押してから次の問題が
-   表示されるまでにラグがある。その間に連打すると、(1)描画前の古い/新しいカードに
-   クリックが当たって誤答が記録される、(2)ナビが多重発火して問題を飛ばす、等が起きる。
-   そこで「次へ/前へ/解答」の直後ごく短時間(NAV_LOCK_MS)はクリックを無視するロックを設ける。 */
-let _navLock = false;
-const NAV_LOCK_MS = 400;
-function _lockNav(){
-  _navLock = true;
-  // 保険: 描画が来ない/極端に遅い場合でも、一定時間で必ず解除する
-  setTimeout(()=>{ _navLock = false; }, NAV_LOCK_MS);
-}
-// renderQuiz の描画完了時に呼ぶ。遷移ロック中なら、描画が終わった次の描画フレームで解除する。
-// (DOM が確定し、クリックが安全に新カードへ当たるようになってから受付を再開する)
-function _releaseNavLockAfterRender(){
-  if(!_navLock) return;
-  requestAnimationFrame(()=>{ requestAnimationFrame(()=>{ _navLock = false; }); });
-}
 function _checkFrameCompleteImpl(){
   if(!state.session.frameMode) return;
   const fm = state.session.frameMode;
@@ -7412,22 +7266,15 @@ async function runStorageDiagnostic(){
   result.innerHTML = '<p style="color:var(--mut);padding:10px">診断中...</p>';
 
   try{
-    // === localStorage 全体サイズ(実際に格納されているバイト数=圧縮後) ===
+    // === localStorage 全体サイズ ===
     const raw = localStorage.getItem(STORAGE_KEY) || '';
     // iPhone Safari の制限は UTF-16 換算で 5MB(=約 2.5M文字)とされるため
     // 安全側で 1文字 = 2バイト換算
     const totalBytes = raw.length * 2;
 
-    // === 改修69: 圧縮形式か生JSONかを判定し、内訳用に state を復元する ===
-    const isCompressed = raw.startsWith(LZ_PREFIX);
+    // === state を解析して内訳を取る ===
     let stateObj = {};
-    let uncompressedJson = '';
-    try{
-      stateObj = _deserializeState(raw) || {};
-      uncompressedJson = JSON.stringify(stateObj);
-    }catch(_){ stateObj = {}; uncompressedJson = ''; }
-    // 展開後(=非圧縮換算)の総バイト数。内訳の割合計算にはこちらを使う。
-    const uncompressedBytes = uncompressedJson.length * 2;
+    try{ stateObj = JSON.parse(raw) }catch(_){ stateObj = {} }
 
     const sections = [
       {label:'択一問題 (questions)',         key:'questions'},
@@ -7520,20 +7367,6 @@ async function runStorageDiagnostic(){
     html += `<div style="height:12px;background:#eee;border-radius:6px;overflow:hidden">
       <div style="height:100%;width:${pct.toFixed(2)}%;background:${pctColor};transition:width 0.6s ease-out"></div>
     </div>`;
-    // 改修69: 圧縮の状況を表示
-    if(isCompressed && uncompressedBytes > 0){
-      const ratio = totalBytes > 0 ? (totalBytes / uncompressedBytes * 100) : 100;
-      html += `<div style="margin-top:10px;font-size:12px;color:#1e8449;background:#eafaf1;border:1px solid #abebc6;padding:8px;border-radius:5px;line-height:1.6">
-        ✓ データは圧縮して保存されています。<br>
-        圧縮前 ${fmt(uncompressedBytes)} → 実際の使用 <strong>${fmt(totalBytes)}</strong>(${ratio.toFixed(0)}%に圧縮)。<br>
-        この圧縮により、5MBの枠に大幅に余裕が生まれています。
-      </div>`;
-    }else if(!isCompressed && totalBytes > 0){
-      html += `<div style="margin-top:10px;font-size:12px;color:#856404;background:#fff8e1;border:1px solid #ffe082;padding:8px;border-radius:5px;line-height:1.6">
-        現在のデータは未圧縮(従来形式)で保存されています。<br>
-        何か1つ操作して保存するか、いったん「保存エラーから復旧する」を押すと、自動的に圧縮形式へ切り替わり、使用量が大きく減ります。
-      </div>`;
-    }
     html += `</div>`;
 
     // マイグレーション漏れ警告(優先表示)
@@ -7548,7 +7381,7 @@ async function runStorageDiagnostic(){
 
     // 内訳テーブル
     html += `<div style="background:var(--bg);border:1px solid var(--line);padding:14px;border-radius:6px;margin-top:10px">`;
-    html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px">データ内訳 (大きい順)${isCompressed?' <span style="font-weight:400;color:var(--mut);font-size:11px">※圧縮前の素のサイズ</span>':''}</div>`;
+    html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px">localStorage 内訳 (大きい順)</div>`;
     html += `<table style="width:100%;font-size:12px;border-collapse:collapse">`;
     html += `<thead><tr style="border-bottom:1px solid var(--line);text-align:left;color:var(--mut)">
       <th style="padding:6px 8px;font-weight:500">項目</th>
@@ -7556,9 +7389,8 @@ async function runStorageDiagnostic(){
       <th style="padding:6px 8px;text-align:right;font-weight:500">サイズ</th>
       <th style="padding:6px 8px;text-align:right;font-weight:500">割合</th>
     </tr></thead><tbody>`;
-    const denom = uncompressedBytes > 0 ? uncompressedBytes : totalBytes;
     for(const item of breakdown){
-      const p = denom > 0 ? (item.bytes / denom * 100) : 0;
+      const p = totalBytes > 0 ? (item.bytes / totalBytes * 100) : 0;
       html += `<tr style="border-bottom:1px solid #f0f0f0">
         <td style="padding:6px 8px">${escapeHtml(item.label)}</td>
         <td style="padding:6px 8px;text-align:right">${item.count}</td>
@@ -7581,127 +7413,11 @@ async function runStorageDiagnostic(){
       // 整合性チェック
       if(metaCount !== idbCount){
         html += `<div style="font-size:12px;color:#d68910;margin-top:8px">⚠ メタ件数(${metaCount}) と IndexedDB枚数(${idbCount}) が一致しません。${idbCount<metaCount?'(マイグレーション未完了の可能性。図表タブを開き直してください)':'(古い未削除データが残っている可能性)'}</div>`;
-        // 改修68: メタ0件なのに画像が多数残っている = データが初期状態に戻った疑い。
-        //   この組み合わせは「過去に保存エラー→初期化」の典型パターンなので、明示的に案内する。
-        if(metaCount === 0 && idbCount > 0){
-          html += `<div style="font-size:12px;color:#c0392b;margin-top:8px;background:#fdecea;border:1px solid #f5c6cb;padding:10px;border-radius:5px;line-height:1.7">
-            <strong>図表メタが0件なのに画像が${idbCount}枚あります。</strong>これは、保存エラーの後にデータが初期状態(サンプルのみ)へ戻ってしまった可能性が高いサインです。<br>
-            画像本体(${fmt(idbBytes)})は IndexedDB に無事残っています。<strong>このまま操作を続けず</strong>、保存済みの完全バックアップ(JSON)から「バックアップ復元」を行ってデータを元に戻してください。
-          </div>`;
-        }
       }
     }else{
       html += `<div style="font-size:13px;color:#c0392b">状態: 利用不可<br>${escapeHtml(idbErrMsg)}</div>`;
     }
     html += `</div>`;
-
-    // === 改修71: 条文・解説(articles)の内訳分析 ===
-    //   8件で約1MBなど、articles が大きいときに「どの科目/フレームが大きいか」「最大テキストは
-    //   何文字か」「画像(dataURL)が紛れ込んでいないか」を可視化する。
-    try{
-      const arts = stateObj.articles;
-      if(arts && typeof arts === 'object' && Object.keys(arts).length){
-        // 走査して内訳を集計
-        const perLaw = [];        // {law, bytes, blockCount}
-        let totalArtBytes = 0;
-        let maxBlock = {chars:0, where:'', isImage:false};
-        let imageBlockCount = 0;
-        let imageBlockBytes = 0;
-
-        const scanText = (t, where)=>{
-          if(typeof t !== 'string') return;
-          const chars = t.length;
-          const bytes = chars * 2;
-          totalArtBytes += bytes;
-          const isImg = /^data:image\//.test(t.slice(0, 20));
-          if(isImg){ imageBlockCount++; imageBlockBytes += bytes; }
-          if(chars > maxBlock.chars){ maxBlock = {chars, where, isImage:isImg}; }
-        };
-
-        for(const law of Object.keys(arts)){
-          const frames = arts[law] || {};
-          let lawBytes = 0, lawBlocks = 0;
-          for(const fk of Object.keys(frames)){
-            const entry = frames[fk] || {};
-            const indices = Array.isArray(entry.indices) ? entry.indices : [];
-            for(const idx of indices){
-              const blocks = Array.isArray(idx && idx.blocks) ? idx.blocks : [];
-              // title も text を持つことがある
-              if(idx && typeof idx.title === 'string'){
-                const before = totalArtBytes; scanText(idx.title, `${law}/F${fk}/タイトル`);
-                lawBytes += (totalArtBytes - before);
-              }
-              for(const blk of blocks){
-                if(!blk) continue;
-                lawBlocks++;
-                // ブロック内の文字列フィールドを総当たりで計測(text, note 等)
-                for(const key of Object.keys(blk)){
-                  const v = blk[key];
-                  if(typeof v === 'string'){
-                    const before = totalArtBytes;
-                    scanText(v, `${law}/F${fk}/${idx&&idx.title?idx.title:'(無題)'}/${key}`);
-                    lawBytes += (totalArtBytes - before);
-                  }
-                }
-              }
-            }
-          }
-          perLaw.push({law, bytes:lawBytes, blocks:lawBlocks});
-        }
-        perLaw.sort((a,b)=>b.bytes - a.bytes);
-
-        html += `<div style="background:var(--bg);border:1px solid var(--line);padding:14px;border-radius:6px;margin-top:10px">`;
-        html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px">条文・解説 (articles) の内訳</div>`;
-        html += `<div style="font-size:12px;color:var(--mut);margin-bottom:8px">合計 ${fmt(totalArtBytes)} / 科目数 ${perLaw.length}</div>`;
-
-        // 画像混入の警告(最優先)
-        if(imageBlockCount > 0){
-          html += `<div style="font-size:12px;color:#c0392b;background:#fdecea;border:1px solid #f5c6cb;padding:10px;border-radius:5px;line-height:1.7;margin-bottom:8px">
-            <strong>⚠ 条文・解説の中に画像データ(${imageBlockCount}個, ${fmt(imageBlockBytes)})が直接埋め込まれています。</strong><br>
-            これが容量を大きく圧迫している原因の可能性が高いです。図表機能で画像を貼ると IndexedDB に分離されますが、条文・解説の本文に直接貼った画像は localStorage に残ります。該当箇所の画像を削除するか、図表タブ側へ移すと大幅に縮小できます。
-          </div>`;
-        }
-
-        // 科目別テーブル
-        html += `<table style="width:100%;font-size:12px;border-collapse:collapse"><thead>
-          <tr style="border-bottom:1px solid var(--line);text-align:left;color:var(--mut)">
-            <th style="padding:6px 8px;font-weight:500">科目</th>
-            <th style="padding:6px 8px;text-align:right;font-weight:500">ブロック数</th>
-            <th style="padding:6px 8px;text-align:right;font-weight:500">サイズ</th>
-          </tr></thead><tbody>`;
-        for(const r of perLaw){
-          html += `<tr style="border-bottom:1px solid #f0f0f0">
-            <td style="padding:6px 8px">${escapeHtml(r.law)}</td>
-            <td style="padding:6px 8px;text-align:right">${r.blocks}</td>
-            <td style="padding:6px 8px;text-align:right">${fmt(r.bytes)}</td>
-          </tr>`;
-        }
-        html += `</tbody></table>`;
-
-        // 最大ブロックの情報
-        if(maxBlock.chars > 0){
-          html += `<div style="font-size:12px;color:var(--mut);margin-top:8px;line-height:1.6">
-            最大のテキスト: <strong>${maxBlock.chars.toLocaleString()}文字</strong> (約${fmt(maxBlock.chars*2)})${maxBlock.isImage?' <span style="color:#c0392b">※画像データ</span>':''}<br>
-            場所: ${escapeHtml(maxBlock.where)}
-          </div>`;
-          // 判定コメント
-          if(!imageBlockCount){
-            if(maxBlock.chars > 50000){
-              html += `<div style="font-size:12px;color:#856404;background:#fff8e1;border:1px solid #ffe082;padding:8px;border-radius:5px;margin-top:8px;line-height:1.6">
-                1つのテキストが ${maxBlock.chars.toLocaleString()}文字と非常に長くなっています。意図して貼った長文であれば問題ありませんが、コピペ等で想定外に大きくなっていないか一度ご確認ください。
-              </div>`;
-            }else{
-              html += `<div style="font-size:12px;color:#1e8449;background:#eafaf1;border:1px solid #abebc6;padding:8px;border-radius:5px;margin-top:8px;line-height:1.6">
-                ✓ 異常に大きいテキストや画像の混入は見当たりません。条文・解説を多く登録した結果の正常なサイズと考えられます。
-              </div>`;
-            }
-          }
-        }
-        html += `</div>`;
-      }
-    }catch(artErr){
-      html += `<div style="font-size:12px;color:#c0392b;margin-top:10px">条文・解説の分析中にエラー: ${escapeHtml(artErr.message||String(artErr))}</div>`;
-    }
 
     // 診断コメント
     html += `<div style="background:#e7f5fe;border:1px solid #b3d9f7;padding:14px;border-radius:6px;margin-top:10px">`;
@@ -7740,185 +7456,6 @@ async function runStorageDiagnostic(){
   }
 }
 
-/* ===== 改修68: 保存エラー(保存凍結)からの復旧 =====
-   「保存に失敗しました」が繰り返し出て操作が保存できない状態を、ユーザー自身の
-   ワンタップで解消する。原因は大きく2つ:
-     (A) 過去に一度 QuotaExceeded を踏んで _saveFrozen が立ち、以後すべての
-         saveState が拒否され続けている(=操作のたびにエラー扱い)。
-     (B) 図表 imageData が何らかの経路で state に残ったまま localStorage を
-         圧迫している(通常は分離済みだが、古いデータ等での保険)。
-   いずれの場合も、図表画像本体は IndexedDB / in-memory キャッシュに温存されている
-   ため、それを壊さずに「メタだけの軽い state」を確実に保存し直し、凍結を解除する。 */
-async function recoverFromSaveFreeze(){
-  const result = document.getElementById('storage-diag-result');
-  const report = (html)=>{ if(result){ result.style.display='block'; result.innerHTML = html; } };
-
-  try{
-    // 1) state.figures に imageData が残っていれば IndexedDB / キャッシュへ退避して除去。
-    //    (これが localStorage 圧迫の主因になり得るため、まず確実に分離する)
-    let movedToIdb = 0;
-    if(Array.isArray(state.figures)){
-      const entries = [];
-      for(const fig of state.figures){
-        if(fig && fig.imageData){
-          figureImageCache.set(fig.id, fig.imageData);
-          entries.push([fig.id, fig.imageData]);
-          delete fig.imageData;
-        }
-      }
-      if(entries.length){
-        try{ await figureStore.putMany(entries); movedToIdb = entries.length; }
-        catch(idbErr){
-          // IDB 書込に失敗した場合でもキャッシュには載っているので画像表示は維持。
-          // ただし state からは外したので localStorage は軽くなる。
-          console.warn('[改修68] IndexedDB への退避に失敗(キャッシュは保持)', idbErr);
-        }
-      }
-    }
-
-    // 2) 凍結フラグと急減ガードの基準を解除。これ以降 saveState が通るようになる。
-    _saveFrozen = false;
-    _lastGoodCounts = null;
-
-    // 3) 実際に保存を試みる。ここで通れば復旧成功。
-    let saved = false, saveErr = null;
-    try{
-      localStorage.setItem(STORAGE_KEY, _serializeState(state));
-      _lastGoodCounts = _snapshotCounts(state);
-      saved = true;
-    }catch(e){ saveErr = e; }
-
-    // 4) バナー等を更新
-    try{ if(typeof updateBackupReminderBanner === 'function') updateBackupReminderBanner(); }catch(_){}
-
-    if(saved){
-      const c = _snapshotCounts(state) || {};
-      report(`<div style="background:#eafaf1;border:1px solid #abebc6;padding:14px;border-radius:6px;color:#1e8449;line-height:1.7">
-        <div style="font-weight:600;margin-bottom:6px">✓ 復旧しました</div>
-        保存できる状態に戻りました。これ以降の操作は通常どおり保存されます。<br>
-        ${movedToIdb>0 ? `(図表画像 ${movedToIdb}件 を IndexedDB へ移動して localStorage を軽くしました)<br>` : ''}
-        <div style="margin-top:8px;font-size:12px;color:#555">
-          現在のデータ: 択一${c.questions||0}問 / 選択式${c.selectQuestions||0}問 / 事例${c.cases||0}件 / 図表${c.figures||0}件 / 千本ノック${c.senbon||0}問 / 解答履歴${c.history||0}件
-        </div>
-        <div style="margin-top:10px;font-size:12px;color:#856404;background:#fff8e1;border:1px solid #ffe082;padding:8px;border-radius:5px">
-          ⚠ もし上の件数が「思っていたより少ない／サンプルだけ」の場合は、データが初期状態に戻っている可能性があります。<br>
-          その場合は<strong>このまま操作を続けず</strong>、PC等で取得済みの<strong>完全バックアップ(JSON)から「バックアップ復元」</strong>を行ってください。
-        </div>
-      </div>`);
-    }else{
-      // ここに来る = imageData を外してもなお localStorage が溢れている極端なケース。
-      report(`<div style="background:#fdecea;border:1px solid #f5c6cb;padding:14px;border-radius:6px;color:#c0392b;line-height:1.7">
-        <div style="font-weight:600;margin-bottom:6px">まだ保存できません</div>
-        画像を分離しても localStorage の上限に達しています(${escapeHtml(saveErr ? (saveErr.message||String(saveErr)) : '原因不明')})。<br>
-        お手数ですが、保存済みの<strong>完全バックアップ(JSON)から「バックアップ復元」</strong>を実行してください。復元処理は画像を IndexedDB に書き戻すため、localStorage を最小化できます。
-      </div>`);
-    }
-  }catch(e){
-    report(`<div style="background:#fdecea;border:1px solid #f5c6cb;padding:14px;border-radius:6px;color:#c0392b">
-      復旧処理でエラー: ${escapeHtml(e.message || String(e))}
-    </div>`);
-  }
-}
-
-/* ===== 改修71: 条文・解説(articles)の詳細内訳診断 =====
-   「条文・解説が8件で約1MB」など、特定データが大きいときに、
-   どのフレーム・どのブロックが容量を食っているかを可視化する。
-   ・各 科目|フレーム ごとの素のバイト数を大きい順に表示
-   ・1ブロックが極端に大きい(目安: 50KB超)場合は強調
-   ・万一 base64 画像(data:image)が紛れていれば検出して警告
-   実データはユーザーのブラウザ内にしか無いため、この画面で安全に確認できる。 */
-function runArticlesDiagnostic(){
-  const result = document.getElementById('storage-diag-result');
-  if(!result) return;
-  result.style.display = 'block';
-  const fmt = (b)=>{
-    if(b < 1024) return b + ' B';
-    if(b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
-    return (b/1024/1024).toFixed(2) + ' MB';
-  };
-
-  try{
-    const articles = (state && state.articles) ? state.articles : {};
-    const rows = []; // {label, bytes, blockCount, maxBlockBytes, hasImage}
-    let totalBytes = 0;
-    let imageHits = 0;
-
-    for(const subject of Object.keys(articles)){
-      const frames = articles[subject] || {};
-      for(const fkey of Object.keys(frames)){
-        const entry = frames[fkey];
-        const json = JSON.stringify(entry);
-        const bytes = json.length * 2;
-        totalBytes += bytes;
-
-        // ブロック単位の精査
-        let blockCount = 0, maxBlockBytes = 0, hasImage = false;
-        const indices = (entry && Array.isArray(entry.indices)) ? entry.indices : [];
-        for(const idx of indices){
-          const blocks = (idx && Array.isArray(idx.blocks)) ? idx.blocks : [];
-          for(const b of blocks){
-            blockCount++;
-            const bj = JSON.stringify(b);
-            const bb = bj.length * 2;
-            if(bb > maxBlockBytes) maxBlockBytes = bb;
-            if(/data:image\//.test(bj)){ hasImage = true; imageHits++; }
-          }
-        }
-        rows.push({
-          label: `${subject} / フレーム${fkey}`,
-          bytes, blockCount, maxBlockBytes, hasImage
-        });
-      }
-    }
-    rows.sort((a,b)=> b.bytes - a.bytes);
-
-    let html = '';
-    html += `<div style="background:var(--bg);border:1px solid var(--line);padding:14px;border-radius:6px">`;
-    html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px">条文・解説(articles) 詳細内訳</div>`;
-    html += `<div style="font-size:13px;margin-bottom:10px">合計 <strong>${fmt(totalBytes)}</strong> / ${rows.length}フレームに格納 <span style="color:var(--mut);font-size:11px">※圧縮前の素のサイズ</span></div>`;
-
-    if(imageHits > 0){
-      html += `<div style="background:#fff3cd;border:1px solid #ffc107;padding:10px;border-radius:5px;margin-bottom:10px;font-size:12px;color:#856404;line-height:1.6">
-        ⚠ 条文・解説の中に画像データ(data:image)が ${imageHits}箇所 見つかりました。<br>
-        条文タブに画像を貼ると localStorage を大きく圧迫します。図表は「図表」タブに登録すると IndexedDB に保存され、容量を節約できます。
-      </div>`;
-    }
-
-    if(rows.length === 0){
-      html += `<div style="font-size:12px;color:var(--mut)">条文・解説データはまだありません。</div>`;
-    }else{
-      html += `<table style="width:100%;font-size:12px;border-collapse:collapse">`;
-      html += `<thead><tr style="border-bottom:1px solid var(--line);text-align:left;color:var(--mut)">
-        <th style="padding:6px 8px;font-weight:500">フレーム</th>
-        <th style="padding:6px 8px;text-align:right;font-weight:500">ブロック</th>
-        <th style="padding:6px 8px;text-align:right;font-weight:500">サイズ</th>
-        <th style="padding:6px 8px;text-align:right;font-weight:500">最大ブロック</th>
-      </tr></thead><tbody>`;
-      for(const r of rows){
-        const big = r.maxBlockBytes > 50*1024; // 1ブロック50KB超を強調
-        html += `<tr style="border-bottom:1px solid #f0f0f0${big?';background:#fff8f6':''}">
-          <td style="padding:6px 8px">${escapeHtml(r.label)}${r.hasImage?' <span style="color:#c0392b;font-size:10px">[画像入り]</span>':''}</td>
-          <td style="padding:6px 8px;text-align:right">${r.blockCount}</td>
-          <td style="padding:6px 8px;text-align:right">${fmt(r.bytes)}</td>
-          <td style="padding:6px 8px;text-align:right;color:${big?'#c0392b':'var(--mut)'}">${fmt(r.maxBlockBytes)}</td>
-        </tr>`;
-      }
-      html += `</tbody></table>`;
-      html += `<div style="font-size:11px;color:var(--mut);margin-top:8px;line-height:1.6">
-        「最大ブロック」が極端に大きい(数十KB以上)フレームは、1つの条文ブロックに長文や画像が入っている可能性があります。<br>
-        該当フレームを「条解」タブで開いて中身を確認してみてください。通常の条文テキストであれば、件数のわりにサイズが大きくても異常ではありません。
-      </div>`;
-    }
-    html += `</div>`;
-
-    result.innerHTML = html;
-  }catch(e){
-    result.innerHTML = `<div style="background:#fdecea;border:1px solid #f5c6cb;padding:14px;border-radius:6px;color:#c0392b">
-      条文診断エラー: ${escapeHtml(e.message || String(e))}
-    </div>`;
-  }
-}
-
 /* ============================================================
    改修46: バックアップ忘れ防止リマインダー
    ----------------------------------------------------------
@@ -7943,8 +7480,8 @@ const BACKUP_BEFOREUNLOAD_THRESHOLD = 5; // この件数以上ならタブ閉じ
 const BACKUP_REMINDER_MIN_COUNT = 10;
 
 // 改修48_改修02: 問題数方式で選べるしきい値
-//   (改修70: BACKUP_COUNT_OPTIONS と BACKUP_TIMES_MAX は loadState より前へ移動済み。
-//    ここでの再定義は TDZ/重複定義になるため削除した。)
+const BACKUP_COUNT_OPTIONS = [10, 20, 30, 40, 50];
+const BACKUP_TIMES_MAX = 5; // 時間方式で設定できる時刻の最大数
 
 /** 通知設定を正規化(欠損・不正値を既定値で補完)。後方互換にも使う。 */
 function normalizeBackupReminderSettings(s){
@@ -8127,8 +7664,6 @@ function _dismissBackupReminder(){
 
 /** beforeunload ハンドラ: 未バックアップ件数が一定以上なら確認ダイアログ */
 function _backupBeforeUnloadHandler(e){
-  // 改修72: 未保存の遅延保存があれば、離脱前に確実に書き込む
-  try{ flushPendingSave(); }catch(_){}
   const status = getBackupStatus();
   if(status.count >= BACKUP_BEFOREUNLOAD_THRESHOLD){
     // 最新ブラウザは独自メッセージを無視するが、preventDefault + returnValue で標準確認を出せる
@@ -8145,8 +7680,6 @@ function _backupBeforeUnloadHandler(e){
 function _backupOnHideHandler(){
   try{
     if(document.visibilityState !== 'hidden') return;
-    // 改修72: タブが隠れる瞬間に、未保存の遅延保存を確実に書き込む(最優先)
-    try{ flushPendingSave(); }catch(_){}
     const settings = getBackupReminderSettings();
     if(!settings.autoDownload || _saveFrozen) return;
     const status = getBackupStatus();
@@ -8293,9 +7826,6 @@ function wireBackupReminderSettings(){
 async function backupAll(opts){
   // 改修50: opts.auto=true のとき「自動バックアップ」。失敗時もダイアログを出さず静かに記録する。
   const auto = !!(opts && opts.auto);
-  // 改修72: 未保存の遅延保存があれば、バックアップ前に確実に書き込む
-  //   (直前の操作がバックアップに含まれないのを防ぐ)
-  try{ flushPendingSave(); }catch(_){}
   try{
     // IndexedDB から全画像を取得し、メタとマージしてバックアップに含める
     const imageMap = new Map();
@@ -9000,7 +8530,7 @@ async function _applyMergeRestore(){
     delete state._dedupNenkinF9Removed;
   }catch(_){ }
 
-  saveStateNow(); // 改修72: 復元結果は確実に即保存する
+  saveState();
   closeMergeRestoreModal();
 
   // 集計を表示
@@ -9160,7 +8690,7 @@ function restoreBackup(){
           state._dedupNenkinF9Done = true;
           delete state._dedupNenkinF9Removed; // 通知は下のサマリーに含めるのでフラグは消す
         }catch(_){ }
-        saveStateNow(); // 改修72: 復元結果は確実に即保存する
+        saveState();
         renderQuiz();renderManage();renderSidebar();
         // 進捗管理画面も明示的に更新
         const progressContent = document.getElementById('progress-content');
@@ -17297,29 +16827,7 @@ function _wireTaipaDragGrid(root, grid){
     }
   };
 
-  // 改修73: ドラッグ中の pointermove/up は document に付け替える。
-  //   従来は各ブロックに pointermove を配線していたため、低スペックPCでポインタが
-  //   ブロック外に出たり処理が詰まると追従できず「固まる」症状が出ていた。
-  //   ドラッグ開始時に document へ登録し、終了時に必ず外す方式に変更(取りこぼし防止)。
-  let _docMoveHandler = null, _docUpHandler = null;
-  const _attachDocDragHandlers = ()=>{
-    _detachDocDragHandlers();
-    _docMoveHandler = (e)=>onMove(e);
-    _docUpHandler = (e)=>{ onUp(e); _detachDocDragHandlers(); };
-    document.addEventListener('pointermove', _docMoveHandler, {passive:false});
-    document.addEventListener('pointerup', _docUpHandler);
-    document.addEventListener('pointercancel', _docUpHandler);
-  };
-  function _detachDocDragHandlers(){
-    if(_docMoveHandler){ document.removeEventListener('pointermove', _docMoveHandler, {passive:false}); _docMoveHandler=null; }
-    if(_docUpHandler){
-      document.removeEventListener('pointerup', _docUpHandler);
-      document.removeEventListener('pointercancel', _docUpHandler);
-      _docUpHandler=null;
-    }
-  }
-
-  // 各予定ブロックに配線(down のみ。move/up はドラッグ中だけ document に付ける)
+  // 各予定ブロックに配線
   grid.querySelectorAll('.taipa-block.plan').forEach(block=>{
     const top = block.querySelector('.taipa-resize.top');
     const bottom = block.querySelector('.taipa-resize.bottom');
@@ -17327,10 +16835,12 @@ function _wireTaipaDragGrid(root, grid){
       // ハンドル上は除外(下で個別配線)
       if(e.target.classList.contains('taipa-resize')) return;
       onDown(e, block, 'move');
-      _attachDocDragHandlers();
     });
-    if(top) top.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); onDown(e, block, 'top'); _attachDocDragHandlers(); });
-    if(bottom) bottom.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); onDown(e, block, 'bottom'); _attachDocDragHandlers(); });
+    if(top) top.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); onDown(e, block, 'top'); });
+    if(bottom) bottom.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); onDown(e, block, 'bottom'); });
+    block.addEventListener('pointermove', onMove);
+    block.addEventListener('pointerup', onUp);
+    block.addEventListener('pointercancel', onUp);
   });
 }
 
@@ -18019,12 +17529,6 @@ function init(){
   // 改修: ストレージ診断ボタン
   const btnDiag = document.getElementById('btn-storage-diag');
   if(btnDiag) btnDiag.addEventListener('click', runStorageDiagnostic);
-  // 改修68: 保存エラー(保存凍結)からの復旧ボタン
-  const btnRecover = document.getElementById('btn-storage-recover');
-  if(btnRecover) btnRecover.addEventListener('click', recoverFromSaveFreeze);
-  // 改修71: 条文・解説の内訳診断ボタン
-  const btnArtDiag = document.getElementById('btn-articles-diag');
-  if(btnArtDiag) btnArtDiag.addEventListener('click', runArticlesDiagnostic);
 
   // 改修25: 差分マージ復元
   const btnMergeRestore = document.getElementById('btn-merge-restore');
@@ -18055,8 +17559,6 @@ function init(){
   window.addEventListener('beforeunload', _backupBeforeUnloadHandler);
   // 改修50: タブが隠れるタイミングでの自動バックアップ(iPhone Safari 対策の確実な経路)
   document.addEventListener('visibilitychange', _backupOnHideHandler);
-  // 改修72: iOS Safari は beforeunload が発火しにくいため、pagehide でも保存をフラッシュ(保険)
-  window.addEventListener('pagehide', ()=>{ try{ flushPendingSave(); }catch(_){} });
   // 起動時に1回バナー状態を計算 + 1分ごとの自動更新を開始
   updateBackupReminderBanner();
   _startBackupReminderTicker();
@@ -18082,22 +17584,6 @@ function init(){
   renderQuiz();
   renderSidebar();
 
-  // 改修69: 起動時の自動圧縮移行。
-  //   既存ユーザーの localStorage には未圧縮(生JSON)のデータが入っている。
-  //   読み込みに成功していて(=保存凍結でなく)、かつ保存形式が未圧縮なら、
-  //   起動直後に一度だけ圧縮形式で保存し直して使用量を一気に減らす。
-  //   これにより、5MB 満杯のユーザーが新版を開くだけで自動的に容量に余裕が生まれる。
-  try{
-    if(!_saveFrozen){
-      const cur = localStorage.getItem(STORAGE_KEY);
-      if(cur && !cur.startsWith(LZ_PREFIX)){
-        // 未圧縮データを検出 → 圧縮して保存し直す(即時保存で確実に移行)
-        saveStateNow();
-        console.log('[改修69] 起動時に未圧縮データを圧縮形式へ移行しました。');
-      }
-    }
-  }catch(e){ console.warn('[改修69] 起動時の圧縮移行に失敗', e); }
-
   // IndexedDB を初期化し、既存 localStorage 画像を移行 + キャッシュを構築
   // (非同期。完了後に図表タブが開いていれば再描画される)
   initFigureStorage().catch(err=>console.warn('initFigureStorage failed', err));
@@ -18111,7 +17597,7 @@ function init(){
       try{
         alert('【自動メンテナンス】\n\n国民年金法 フレーム9 の重複登録問題 '+n+'件を自動削除しました。\n\n解答履歴・ブックマーク・メモは残した問題側へ引き継いでいます。\n(念のため、削除直前のデータはブラウザ内に1回分退避しています)');
       }catch(_){ }
-      try{ saveStateNow(); }catch(_){ }
+      try{ saveState(); }catch(_){ }
     }, 1000);
   }
 }
