@@ -5101,6 +5101,13 @@ function _extApplyDeferredDefaults(){
 /* ===== State & Storage ===== */
 const STORAGE_KEY = 'sharoushi_kakomon_v1';
 
+// 改修V2_03: バックアップ通知のしきい値定数。
+//   loadState() → normalizeBackupReminderSettings() から参照されるため、
+//   loadState() の実行(let state = loadState())より前で宣言しておく必要がある
+//   (const は巻き上げされても初期化前アクセスは TDZ エラーになるため)。
+const BACKUP_COUNT_OPTIONS = [10, 20, 30, 40, 50]; // 問題数方式で選べるしきい値
+const BACKUP_TIMES_MAX = 5;                        // 時間方式で設定できる時刻の最大数
+
 /* 改修50: データ喪失防止のための保存凍結フラグ群。
    ・_saveFrozen … 読み込みに「失敗の疑い」があるとき true。true の間は saveState を拒否し、
                    空/壊れた state による localStorage 上書き(=全データ消失)を物理的に防ぐ。
@@ -5580,7 +5587,46 @@ function loadState(){
       _lastGoodCounts = _snapshotCounts(s);
       return s;
     }
-  }catch(e){console.warn('Load error',e)}
+  }catch(e){
+    console.warn('Load error',e);
+    // 改修V2_03: try 内の後半処理(マイグレーション等)で想定外の例外が出ても、
+    //   生データ自体が有効な JSON として読めて中身がある場合は「データは生きている」と
+    //   判断し、最低限の正規化だけ施して復元を続行する(誤って凍結・警告しない)。
+    //   ここで救えるのは「JSON は正常だがコードの不具合で落ちた」ケース。
+    //   JSON 自体が壊れている本物の破損は下の凍結ロジックで守る。
+    try{
+      if(rawForGuard){
+        const salvaged = JSON.parse(rawForGuard); // 壊れていればここで再 throw → 凍結へ
+        if(salvaged && typeof salvaged === 'object'){
+          salvaged.questions ||= [];
+          salvaged.history ||= [];
+          salvaged.bookmarks ||= {};
+          salvaged.myNotes ||= {};
+          salvaged.frameAttempts ||= {};
+          salvaged.figures ||= [];
+          salvaged.articles ||= {};
+          salvaged.whys ||= {};
+          for(const extKey of EXT_SECTION_KEYS){
+            _extLegacyInLS[extKey] = !!(salvaged[extKey] && typeof salvaged[extKey]==='object' && Object.keys(salvaged[extKey]).length > 0);
+          }
+          // 図表画像の同期退避(通常経路と同様)
+          if(Array.isArray(salvaged.figures)){
+            for(const fig of salvaged.figures){
+              if(fig && fig.imageData){
+                figureImageCache.set(fig.id, fig.imageData);
+                delete fig.imageData;
+              }
+            }
+          }
+          _lastGoodCounts = _snapshotCounts(salvaged);
+          console.warn('[改修V2_03] 後半処理でエラーが出ましたが、データ本体は有効だったため復元を続行します(凍結しません)。');
+          return salvaged;
+        }
+      }
+    }catch(e2){
+      console.warn('[改修V2_03] 生データの再解析にも失敗。本物の破損とみなし凍結します。', e2);
+    }
+  }
   // 改修50: ここに来た=「生データが存在したのに解析/復元に失敗」または「生データが無い」。
   //   生データが在ったのにフォールバックへ落ちた場合は、壊れた読込の可能性が高いので
   //   保存を凍結し、空のサンプルデータで localStorage を上書きしてしまう事故を防ぐ。
@@ -7800,17 +7846,21 @@ const BACKUP_BEFOREUNLOAD_THRESHOLD = 5; // この件数以上ならタブ閉じ
 const BACKUP_REMINDER_MIN_COUNT = 10;
 
 // 改修48_改修02: 問題数方式で選べるしきい値
-const BACKUP_COUNT_OPTIONS = [10, 20, 30, 40, 50];
-const BACKUP_TIMES_MAX = 5; // 時間方式で設定できる時刻の最大数
+//   改修V2_03: 実体の宣言は loadState() より前(STORAGE_KEY 付近)へ移動済み。
+//   (loadState 内の normalizeBackupReminderSettings が参照するため TDZ を避ける)
 
 /** 通知設定を正規化(欠損・不正値を既定値で補完)。後方互換にも使う。 */
 function normalizeBackupReminderSettings(s){
+  // 改修V2_03: 参照する定数(BACKUP_COUNT_OPTIONS / BACKUP_TIMES_MAX)は loadState() の
+  // 実行位置より前で宣言済み(下記コメント参照)。TDZ は発生しない。
+  const COUNT_OPTIONS = BACKUP_COUNT_OPTIONS;
+  const TIMES_MAX = BACKUP_TIMES_MAX;
   s = (s && typeof s === 'object') ? s : {};
   let mode = s.mode;
   if(mode !== 'count' && mode !== 'time' && mode !== 'off') mode = 'count';
   let countN = parseInt(s.countN, 10);
-  if(!BACKUP_COUNT_OPTIONS.includes(countN)) countN = 30;
-  let times = Array.isArray(s.times) ? s.times.slice(0, BACKUP_TIMES_MAX) : [];
+  if(!COUNT_OPTIONS.includes(countN)) countN = 30;
+  let times = Array.isArray(s.times) ? s.times.slice(0, TIMES_MAX) : [];
   times = times.filter(t => typeof t === 'string' && /^([01]?\d|2[0-3]):[0-5]\d$/.test(t.trim()))
                .map(t => {
                  // "7:0" 等を "07:00" に整える
