@@ -2553,6 +2553,35 @@
   .taipa-tiny-title{font-size:12px;font-weight:600;margin-bottom:6px;color:var(--ink-soft)}
   .taipa-tiny-item{display:flex;align-items:center;gap:6px;font-size:12px;padding:3px 0}
   .taipa-tiny-meta{margin-left:auto;color:var(--ink-muted);font-size:11px;font-feature-settings:"tnum"}
+  /* 改修V02_04: 解答時間列・補正・警告・短時間色帯・補正モーダル */
+  .taipa-col-answ{color:var(--green);font-weight:600}
+  .taipa-tbl-note{font-size:11px;color:var(--ink-muted);margin:6px 2px 0;line-height:1.5}
+  .taipa-warn-mark{color:#d9820b;font-weight:700;margin-right:3px;cursor:help}
+  .taipa-fix-btn{font-size:11px;padding:3px 8px;border:1px solid var(--line);background:var(--card);border-radius:6px;cursor:pointer;color:var(--ink-soft);white-space:nowrap}
+  .taipa-fix-btn:hover{background:var(--bg)}
+  .taipa-fix-btn.need{border-color:#d9820b;color:#b8690a;background:#fff8ef;font-weight:600}
+  .taipa-block.act.tiny{border-left-width:3px;border-radius:1px;pointer-events:auto}
+  .taipa-fix-content{max-width:560px}
+  .taipa-fix-body{max-height:52vh;overflow-y:auto;margin:6px 0}
+  .taipa-fix-sess{border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px;background:var(--bg)}
+  .taipa-fix-sess-head{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;margin-bottom:8px}
+  .taipa-fix-sess-time{font-weight:700;font-feature-settings:"tnum"}
+  .taipa-fix-sess-sum{font-size:11px;color:var(--ink-muted)}
+  .taipa-fix-seg{display:flex;flex-direction:column;gap:5px;padding:8px;border-radius:6px;background:var(--card);border:1px solid var(--line);margin-bottom:6px}
+  .taipa-fix-seg.is-long{border-color:#e0a23c;background:#fff8ef}
+  .taipa-fix-seg-info{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px}
+  .taipa-fix-seg-badge{font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;color:#fff}
+  .taipa-fix-seg-badge.b{background:#7a6cc9}
+  .taipa-fix-seg-badge.r{background:#5a9aa8}
+  .taipa-fix-seg-time{font-feature-settings:"tnum";color:var(--ink-soft)}
+  .taipa-fix-seg-raw{color:var(--ink-muted);font-feature-settings:"tnum"}
+  .taipa-fix-long{color:#d9820b;font-weight:700;margin-left:2px}
+  .taipa-fix-seg-edit{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px}
+  .taipa-fix-input{width:72px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;font-size:13px;font-feature-settings:"tnum";text-align:right}
+  .taipa-fix-suggest,.taipa-fix-reset{font-size:11px;padding:3px 8px;border:1px solid var(--line);background:var(--bg);border-radius:6px;cursor:pointer;color:var(--ink-soft)}
+  .taipa-fix-suggest:hover,.taipa-fix-reset:hover{background:var(--card)}
+  .taipa-fix-reset{border-color:#c98d00;color:#9a6c00}
+  .taipa-fix-none{font-size:11px;color:var(--ink-muted);padding:4px 2px}
   @media(max-width:640px){
     .taipa-sumcards{grid-template-columns:1fr}
     .taipa-tt{grid-template-columns:40px 1fr 1fr}
@@ -3828,6 +3857,21 @@
     <div class="art-picker-foot">
       <button class="btn ghost" id="why-picker-cancel">キャンセル</button>
       <button class="btn" id="why-picker-done">完了</button>
+    </div>
+  </div>
+</div>
+
+<!-- 改修V02_04_01: タイパ 学習時間の補正モーダル -->
+<div id="taipa-fix-modal" class="fig-modal" style="display:none">
+  <div class="fig-modal-overlay"></div>
+  <div class="art-picker-content taipa-fix-content">
+    <button class="fig-modal-close" id="taipa-fix-close">×</button>
+    <h3 class="art-picker-title">⏱ 学習時間の補正</h3>
+    <div class="art-picker-desc" id="taipa-fix-desc"></div>
+    <div class="taipa-fix-body" id="taipa-fix-body"></div>
+    <div class="art-picker-foot">
+      <button class="btn ghost" id="taipa-fix-cancel">キャンセル</button>
+      <button class="btn" id="taipa-fix-save">保存</button>
     </div>
   </div>
 </div>
@@ -14558,37 +14602,87 @@ function getActiveSession(){
   return s;
 }
 
-// セッションの「Aモード(通常演習)実時間」をミリ秒で返す(タイパ計算用)
+/* ===== 改修V02_04: 学習時間の補正・適正化 共通ロジック =====
+   各セグメント {start, end, mode} に対し、補正値 capMs(任意)を反映した
+   「実効的な所要ミリ秒」を返す。capMs があればそれを上限とする。
+   - seg.capMs … V02_04_01 の補正。中断(B)や休憩(R)が放置で巨大化した場合に、
+     ユーザーが「実際は何分だったか」を入力した値(ミリ秒)。元の start/end は壊さない。
+   ※ A(演習)区間は実測がそのまま意味を持つので通常は補正しないが、
+     仕組み上は capMs があれば全モードに効く(将来の手動補正にも対応)。 */
+function segDurationMs(sg, nowTs){
+  const end = sg.end!=null ? sg.end : (nowTs!=null ? nowTs : Date.now());
+  let ms = (end>sg.start) ? (end - sg.start) : 0;
+  if(sg.capMs!=null && sg.capMs>=0 && sg.capMs < ms) ms = sg.capMs;
+  return ms;
+}
+// V02_04_03: タイムテーブル描画用に、補正後の「実効 end」を返す。
+//   capMs により短縮された場合、その分だけ end を前倒しした時刻を返す。
+function segEffectiveEnd(sg, nowTs){
+  const rawEnd = sg.end!=null ? sg.end : (nowTs!=null ? nowTs : Date.now());
+  if(sg.capMs!=null && sg.capMs>=0){
+    const capped = sg.start + sg.capMs;
+    if(capped < rawEnd) return capped;
+  }
+  return rawEnd;
+}
+// V02_04_01: あるセッションに「補正すべき長時間の中断/休憩」があるかを判定。
+//   既定しきい値(LONG_GAP_MS)を超える B/R 区間があり、まだ capMs 未設定のものを返す。
+const LONG_GAP_MS = 30*60*1000; // 30分超の中断/休憩を「要確認」とみなす
+function sessionLongGaps(sess){
+  const segs = Array.isArray(sess.segments) ? sess.segments : [];
+  const out = [];
+  for(let i=0;i<segs.length;i++){
+    const sg = segs[i];
+    if(sg.mode!=='B' && sg.mode!=='R') continue;
+    if(sg.end==null) continue;
+    if(sg.capMs!=null) continue; // 既に補正済み
+    const raw = (sg.end>sg.start) ? (sg.end-sg.start) : 0;
+    if(raw > LONG_GAP_MS) out.push({index:i, seg:sg, rawMs:raw});
+  }
+  return out;
+}
+
+// セッションの「Aモード(通常演習)実時間」をミリ秒で返す(タイパ計算用 = 解答時間)
+//   改修V02_04: 補正値(capMs)を反映する(segDurationMs 経由)。
 function sessionActiveMs(sess, nowTs){
   let ms = 0;
   const segs = Array.isArray(sess.segments) ? sess.segments : [];
   for(const sg of segs){
     if(sg.mode!=='A') continue;
-    const end = sg.end!=null ? sg.end : (nowTs!=null ? nowTs : Date.now());
-    if(end>sg.start) ms += (end - sg.start);
+    ms += segDurationMs(sg, nowTs);
+  }
+  return ms;
+}
+// 改修V02_04_02: セッションの「中断(B/ロックオン)実時間」をミリ秒で返す
+function sessionPauseMs(sess, nowTs){
+  let ms = 0;
+  const segs = Array.isArray(sess.segments) ? sess.segments : [];
+  for(const sg of segs){
+    if(sg.mode!=='B') continue;
+    ms += segDurationMs(sg, nowTs);
   }
   return ms;
 }
 // セッションの「トータル学習時間」をミリ秒で返す
 //   改修31b: A(演習)+B(中断/ロックオン)を計上。R(休憩)は学習から離脱しているため計上しない。
+//   改修V02_04: 補正値(capMs)を反映する(segDurationMs 経由)。
+//   = 解答時間(A) + 中断時間(B)。
 function sessionTotalMs(sess, nowTs){
   let ms = 0;
   const segs = Array.isArray(sess.segments) ? sess.segments : [];
   for(const sg of segs){
     if(sg.mode==='R') continue; // 休憩は学習時間に含めない
-    const end = sg.end!=null ? sg.end : (nowTs!=null ? nowTs : Date.now());
-    if(end>sg.start) ms += (end - sg.start);
+    ms += segDurationMs(sg, nowTs);
   }
   return ms;
 }
-// 改修31b: R(休憩)の合計ミリ秒(参考表示用)
+// 改修31b: R(休憩)の合計ミリ秒(参考表示用)。改修V02_04: 補正反映。
 function sessionRestMs(sess, nowTs){
   let ms = 0;
   const segs = Array.isArray(sess.segments) ? sess.segments : [];
   for(const sg of segs){
     if(sg.mode!=='R') continue;
-    const end = sg.end!=null ? sg.end : (nowTs!=null ? nowTs : Date.now());
-    if(end>sg.start) ms += (end - sg.start);
+    ms += segDurationMs(sg, nowTs);
   }
   return ms;
 }
@@ -14599,11 +14693,11 @@ function sessionRestMs(sess, nowTs){
 function sessionAnswerStats(sess, nowTs){
   const now = (nowTs!=null ? nowTs : Date.now());
   const segs = Array.isArray(sess.segments) ? sess.segments : [];
-  // 休憩以外(A/B)の時間区間を作る
+  // 休憩以外(A/B)の時間区間を作る。改修V02_04: 補正(capMs)で短縮された分は実効endまで。
   const intervals = [];
   for(const sg of segs){
     if(sg.mode==='R') continue;
-    const end = sg.end!=null ? sg.end : now;
+    const end = segEffectiveEnd(sg, now);
     if(end>sg.start) intervals.push([sg.start, end]);
   }
   // セグメントが無い(旧データ等)場合は startTs〜endTs の窓で集計(後方互換)
@@ -16806,18 +16900,22 @@ function renderTaipaView(){
     <div class="taipa-tt-wrap taipa-tt-set2">${renderTaipaTimetable(dateKey, plans, sessions, 2)}</div>
   </div>`;
 
-  // 5分未満などタイムテーブルに乗らなかった実績
+  // 改修V02_04_03: タイムテーブルに帯ラベルが乗らなかった実績(学習時間=解答A+中断B が5分未満)
+  //   基準は sessionTotalMs(=A+B)。タイムテーブル上には色帯だけは出ているが、
+  //   ラベル(科目/フレーム/問題数)が出ないため、ここで一覧として補完表示する。
   const tinyList = sessions.filter(s=> sessionTotalMs(s) < TAIPA_SLOT_MIN*60000);
   if(tinyList.length){
     html += `<div class="taipa-tiny">
-      <div class="taipa-tiny-title">短時間で実施(5分未満・タイムテーブル非表示分)</div>`;
+      <div class="taipa-tiny-title">短時間で実施(学習時間5分未満・タイムテーブルはカラー帯のみ表示)</div>`;
     for(const s of tinyList){
       const col = statsSubjectColor(s.subject);
       const lbl = frameOrSubFrameLabel(s.subject, s.frameRef);
+      const tmin = Math.round(sessionTotalMs(s)/60000);
+      const amin = Math.round(sessionActiveMs(s)/60000);
       html += `<div class="taipa-tiny-item">
         <span class="plan-subj-dot" style="background:${col}"></span>
-        <span>${escapeHtml(s.subject)}　${escapeHtml(lbl)}</span>
-        <span class="taipa-tiny-meta">${fmtHM(s.startTs)} / 解答${s.answered}問 (正答${s.correct})</span>
+        <span>${escapeHtml(shortSubject(s.subject))}　${escapeHtml(lbl)}</span>
+        <span class="taipa-tiny-meta">${fmtHM(s.startTs)} / 学習${tmin}分(解答${amin}分) / 解答${s.answered}問(正答${s.correct})</span>
       </div>`;
     }
     html += `</div>`;
@@ -16829,6 +16927,40 @@ function renderTaipaView(){
 
 // タイムテーブル(5分刻み)。左=時刻軸+予定、右=実績。
 // set: 1 or 2(改修57_01②-2 で2セット横並び表示する際の識別子。grid の id を分けるため)
+/* 改修V02_04_03: セッションを「表示用の帯セグメント」リストに変換する。
+   - A(演習)とB(中断)は学習帯として連続させる。
+   - R(休憩)が REST_HIDE_MS(5分)以下なら学習帯に内包(従来通り)、
+     超える場合はそこで帯を分割し、休憩区間は帯を描かない(=学習実績として表示しない)。
+   - 補正(capMs)も反映する(segEffectiveEnd)。
+   各帯 = {startMs, endMs}(実時刻)。 */
+const REST_HIDE_MS = 5*60*1000; // 5分以下の休憩は帯に内包、超えたら帯を抜く
+function sessionDisplayBands(sess){
+  const segs = Array.isArray(sess.segments) ? sess.segments : [];
+  if(!segs.length){
+    if(sess.startTs!=null && sess.endTs!=null && sess.endTs>sess.startTs) return [{startMs:sess.startTs, endMs:sess.endTs}];
+    return [];
+  }
+  const bands = [];
+  let cur = null;
+  for(const sg of segs){
+    if(sg.end==null) continue;
+    const effEnd = segEffectiveEnd(sg);
+    if(effEnd<=sg.start) continue;
+    if(sg.mode==='R'){
+      const restMs = effEnd - sg.start;
+      if(restMs > REST_HIDE_MS){
+        if(cur){ bands.push(cur); cur=null; }
+        continue;
+      }
+      if(cur){ cur.endMs = effEnd; } else { cur = {startMs: sg.start, endMs: effEnd}; }
+    }else{
+      if(cur){ cur.endMs = effEnd; } else { cur = {startMs: sg.start, endMs: effEnd}; }
+    }
+  }
+  if(cur) bands.push(cur);
+  return bands;
+}
+
 function renderTaipaTimetable(dateKey, plans, sessions, set){
   set = set || 1;
   // 表示範囲を、予定・実績がある時間帯に絞ると見やすい(無ければ 6:00〜24:00)
@@ -16893,25 +17025,46 @@ function renderTaipaTimetable(dateKey, plans, sessions, set){
     </div>`;
   }
 
-  // 実績ブロック(右カラム)— 5分以上のみ
+  // 実績ブロック(右カラム)
+  //   改修V02_04_03:
+  //   - セッションを sessionDisplayBands() で「表示帯」に分割(長い休憩を抜く・補正反映)。
+  //   - 学習時間(A+B)が5分以上 → 情報付きの帯。
+  //   - 5分未満 → 科目カラーの極薄帯のみ(科目/フレーム/問題数のラベルは出さない)。
   let actBlocks = '';
   for(const ss of sessions){
-    if(sessionTotalMs(ss) < TAIPA_SLOT_MIN*60000) continue;
-    const s = _taipaTsToMin(ss.startTs, dateKey);
-    const e = _taipaTsToMin(ss.endTs, dateKey);
-    if(s==null||e==null||e<=s) continue;
-    const top = ((s/TAIPA_SLOT_MIN) - startSlot) * TAIPA_ROW_PX;
-    const h = Math.max(TAIPA_ROW_PX, ((e-s)/TAIPA_SLOT_MIN) * TAIPA_ROW_PX);
+    const learnMs = sessionTotalMs(ss);       // A+B(補正反映)
+    const isTiny = learnMs < TAIPA_SLOT_MIN*60000;
+    const bands = sessionDisplayBands(ss);
+    if(!bands.length) continue;
     const col = statsSubjectColor(ss.subject);
-    const totMin = Math.round(sessionTotalMs(ss)/60000);
-    // 改修31c: 一旦終了(途中)は帯にマークを付ける
+    const totMin = Math.round(learnMs/60000);
     const isPartial = ss.outcome==='partial';
-    const outcomeBadge = isPartial ? `<span class="taipa-mini-badge partial">途中</span>` : '';
-    const outcomeTxt = isPartial ? ' / 一旦終了(途中)' : ' / 完了';
-    actBlocks += `<div class="taipa-block act ${isPartial?'is-partial':''}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.20)}" title="${escapeHtml(ss.subject)} ${escapeHtml(frameOrSubFrameLabel(ss.subject,ss.frameRef))} / ${fmtHM(ss.startTs)}〜${fmtHM(ss.endTs)} / ${totMin}分 / 解答${ss.answered}問${outcomeTxt}">
-      <div class="taipa-block-sub">${escapeHtml(shortSubject(ss.subject))}<span class="taipa-mini-badge act">${ss.answered}問</span>${outcomeBadge}</div>
-      <div class="taipa-block-frame">${escapeHtml(_taipaFrameFull(ss.subject,ss.frameRef))}</div>
-    </div>`;
+
+    for(let bi=0; bi<bands.length; bi++){
+      const band = bands[bi];
+      const s = _taipaTsToMin(band.startMs, dateKey);
+      const e = _taipaTsToMin(band.endMs, dateKey);
+      if(s==null||e==null||e<=s) continue;
+      const top = ((s/TAIPA_SLOT_MIN) - startSlot) * TAIPA_ROW_PX;
+      const rawH = ((e-s)/TAIPA_SLOT_MIN) * TAIPA_ROW_PX;
+
+      if(isTiny){
+        // 短時間 → 極薄の色帯のみ(高さは最小1pxを確保、ラベルなし)
+        const h = Math.max(2, rawH);
+        actBlocks += `<div class="taipa-block act tiny" style="top:${top}px;height:${Math.max(1,h-1)}px;border-left-color:${col};background:${_taipaTint(col,0.30)}" title="${escapeHtml(ss.subject)} ${escapeHtml(frameOrSubFrameLabel(ss.subject,ss.frameRef))} / ${fmtHM(ss.startTs)} / 学習${totMin}分(5分未満) / 解答${ss.answered}問"></div>`;
+      }else{
+        const h = Math.max(TAIPA_ROW_PX, rawH);
+        const outcomeBadge = isPartial ? `<span class="taipa-mini-badge partial">途中</span>` : '';
+        const outcomeTxt = isPartial ? ' / 一旦終了(途中)' : ' / 完了';
+        const splitTxt = bands.length>1 ? ` / 区間${bi+1}/${bands.length}(長い休憩で分割)` : '';
+        // ラベルは最初の帯にだけ出す(分割時に同じ情報を繰り返さない)
+        const showLabel = (bi===0);
+        actBlocks += `<div class="taipa-block act ${isPartial?'is-partial':''}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.20)}" title="${escapeHtml(ss.subject)} ${escapeHtml(frameOrSubFrameLabel(ss.subject,ss.frameRef))} / ${fmtHM(ss.startTs)}〜${fmtHM(ss.endTs)} / 学習${totMin}分 / 解答${ss.answered}問${outcomeTxt}${splitTxt}">
+          ${showLabel?`<div class="taipa-block-sub">${escapeHtml(shortSubject(ss.subject))}<span class="taipa-mini-badge act">${ss.answered}問</span>${outcomeBadge}</div>
+          <div class="taipa-block-frame">${escapeHtml(_taipaFrameFull(ss.subject,ss.frameRef))}</div>`:''}
+        </div>`;
+      }
+    }
   }
 
   return `<div class="taipa-tt" style="--taipa-h:${gridH}px">
@@ -16966,24 +17119,26 @@ function _taipaFrameFull(subject, frameRef){
 // タイパ集計サマリー(総合計・科目別・タイパ評価)
 function renderTaipaSummary(dateKey, sessions){
   // 総合計
-  let totalMs=0, activeMs=0, totalAns=0, totalCorrect=0;
-  // 科目別: subject -> {totalMs, activeMs, ans, correct, frames:Set}
+  let totalMs=0, activeMs=0, pauseMs=0, totalAns=0, totalCorrect=0;
+  // 科目別: subject -> {totalMs, activeMs, pauseMs, ans, correct, frames:Set}
   const bySubject = {};
-  // フレーム別: "subject|frameRef" -> {subject, frameRef, totalMs, activeMs, ans, correct}
+  // フレーム別: "subject|frameRef" -> {subject, frameRef, totalMs, activeMs, pauseMs, ans, correct, ...}
   const byFrame = {};
   for(const s of sessions){
-    const tMs = sessionTotalMs(s), aMs = sessionActiveMs(s);
-    totalMs += tMs; activeMs += aMs; totalAns += s.answered; totalCorrect += s.correct;
+    const tMs = sessionTotalMs(s), aMs = sessionActiveMs(s), bMs = sessionPauseMs(s);
+    totalMs += tMs; activeMs += aMs; pauseMs += bMs; totalAns += s.answered; totalCorrect += s.correct;
     const subj = s.subject;
-    bySubject[subj] ||= {totalMs:0, activeMs:0, ans:0, correct:0, frames:new Set()};
-    bySubject[subj].totalMs += tMs; bySubject[subj].activeMs += aMs;
+    bySubject[subj] ||= {totalMs:0, activeMs:0, pauseMs:0, ans:0, correct:0, frames:new Set()};
+    bySubject[subj].totalMs += tMs; bySubject[subj].activeMs += aMs; bySubject[subj].pauseMs += bMs;
     bySubject[subj].ans += s.answered; bySubject[subj].correct += s.correct;
     bySubject[subj].frames.add(String(s.frameRef));
     const fk = s.subject+'|'+s.frameRef;
-    byFrame[fk] ||= {subject:s.subject, frameRef:s.frameRef, totalMs:0, activeMs:0, ans:0, correct:0, anyDone:false, partialCnt:0, sessCnt:0};
-    byFrame[fk].totalMs += tMs; byFrame[fk].activeMs += aMs;
+    byFrame[fk] ||= {subject:s.subject, frameRef:s.frameRef, totalMs:0, activeMs:0, pauseMs:0, ans:0, correct:0, anyDone:false, partialCnt:0, sessCnt:0, sessIds:[], hasLongGap:false};
+    byFrame[fk].totalMs += tMs; byFrame[fk].activeMs += aMs; byFrame[fk].pauseMs += bMs;
     byFrame[fk].ans += s.answered; byFrame[fk].correct += s.correct;
     byFrame[fk].sessCnt++;
+    byFrame[fk].sessIds.push(s.id);
+    if(sessionLongGaps(s).length>0) byFrame[fk].hasLongGap = true;
     if(s.outcome==='partial') byFrame[fk].partialCnt++; else byFrame[fk].anyDone = true; // 旧データ(outcome無し)は完了扱い
   }
 
@@ -17001,7 +17156,7 @@ function renderTaipaSummary(dateKey, sessions){
     <div class="taipa-sumcard">
       <span class="label">トータル学習時間</span>
       <span class="value">${fmtDurationMs(totalMs)}</span>
-      <span class="sub">うち通常演習(A) ${fmtDurationMs(activeMs)}</span>
+      <span class="sub">解答時間(A) ${fmtDurationMs(activeMs)}　＋　中断(B) ${fmtDurationMs(pauseMs)}</span>
     </div>
     <div class="taipa-sumcard">
       <span class="label">トータル解答数 / 正答数</span>
@@ -17011,7 +17166,7 @@ function renderTaipaSummary(dateKey, sessions){
     <div class="taipa-sumcard accent">
       <span class="label">タイパ(A基準・1問あたり)</span>
       <span class="value">${fmtPerQ(perQ(activeMs, totalAns))}</span>
-      <span class="sub">通常演習時間 ÷ 解答数</span>
+      <span class="sub">解答時間(A) ÷ 解答数</span>
     </div>
   </div>`;
 
@@ -17022,13 +17177,14 @@ function renderTaipaSummary(dateKey, sessions){
   });
   html += `<div class="taipa-tbl-title">科目別</div>
     <div class="taipa-tbl-wrap"><table class="taipa-tbl">
-    <thead><tr><th>科目</th><th>学習時間</th><th>解答/正答</th><th>正答率</th><th>タイパ(A)</th></tr></thead><tbody>`;
+    <thead><tr><th>科目</th><th>学習時間</th><th>解答時間</th><th>解答/正答</th><th>正答率</th><th>タイパ(A)</th></tr></thead><tbody>`;
   for(const subj of subjKeys){
     const d = bySubject[subj];
     const col = statsSubjectColor(subj);
     html += `<tr>
       <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(subj)}</td>
       <td>${fmtDurationMs(d.totalMs)}</td>
+      <td class="taipa-col-answ">${fmtDurationMs(d.activeMs)}</td>
       <td>${d.ans} / ${d.correct}</td>
       <td>${pct(d.correct,d.ans)}</td>
       <td>${fmtPerQ(perQ(d.activeMs,d.ans))}</td>
@@ -17046,7 +17202,7 @@ function renderTaipaSummary(dateKey, sessions){
   });
   html += `<div class="taipa-tbl-title">フレーム別</div>
     <div class="taipa-tbl-wrap"><table class="taipa-tbl">
-    <thead><tr><th>科目 / フレーム</th><th>状態</th><th>学習時間</th><th>解答/正答</th><th>正答率</th><th>タイパ(A)</th></tr></thead><tbody>`;
+    <thead><tr><th>科目 / フレーム</th><th>状態</th><th>学習時間</th><th>解答時間</th><th>解答/正答</th><th>正答率</th><th>タイパ(A)</th><th></th></tr></thead><tbody>`;
   for(const fk of frameKeys){
     const d = byFrame[fk];
     const col = statsSubjectColor(d.subject);
@@ -17055,18 +17211,166 @@ function renderTaipaSummary(dateKey, sessions){
       ? `<span class="taipa-state-badge done">完了</span>`
       : `<span class="taipa-state-badge partial">途中</span>`;
     const cntNote = d.sessCnt>1 ? `<span class="taipa-state-cnt">${d.sessCnt}回</span>` : '';
+    // 改修V02_04_01: 長時間の中断/休憩が含まれるフレームには補正を促す警告マーク
+    const warnMark = d.hasLongGap ? `<span class="taipa-warn-mark" title="長時間の中断/休憩が含まれています。学習時間が実態より長い可能性があります。「補正」で調整できます。">⚠</span>` : '';
+    // 補正ボタン(このフレームの該当セッション群を開く)
+    const fixBtn = `<button class="taipa-fix-btn${d.hasLongGap?' need':''}" data-taipafix="${escapeHtml(fk)}" data-taipafix-date="${escapeHtml(dateKey)}" title="このフレームの学習時間を補正する">✏️補正</button>`;
     html += `<tr>
       <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(shortSubject(d.subject))} ${escapeHtml(frameOrSubFrameLabel(d.subject,d.frameRef))}</td>
       <td>${stateBadge}${cntNote}</td>
-      <td>${fmtDurationMs(d.totalMs)}</td>
+      <td>${warnMark}${fmtDurationMs(d.totalMs)}</td>
+      <td class="taipa-col-answ">${fmtDurationMs(d.activeMs)}</td>
       <td>${d.ans} / ${d.correct}</td>
       <td>${pct(d.correct,d.ans)}</td>
       <td>${fmtPerQ(perQ(d.activeMs,d.ans))}</td>
+      <td>${fixBtn}</td>
     </tr>`;
   }
   html += `</tbody></table></div>`;
+  html += `<div class="taipa-tbl-note">「学習時間」=解答時間(A)+中断/ロックオン時間(B)。「解答時間」=実際に問題を解いていた時間(A)。<br>⚠ が付くフレームは長時間の中断/休憩が含まれています。<b>✏️補正</b>で実態に合わせて調整できます。</div>`;
   html += `</div>`;
   return html;
+}
+
+/* ============================================================
+   改修V02_04_01: タイパ 学習時間の補正
+   フレーム別の「✏️補正」から、そのフレーム・その日の各計測セッションについて、
+   中断(B)・休憩(R)区間の時間を実態に合わせて補正できる。
+   - 補正は seg.capMs に「実際の所要ミリ秒」を保存する(元の start/end は保持)。
+   - 「補正を解除」で capMs を消し、実測値に戻せる。
+   - 長時間ギャップ(30分超)は初期値として推奨上限を提示する。
+   ============================================================ */
+let _taipaFixCtx = null; // {fk, dateKey, sessions:[{id, segIndexes...}]}
+
+function openTaipaFixModal(fk, dateKey){
+  const parts = fk.split('|');
+  const subject = parts[0];
+  const frameRef = parts.slice(1).join('|');
+  // 対象セッション(その日・そのフレーム)
+  const sessions = getSessionsForDate(dateKey).filter(s=> s.subject===subject && String(s.frameRef)===String(frameRef));
+  if(!sessions.length){ alert('補正対象の計測が見つかりませんでした。'); return; }
+  _taipaFixCtx = {fk, dateKey, subject, frameRef};
+  const desc = document.getElementById('taipa-fix-desc');
+  if(desc){
+    desc.innerHTML = `<b>${escapeHtml(shortSubject(subject))} ${escapeHtml(frameOrSubFrameLabel(subject, frameRef))}</b>(${escapeHtml(planDateLabel(dateKey))})<br>
+      各「中断」「休憩」の時間を実際に合わせて補正できます。長時間放置してしまった区間は、ここで実際の分数に直してください。<br>
+      <span style="color:var(--ink-muted)">※「解答」区間は実測のまま保持されます。補正しても解答数・正答数は変わりません。</span>`;
+  }
+  _renderTaipaFixBody();
+  const m = document.getElementById('taipa-fix-modal');
+  if(m) m.style.display = 'block';
+}
+function closeTaipaFixModal(){
+  const m = document.getElementById('taipa-fix-modal');
+  if(m) m.style.display = 'none';
+  _taipaFixCtx = null;
+}
+function _fmtGapInput(ms){
+  // ミリ秒 → 分(小数1位まで、ただし整数なら整数)
+  const min = ms/60000;
+  return (Math.round(min*10)/10).toString();
+}
+function _renderTaipaFixBody(){
+  const body = document.getElementById('taipa-fix-body');
+  if(!body || !_taipaFixCtx) return;
+  const {dateKey, subject, frameRef} = _taipaFixCtx;
+  const sessions = getSessionsForDate(dateKey).filter(s=> s.subject===subject && String(s.frameRef)===String(frameRef));
+  let html = '';
+  for(const sess of sessions){
+    const segs = Array.isArray(sess.segments) ? sess.segments : [];
+    const tot = sessionTotalMs(sess), act = sessionActiveMs(sess), pau = sessionPauseMs(sess), rest = sessionRestMs(sess);
+    html += `<div class="taipa-fix-sess" data-fix-sess="${escapeHtml(sess.id)}">
+      <div class="taipa-fix-sess-head">
+        <span class="taipa-fix-sess-time">${fmtHM(sess.startTs)}〜${fmtHM(sess.endTs)}</span>
+        <span class="taipa-fix-sess-sum">学習 ${fmtDurationMs(tot)}(解答${fmtDurationMs(act)}＋中断${fmtDurationMs(pau)})／休憩${fmtDurationMs(rest)}／解答${sess.answered}問</span>
+      </div>`;
+    let hasEditable = false;
+    for(let i=0;i<segs.length;i++){
+      const sg = segs[i];
+      if(sg.mode==='A') continue; // 解答区間は補正対象外
+      if(sg.end==null) continue;
+      hasEditable = true;
+      const rawMs = (sg.end>sg.start)?(sg.end-sg.start):0;
+      const isLong = rawMs > LONG_GAP_MS;
+      const curMs = (sg.capMs!=null) ? sg.capMs : rawMs;
+      const label = sg.mode==='B' ? '中断(ロックオン)' : '休憩';
+      const capped = (sg.capMs!=null);
+      html += `<div class="taipa-fix-seg ${isLong?'is-long':''}" data-seg-index="${i}">
+        <div class="taipa-fix-seg-info">
+          <span class="taipa-fix-seg-badge ${sg.mode==='B'?'b':'r'}">${label}</span>
+          <span class="taipa-fix-seg-time">${fmtHM(sg.start)}〜${fmtHM(sg.end)}</span>
+          <span class="taipa-fix-seg-raw">実測 ${fmtDurationMs(rawMs)}${isLong?' <span class=\"taipa-fix-long\">⚠長時間</span>':''}</span>
+        </div>
+        <div class="taipa-fix-seg-edit">
+          <label>実際の時間：<input type="number" class="taipa-fix-input" min="0" step="1" value="${_fmtGapInput(curMs)}" data-seg-index="${i}"> 分</label>
+          ${capped?`<button class="taipa-fix-reset" data-seg-index="${i}">補正解除</button>`:''}
+          ${isLong&&!capped?`<button class="taipa-fix-suggest" data-seg-index="${i}" data-suggest="5">5分に</button><button class="taipa-fix-suggest" data-seg-index="${i}" data-suggest="0">0分に</button>`:''}
+        </div>
+      </div>`;
+    }
+    if(!hasEditable){
+      html += `<div class="taipa-fix-none">このセッションには補正できる中断・休憩がありません。</div>`;
+    }
+    html += `</div>`;
+  }
+  body.innerHTML = html;
+  // 入力欄・ボタンの配線
+  body.querySelectorAll('.taipa-fix-suggest').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const sessEl = btn.closest('[data-fix-sess]');
+      const idx = btn.dataset.segIndex;
+      const inp = sessEl.querySelector(`.taipa-fix-input[data-seg-index="${idx}"]`);
+      if(inp) inp.value = btn.dataset.suggest;
+    });
+  });
+  body.querySelectorAll('.taipa-fix-reset').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const sessEl = btn.closest('[data-fix-sess]');
+      const sessId = sessEl.dataset.fixSess;
+      const idx = parseInt(btn.dataset.segIndex,10);
+      const sess = (state.studySessions||[]).find(x=>x.id===sessId);
+      if(sess && sess.segments && sess.segments[idx]){
+        delete sess.segments[idx].capMs;
+        saveState();
+        _renderTaipaFixBody();
+      }
+    });
+  });
+}
+function saveTaipaFix(){
+  if(!_taipaFixCtx){ closeTaipaFixModal(); return; }
+  const body = document.getElementById('taipa-fix-body');
+  if(!body){ closeTaipaFixModal(); return; }
+  body.querySelectorAll('[data-fix-sess]').forEach(sessEl=>{
+    const sessId = sessEl.dataset.fixSess;
+    const sess = (state.studySessions||[]).find(x=>x.id===sessId);
+    if(!sess || !Array.isArray(sess.segments)) return;
+    sessEl.querySelectorAll('.taipa-fix-input').forEach(inp=>{
+      const idx = parseInt(inp.dataset.segIndex,10);
+      const sg = sess.segments[idx];
+      if(!sg || sg.end==null) return;
+      const rawMs = (sg.end>sg.start)?(sg.end-sg.start):0;
+      const v = parseFloat(inp.value);
+      if(isNaN(v) || v<0) return;
+      const newMs = Math.round(v*60000);
+      // 実測とほぼ同じ(±30秒)なら補正解除(capMsを消す)、それ以外は capMs を設定
+      if(Math.abs(newMs - rawMs) <= 30000){
+        delete sg.capMs;
+      }else{
+        sg.capMs = Math.min(newMs, rawMs); // 実測より長くは設定しない(伸ばす補正は不可)
+      }
+    });
+    // 改修V02_04_01: 補正で実効区間が変わるため、解答数・正答数も再集計する
+    //   (中断を短縮すると、その放置中に紛れ込んだ誤計上が除外される)
+    try{
+      const st = sessionAnswerStats(sess);
+      sess.answered = st.answered;
+      sess.correct = st.correct;
+    }catch(_){}
+  });
+  saveState();
+  closeTaipaFixModal();
+  renderStats(); // タイパ・学習時間・タイムテーブルすべてに反映
 }
 
 // タイパビューの配線(日付ナビ)
@@ -17079,6 +17383,10 @@ function _wireTaipaView(root){
   const pv = root.querySelector('#taipa-prev'); if(pv) pv.addEventListener('click', ()=>{ const d=_gParseKey(cur)||_gTodayDate(); setDate(_gDateKey(_gAddDays(d,-1))); });
   const nx = root.querySelector('#taipa-next'); if(nx) nx.addEventListener('click', ()=>{ const d=_gParseKey(cur)||_gTodayDate(); setDate(_gDateKey(_gAddDays(d,1))); });
   const pk = root.querySelector('#taipa-datepick'); if(pk) pk.addEventListener('change', ()=>{ if(pk.value) setDate(pk.value); });
+  // 改修V02_04_01: フレーム別「✏️補正」ボタン
+  root.querySelectorAll('[data-taipafix]').forEach(btn=>{
+    btn.addEventListener('click', ()=> openTaipaFixModal(btn.dataset.taipafix, btn.dataset.taipafixDate));
+  });
   // 改修05: 予定ハコのドラッグ移動・長さ変更
   _wireTaipaDrag(root);
 }
@@ -17256,7 +17564,7 @@ function renderStudyTimeView(){
   const rangeLbl = range==='7d' ? '直近7日' : (range==='30d' ? '直近30日' : '全期間');
   let html = `<div class="card stats-intro">
     <h2 class="stats-h2">📈 学習時間 <span class="stats-sub">日別トータル学習時間</span></h2>
-    <p class="stats-desc">計測した学習セッションの<strong>トータル学習時間</strong>(中断=ロックオン時間も含む)を日別に集計した棒グラフです。濃い部分が通常演習(Aモード)の時間です。</p>
+    <p class="stats-desc">計測した学習セッションの<strong>トータル学習時間</strong>(解答A+中断/ロックオンB。休憩Rは除く)を日別に集計した棒グラフです。濃い部分が解答時間(Aモード)です。<br><span style="color:var(--ink-muted)">※「タイパ」タブの<b>✏️補正</b>で中断時間を直すと、この集計にも反映されます。</span></p>
   </div>`;
   html += `<div class="stats-controls">
     <span style="flex:1"></span>
@@ -17655,6 +17963,17 @@ async function init(){  // 改修V2_02: IndexedDB 読み込みを await する�
   document.getElementById('art-picker-cancel').addEventListener('click', closeArticlePicker);
   document.querySelector('#art-picker-modal .fig-modal-overlay').addEventListener('click', closeArticlePicker);
   document.getElementById('art-picker-done').addEventListener('click', applyArticlePicker);
+  // 改修V02_04_01: タイパ補正モーダル
+  try{
+    const tfClose = document.getElementById('taipa-fix-close');
+    if(tfClose) tfClose.addEventListener('click', closeTaipaFixModal);
+    const tfCancel = document.getElementById('taipa-fix-cancel');
+    if(tfCancel) tfCancel.addEventListener('click', closeTaipaFixModal);
+    const tfOverlay = document.querySelector('#taipa-fix-modal .fig-modal-overlay');
+    if(tfOverlay) tfOverlay.addEventListener('click', closeTaipaFixModal);
+    const tfSave = document.getElementById('taipa-fix-save');
+    if(tfSave) tfSave.addEventListener('click', saveTaipaFix);
+  }catch(e){ console.error('[V02_04] taipa-fix init error', e); }
   // 編集モーダル内の「条文・解説を選択」ボタン
   document.getElementById('m-art-link-btn').addEventListener('click', ()=>{
     // editingId があれば既存問題、無ければ新規問題(__draft__)
