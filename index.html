@@ -5986,6 +5986,8 @@ function renderQuiz(){
   });
 
   renderSidebar();
+  // 改修73: ナビ由来の遷移ロック中なら、描画完了後にクリック受付を再開する
+  _releaseNavLockAfterRender();
 }
 
 /* 改修02: 追記メモ欄(表示モード/編集モード)を生成。renderResult から呼ばれる。 */
@@ -6088,6 +6090,8 @@ function renderResult(q,correct){
 }
 
 function answerQuestion(userAns){
+  // 改修73: 画面遷移直後のロック中は解answ を受け付けない(連打が次問の誤答に化けるのを防ぐ)
+  if(_navLock) return;
   const q = currentQuestion();
   if(!q || state.session.answered) return;
   const correct = userAns===q.answer;
@@ -6125,8 +6129,10 @@ function answerQuestion(userAns){
 }
 
 function nav(dir){
+  if(_navLock) return;        // 改修73: 連打による多重遷移を防ぐ
   const pool = getPool();
   if(!pool.length) return;
+  _lockNav();                 // 改修73: 遷移開始。ごく短時間クリックを無効化
   state.session.currentIndex = (state.session.currentIndex + dir + pool.length) % pool.length;
   state.session.answered = false;
   state.session.userAnswer = null;
@@ -6136,11 +6142,13 @@ function nav(dir){
 
 /* 指定インデックスへ直接ジャンプ(「最初へ」「最後へ」用) */
 function navTo(idx){
+  if(_navLock) return;        // 改修73
   const pool = getPool();
   if(!pool.length) return;
   // 範囲外を安全にクランプ
   if(idx < 0) idx = 0;
   if(idx > pool.length - 1) idx = pool.length - 1;
+  _lockNav();                 // 改修73
   state.session.currentIndex = idx;
   state.session.answered = false;
   state.session.userAnswer = null;
@@ -6152,12 +6160,14 @@ function navTo(idx){
 
 /* 相対ジャンプ(±N問) — 改修1 */
 function navJump(delta){
+  if(_navLock) return;        // 改修73
   const pool = getPool();
   if(!pool.length) return;
   let target = state.session.currentIndex + delta;
   if(target < 0) target = 0;
   if(target > pool.length - 1) target = pool.length - 1;
   if(target === state.session.currentIndex) return;
+  _lockNav();                 // 改修73
   state.session.currentIndex = target;
   state.session.answered = false;
   state.session.userAnswer = null;
@@ -6794,6 +6804,25 @@ function checkFrameComplete(){
   }
 }
 let _inCheckFrameComplete = false;
+
+/* ===== 改修73: 画面遷移ロック(連打による誤答・取りこぼし防止) =====
+   低スペックPCでは renderQuiz の描画に時間がかかり、「次へ」を押してから次の問題が
+   表示されるまでにラグがある。その間に連打すると、(1)描画前の古い/新しいカードに
+   クリックが当たって誤答が記録される、(2)ナビが多重発火して問題を飛ばす、等が起きる。
+   そこで「次へ/前へ/解答」の直後ごく短時間(NAV_LOCK_MS)はクリックを無視するロックを設ける。 */
+let _navLock = false;
+const NAV_LOCK_MS = 400;
+function _lockNav(){
+  _navLock = true;
+  // 保険: 描画が来ない/極端に遅い場合でも、一定時間で必ず解除する
+  setTimeout(()=>{ _navLock = false; }, NAV_LOCK_MS);
+}
+// renderQuiz の描画完了時に呼ぶ。遷移ロック中なら、描画が終わった次の描画フレームで解除する。
+// (DOM が確定し、クリックが安全に新カードへ当たるようになってから受付を再開する)
+function _releaseNavLockAfterRender(){
+  if(!_navLock) return;
+  requestAnimationFrame(()=>{ requestAnimationFrame(()=>{ _navLock = false; }); });
+}
 function _checkFrameCompleteImpl(){
   if(!state.session.frameMode) return;
   const fm = state.session.frameMode;
@@ -17268,7 +17297,29 @@ function _wireTaipaDragGrid(root, grid){
     }
   };
 
-  // 各予定ブロックに配線
+  // 改修73: ドラッグ中の pointermove/up は document に付け替える。
+  //   従来は各ブロックに pointermove を配線していたため、低スペックPCでポインタが
+  //   ブロック外に出たり処理が詰まると追従できず「固まる」症状が出ていた。
+  //   ドラッグ開始時に document へ登録し、終了時に必ず外す方式に変更(取りこぼし防止)。
+  let _docMoveHandler = null, _docUpHandler = null;
+  const _attachDocDragHandlers = ()=>{
+    _detachDocDragHandlers();
+    _docMoveHandler = (e)=>onMove(e);
+    _docUpHandler = (e)=>{ onUp(e); _detachDocDragHandlers(); };
+    document.addEventListener('pointermove', _docMoveHandler, {passive:false});
+    document.addEventListener('pointerup', _docUpHandler);
+    document.addEventListener('pointercancel', _docUpHandler);
+  };
+  function _detachDocDragHandlers(){
+    if(_docMoveHandler){ document.removeEventListener('pointermove', _docMoveHandler, {passive:false}); _docMoveHandler=null; }
+    if(_docUpHandler){
+      document.removeEventListener('pointerup', _docUpHandler);
+      document.removeEventListener('pointercancel', _docUpHandler);
+      _docUpHandler=null;
+    }
+  }
+
+  // 各予定ブロックに配線(down のみ。move/up はドラッグ中だけ document に付ける)
   grid.querySelectorAll('.taipa-block.plan').forEach(block=>{
     const top = block.querySelector('.taipa-resize.top');
     const bottom = block.querySelector('.taipa-resize.bottom');
@@ -17276,12 +17327,10 @@ function _wireTaipaDragGrid(root, grid){
       // ハンドル上は除外(下で個別配線)
       if(e.target.classList.contains('taipa-resize')) return;
       onDown(e, block, 'move');
+      _attachDocDragHandlers();
     });
-    if(top) top.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); onDown(e, block, 'top'); });
-    if(bottom) bottom.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); onDown(e, block, 'bottom'); });
-    block.addEventListener('pointermove', onMove);
-    block.addEventListener('pointerup', onUp);
-    block.addEventListener('pointercancel', onUp);
+    if(top) top.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); onDown(e, block, 'top'); _attachDocDragHandlers(); });
+    if(bottom) bottom.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); onDown(e, block, 'bottom'); _attachDocDragHandlers(); });
   });
 }
 
