@@ -3380,7 +3380,7 @@
 
       <!-- 改修: ストレージ診断機能 -->
       <div class="section-h" style="margin-top:24px">ストレージ診断</div>
-      <p class="section-body dim">「保存に失敗しました」などのエラーが出るとき、または容量が気になるときに使ってください。<br>iPhone Safari の localStorage は約 5MB 制限です(図表画像は IndexedDB に分離保存されるためこの制限の対象外)。</p>
+      <p class="section-body dim">「保存に失敗しました」などのエラーが出るとき、または容量が気になるときに使ってください。<br>iPhone Safari の localStorage は約 5MB 制限です(図表画像と条文・解説は IndexedDB に分離保存されるためこの制限の対象外)。</p>
       <div style="display:flex;gap:8px;margin-top:12px">
         <button class="btn ghost" id="btn-storage-diag">ストレージ状況を確認</button>
       </div>
@@ -3406,7 +3406,7 @@
       </div>
 
       <div class="section-h" style="margin-top:24px">注意事項</div>
-      <p class="section-body dim">データはブラウザの localStorage と IndexedDB (図表画像のみ) に保存されます。ブラウザのキャッシュ削除でデータが消える可能性があるため、定期的なバックアップを推奨します。</p>
+      <p class="section-body dim">データはブラウザの localStorage と IndexedDB (図表画像・条文解説) に保存されます。ブラウザのキャッシュ削除でデータが消える可能性があるため、定期的なバックアップを推奨します。</p>
     </div>
   </main>
 
@@ -4746,10 +4746,13 @@ const SAMPLE_SELECT_QUESTIONS = [
    画像本体(dataURL)だけを IndexedDB に保存する。
    メタ情報(id/title/frameNo 等)は従来通り localStorage(state.figures)に残す。 */
 const FIG_DB_NAME = 'sharoushi_figures_db';
-const FIG_DB_VERSION = 1;
+// 改修V2_01: DBバージョンを 2 へ。条文・解説など「テキスト系の大容量セクション」を
+// 保存する extSections ストアを追加(既存の figureImages ストアはそのまま維持される)。
+const FIG_DB_VERSION = 2;
 const FIG_STORE_NAME = 'figureImages';
+const EXT_STORE_NAME = 'extSections';
 
-const figureStore = (function(){
+const _idbShared = (function(){
   let _dbPromise = null;
   let _failed = false;
   function openDB(){
@@ -4768,6 +4771,10 @@ const figureStore = (function(){
         if(!db.objectStoreNames.contains(FIG_STORE_NAME)){
           db.createObjectStore(FIG_STORE_NAME, {keyPath:'id'});
         }
+        // 改修V2_01: 条文・解説等を保存する汎用キーバリューストア
+        if(!db.objectStoreNames.contains(EXT_STORE_NAME)){
+          db.createObjectStore(EXT_STORE_NAME, {keyPath:'key'});
+        }
       };
       req.onsuccess = function(){ resolve(req.result) };
       req.onerror = function(){ _failed = true; reject(req.error) };
@@ -4775,13 +4782,18 @@ const figureStore = (function(){
     });
     return _dbPromise;
   }
+  return {openDB: openDB, isFailed: function(){ return _failed }};
+})();
+
+const figureStore = (function(){
+  const openDB = _idbShared.openDB;
   function tx(mode){
     return openDB().then(function(db){
       return db.transaction(FIG_STORE_NAME, mode).objectStore(FIG_STORE_NAME);
     });
   }
   return {
-    isFailed: function(){ return _failed },
+    isFailed: function(){ return _idbShared.isFailed() },
     ready: function(){ return openDB().then(function(){return true}).catch(function(){return false}) },
     get: function(id){
       return tx('readonly').then(function(store){
@@ -4840,6 +4852,50 @@ const figureStore = (function(){
           t.oncomplete = function(){ resolve() };
           t.onerror = function(){ reject(t.error) };
           t.onabort = function(){ reject(t.error || new Error('tx aborted')) };
+        });
+      });
+    }
+  };
+})();
+
+/* 改修V2_01: 条文・解説など「テキスト系の大容量セクション」用の汎用キーバリューストア。
+   1セクション = 1レコード({key, json})として JSON 文字列で丸ごと保存する。
+   figureStore と同じ DB(sharoushi_figures_db)内の別ストア(extSections)を使う。 */
+const extStore = (function(){
+  const openDB = _idbShared.openDB;
+  function tx(mode){
+    return openDB().then(function(db){
+      return db.transaction(EXT_STORE_NAME, mode).objectStore(EXT_STORE_NAME);
+    });
+  }
+  return {
+    ready: function(){ return openDB().then(function(){return true}).catch(function(){return false}) },
+    // 取得: JSON 文字列を返す(未保存なら null)
+    get: function(key){
+      return tx('readonly').then(function(store){
+        return new Promise(function(resolve, reject){
+          const r = store.get(key);
+          r.onsuccess = function(){ resolve(r.result ? r.result.json : null) };
+          r.onerror = function(){ reject(r.error) };
+        });
+      });
+    },
+    // 保存: JSON 文字列を丸ごと上書き
+    put: function(key, json){
+      return tx('readwrite').then(function(store){
+        return new Promise(function(resolve, reject){
+          const r = store.put({key:key, json:json});
+          r.onsuccess = function(){ resolve() };
+          r.onerror = function(){ reject(r.error) };
+        });
+      });
+    },
+    delete: function(key){
+      return tx('readwrite').then(function(store){
+        return new Promise(function(resolve, reject){
+          const r = store.delete(key);
+          r.onsuccess = function(){ resolve() };
+          r.onerror = function(){ reject(r.error) };
         });
       });
     }
@@ -4908,6 +4964,72 @@ async function initFigureStorage(){
   return true;
 }
 
+/* ===== 改修V2_01: 条文・解説(state.articles)の IndexedDB 分離 =====
+   iOS Safari の localStorage 5MB 制限対策の第2弾。
+   条文・解説は state.articles としてメモリ上には従来通り常駐させる(描画・編集・
+   バックアップ等の既存コードは無変更で動く)が、永続化先を localStorage から
+   IndexedDB(extSections ストア)へ切り替える。
+
+   起動時の同期ルール:
+   - localStorage 側に articles が残っている(旧形式 or IDB不可フォールバック中)
+     → localStorage 側を「正」とみなし、IndexedDB へ書き込んだうえで
+       localStorage からは除去する(自動マイグレーション)。
+   - localStorage 側に無い(=移行済) → IndexedDB から読み込んでメモリへ展開。
+   - IndexedDB が使えない環境 → フォールバック: 従来通り localStorage に含めて保存。 */
+async function initExternalStorage(){
+  const ok = await extStore.ready();
+  if(!ok){
+    console.warn('[改修V2_01] IndexedDB 利用不可のため、条文・解説は従来通り localStorage に保存します');
+    _extSectionFallbackLS = true;
+    return false;
+  }
+  let migrated = 0;
+  let loadedAny = false;
+  for(const key of EXT_SECTION_KEYS){
+    try{
+      if(_extLegacyInLS[key]){
+        // === localStorage → IndexedDB マイグレーション ===
+        const json = JSON.stringify(state[key] ?? {});
+        await extStore.put(key, json);
+        _extSectionLastJson[key] = json;
+        migrated++;
+        console.log('[改修V2_01] '+key+' を localStorage から IndexedDB へ移行しました ('+(json.length*2/1024).toFixed(0)+' KB)');
+      }else{
+        // === IndexedDB → メモリ展開 ===
+        const json = await extStore.get(key);
+        if(json != null){
+          state[key] = JSON.parse(json);
+          _extSectionLastJson[key] = json;
+          loadedAny = true;
+        }else{
+          // IDB にも未保存(=本当にデータ無し)。現状の空オブジェクトを基準値にする。
+          _extSectionLastJson[key] = JSON.stringify(state[key] ?? {});
+        }
+      }
+    }catch(e){
+      console.warn('[改修V2_01] '+key+' の IndexedDB 同期に失敗。localStorage 併用モードへ切替', e);
+      _extSectionFallbackLS = true;
+    }
+  }
+  if(migrated > 0 && !_extSectionFallbackLS){
+    // localStorage から該当セクションを除去して縮小を確定させる
+    try{ saveState() }catch(e){ console.warn('saveState after ext migration failed', e) }
+  }
+  if(loadedAny){
+    // 起動時の初回描画は条文ロード前に済んでいるため、関係画面を再描画する
+    try{ if(typeof renderQuiz==='function') renderQuiz() }catch(_){}
+    try{
+      const av = document.getElementById('view-articles');
+      if(av && av.style.display !== 'none' && typeof renderArticles==='function') renderArticles();
+    }catch(_){}
+    try{
+      const pv = document.getElementById('view-progress');
+      if(pv && pv.style.display !== 'none' && typeof renderProgress==='function') renderProgress();
+    }catch(_){}
+  }
+  return true;
+}
+
 /* ===== State & Storage ===== */
 const STORAGE_KEY = 'sharoushi_kakomon_v1';
 
@@ -4920,6 +5042,16 @@ const STORAGE_KEY = 'sharoushi_kakomon_v1';
 let _saveFrozen = false;
 let _loadHadRawData = false;
 let _lastGoodCounts = null;
+
+/* 改修V2_01: IndexedDB へ分離保存する state のトップレベルキー一覧。
+   将来 '5why(whys)' 等を分離したくなったら、この配列にキーを足すだけでよい。
+   ・_extLegacyInLS … 起動時、localStorage 側に該当セクションのデータが残っていたか。
+   ・_extSectionLastJson … 最後に IndexedDB と同期した JSON 文字列(差分検知用)。
+   ・_extSectionFallbackLS … IndexedDB が使えない時 true。従来通り localStorage に保存する。 */
+const EXT_SECTION_KEYS = ['articles'];
+const _extLegacyInLS = {};
+const _extSectionLastJson = {};
+let _extSectionFallbackLS = false;
 
 let state = loadState();
 
@@ -5211,6 +5343,12 @@ function loadState(){
       if(typeof s.statsView.taipaDate === 'undefined') s.statsView.taipaDate = null;
       // 条文・解説機能の追加 (後方互換)
       s.articles ||= {};
+      // 改修V2_01: localStorage 側に条文・解説の実データが残っているか記録する。
+      // 残っている = 旧形式(未移行) or IDB不可フォールバック中のデータ。
+      // この場合は localStorage 側を「正」とし、initExternalStorage() が IndexedDB へ移行する。
+      for(const extKey of EXT_SECTION_KEYS){
+        _extLegacyInLS[extKey] = !!(s[extKey] && typeof s[extKey]==='object' && Object.keys(s[extKey]).length > 0);
+      }
       s.articleView ||= {mode:'subjects', subject:null, frameNo:null, indexId:null};
       // 改修2: サブフレーム対応 — subFrameKey と subframes モード追加
       if(typeof s.articleView.subFrameKey === 'undefined') s.articleView.subFrameKey = null;
@@ -5406,6 +5544,46 @@ function loadState(){
     backupReminderSettings: {mode:'count', countN:30, times:['07:00','12:00','17:00']}
   };
 }
+/* 改修V2_01: localStorage 保存用に state を JSON 化する。
+   IndexedDB へ分離するセクション(EXT_SECTION_KEYS)はトップレベルから除外する。
+   IndexedDB が使えないフォールバック時は、従来通り全セクションを含めて返す。 */
+function _stringifyStateForLS(){
+  if(_extSectionFallbackLS) return JSON.stringify(state);
+  return JSON.stringify(state, function(k, v){
+    // replacer の this は「そのキーを保持しているオブジェクト」。
+    // state 直下のキーのときだけ除外判定する(下層に同名キーがあっても誤除外しない)。
+    if(this === state && EXT_SECTION_KEYS.includes(k)) return undefined;
+    return v;
+  });
+}
+
+/* 改修V2_01: 分離セクションを IndexedDB へ保存する。
+   前回同期時の JSON と比較し、変わっていない場合は書き込みを省略する
+   (saveState は画面操作のたびに呼ばれるため、無駄な大容量書き込みを避ける)。
+   書き込み失敗時は localStorage 併用モードへ切り替え、データ喪失を防ぐ。 */
+function _persistExternalSections(){
+  if(_extSectionFallbackLS) return Promise.resolve();
+  const jobs = [];
+  for(const key of EXT_SECTION_KEYS){
+    let json;
+    try{ json = JSON.stringify(state[key] ?? {}) }
+    catch(e){ console.warn('[改修V2_01] '+key+' の JSON 化に失敗', e); continue }
+    if(json === _extSectionLastJson[key]) continue; // 変更なし
+    jobs.push(
+      extStore.put(key, json)
+        .then(function(){ _extSectionLastJson[key] = json })
+        .catch(function(err){
+          console.warn('[改修V2_01] '+key+' の IndexedDB 保存に失敗。localStorage 併用モードへ切替', err);
+          _extSectionFallbackLS = true;
+          // データを失わないよう、全セクションを含めて localStorage に書き直す
+          try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) }
+          catch(e2){ console.error('[改修V2_01] フォールバック書き込みも失敗', e2) }
+        })
+    );
+  }
+  return Promise.all(jobs);
+}
+
 function saveState(){
   // 改修50: 保存凍結中は何も書き込まない。
   //   読込失敗の疑いがある状態(空/壊れた state)で保存すると、localStorage の
@@ -5452,16 +5630,19 @@ function saveState(){
       }
     }
   }
+  // 改修V2_01: 条文・解説を IndexedDB へ保存(内容に変更があった場合のみ・非同期)。
+  // localStorage への書き込みが万一失敗しても条文側の保存は試みるため、先に実行する。
+  try{ _persistExternalSections() }catch(e){ console.warn('[改修V2_01] persistExternalSections failed', e) }
   try{
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(STORAGE_KEY, _stringifyStateForLS());
     // 改修50: 書き込み成功時点の件数を「正常な基準値」として更新
     _lastGoodCounts = _snapshotCounts(state);
   }catch(e){
-    // ここに来るのは、画像以外のメタ情報だけで 5MB を超えた極端なケース。
-    // 画像本体はすでに IndexedDB / キャッシュ側に分離済みなので、再試行しても
-    // 解消しない。ユーザーには明示的に通知する。
+    // ここに来るのは、画像・条文以外のメタ情報だけで 5MB を超えた極端なケース。
+    // 画像本体は IndexedDB / キャッシュ側、条文・解説も IndexedDB 側に分離済みなので、
+    // 再試行しても解消しない。ユーザーには明示的に通知する。
     console.error('saveState failed', e);
-    alert('保存に失敗しました: '+e.message+'\n\n画像本体は IndexedDB に分離済みです。\nブラウザのキャッシュ削除前に「データ」タブから完全バックアップを取得してください。');
+    alert('保存に失敗しました: '+e.message+'\n\n画像本体と条文・解説は IndexedDB に分離済みです。\nブラウザのキャッシュ削除前に「データ」タブから完全バックアップを取得してください。');
   }
   // 改修46: state の変更ごとにバナーを更新(未バックアップ件数の自動反映)
   // updateBackupReminderBanner は DOM 未生成の起動初期にも呼ばれうるので try で防御
@@ -7280,7 +7461,7 @@ async function runStorageDiagnostic(){
       {label:'択一問題 (questions)',         key:'questions'},
       {label:'選択式問題 (selectQuestions)', key:'selectQuestions'},
       {label:'事例問題 (cases)',             key:'cases'},
-      {label:'条文・解説 (articles)',        key:'articles'},
+      {label:'条文・解説 (articles) ※IndexedDBへ分離', key:'articles'},
       {label:'5why (whys)',                  key:'whys'},
       {label:'解答履歴 (history)',           key:'history'},
       {label:'選択式履歴 (selectHistory)',   key:'selectHistory'},
@@ -7315,11 +7496,17 @@ async function runStorageDiagnostic(){
       }
     }
 
+    // === 改修V2_01: 条文・解説が localStorage に残存していないか ===
+    const lsArticlesLeak = !!(stateObj.articles && Object.keys(stateObj.articles).length > 0);
+    const lsArticlesBytes = lsArticlesLeak ? JSON.stringify(stateObj.articles).length * 2 : 0;
+
     // === IndexedDB の状況 ===
     let idbAvailable = false;
     let idbCount = 0;
     let idbBytes = 0;
     let idbErrMsg = '';
+    // 改修V2_01: IndexedDB 側の条文・解説サイズ(-1 = 取得失敗/未保存)
+    let idbArticlesBytes = -1;
     try{
       const ok = await figureStore.ready();
       if(ok){
@@ -7329,6 +7516,10 @@ async function runStorageDiagnostic(){
         for(const ent of all){
           idbBytes += (ent.dataURL || '').length * 2;
         }
+        try{
+          const artJson = await extStore.get('articles');
+          idbArticlesBytes = artJson ? artJson.length * 2 : 0;
+        }catch(_){ idbArticlesBytes = -1 }
       }else{
         idbErrMsg = 'IndexedDB が利用できない環境です';
       }
@@ -7379,6 +7570,16 @@ async function runStorageDiagnostic(){
       html += `</div>`;
     }
 
+    // 改修V2_01: 条文・解説の残存警告
+    if(lsArticlesLeak){
+      html += `<div style="background:#fff3cd;border:1px solid #ffc107;padding:14px;border-radius:6px;margin-top:10px">`;
+      html += `<div style="font-weight:600;color:#856404;margin-bottom:6px">⚠ localStorage に条文・解説が残存しています</div>`;
+      html += `<div style="font-size:12px;color:#856404;line-height:1.6">条文・解説データ (${fmt(lsArticlesBytes)}) が localStorage に残っています。<br>
+      通常はアプリの再読み込み(リロード)で自動的に IndexedDB へ移行されます。<br>
+      リロードしても残る場合は、お使いのブラウザで IndexedDB が利用できない可能性があります(従来方式で動作継続します)。</div>`;
+      html += `</div>`;
+    }
+
     // 内訳テーブル
     html += `<div style="background:var(--bg);border:1px solid var(--line);padding:14px;border-radius:6px;margin-top:10px">`;
     html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px">localStorage 内訳 (大きい順)</div>`;
@@ -7402,12 +7603,13 @@ async function runStorageDiagnostic(){
 
     // IndexedDB
     html += `<div style="background:var(--bg);border:1px solid var(--line);padding:14px;border-radius:6px;margin-top:10px">`;
-    html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px">IndexedDB (図表画像本体)</div>`;
+    html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px">IndexedDB (図表画像本体・条文解説)</div>`;
     if(idbAvailable){
       html += `<div style="font-size:13px;line-height:1.8">
         状態: <strong style="color:#27ae60">利用可</strong><br>
         画像枚数: <strong>${idbCount}</strong> 枚 (メタ情報側: ${metaCount}件)<br>
         画像合計サイズ: <strong>${fmt(idbBytes)}</strong><br>
+        条文・解説 (articles): <strong>${idbArticlesBytes >= 0 ? fmt(idbArticlesBytes) : '(未保存/取得不可)'}</strong><br>
         in-memory キャッシュ: ${cacheCount}枚 / ${fmt(cacheBytes)}
       </div>`;
       // 整合性チェック
@@ -7444,7 +7646,7 @@ async function runStorageDiagnostic(){
       html += `定期的なバックアップ取得を推奨します。`;
     }else{
       html += `✓ 使用率は ${pct.toFixed(0)}% で、十分余裕があります。<br>`;
-      html += `図表画像は IndexedDB に分離されているため、画像を増やしてもこの値はほとんど増えません。`;
+      html += `図表画像と条文・解説は IndexedDB に分離されているため、これらを増やしてもこの値はほとんど増えません。`;
     }
     html += `</div></div>`;
 
@@ -17587,6 +17789,9 @@ function init(){
   // IndexedDB を初期化し、既存 localStorage 画像を移行 + キャッシュを構築
   // (非同期。完了後に図表タブが開いていれば再描画される)
   initFigureStorage().catch(err=>console.warn('initFigureStorage failed', err));
+
+  // 改修V2_01: 条文・解説の IndexedDB 同期(localStorage からの自動移行 or IDB からのロード)
+  initExternalStorage().catch(err=>console.warn('initExternalStorage failed', err));
 
   // 改修57_05: 重複削除が行われた場合、起動後に一度だけ結果を通知する
   if(state && state._dedupNenkinF9Removed && state._dedupNenkinF9Removed > 0){
