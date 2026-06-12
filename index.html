@@ -3380,7 +3380,7 @@
 
       <!-- 改修: ストレージ診断機能 -->
       <div class="section-h" style="margin-top:24px">ストレージ診断</div>
-      <p class="section-body dim">「保存に失敗しました」などのエラーが出るとき、または容量が気になるときに使ってください。<br>iPhone Safari の localStorage は約 5MB 制限です(図表画像と条文・解説は IndexedDB に分離保存されるためこの制限の対象外)。</p>
+      <p class="section-body dim">「保存に失敗しました」などのエラーが出るとき、または容量が気になるときに使ってください。<br>iPhone Safari の localStorage は約 5MB 制限です(図表画像・問題・履歴・条文などの大容量データは IndexedDB に分離保存されるためこの制限の対象外)。</p>
       <div style="display:flex;gap:8px;margin-top:12px">
         <button class="btn ghost" id="btn-storage-diag">ストレージ状況を確認</button>
       </div>
@@ -3406,7 +3406,7 @@
       </div>
 
       <div class="section-h" style="margin-top:24px">注意事項</div>
-      <p class="section-body dim">データはブラウザの localStorage と IndexedDB (図表画像・条文解説) に保存されます。ブラウザのキャッシュ削除でデータが消える可能性があるため、定期的なバックアップを推奨します。</p>
+      <p class="section-body dim">データはブラウザの localStorage と IndexedDB (図表画像・問題・履歴・条文など) に保存されます。ブラウザのキャッシュ削除でデータが消える可能性があるため、定期的なバックアップを推奨します。</p>
     </div>
   </main>
 
@@ -4964,70 +4964,138 @@ async function initFigureStorage(){
   return true;
 }
 
-/* ===== 改修V2_01: 条文・解説(state.articles)の IndexedDB 分離 =====
-   iOS Safari の localStorage 5MB 制限対策の第2弾。
-   条文・解説は state.articles としてメモリ上には従来通り常駐させる(描画・編集・
-   バックアップ等の既存コードは無変更で動く)が、永続化先を localStorage から
-   IndexedDB(extSections ストア)へ切り替える。
+/* ===== 改修V2_01/V2_02: 大容量データの IndexedDB 分離 =====
+   iOS Safari の localStorage 5MB 制限対策。
+   EXT_SECTION_KEYS に列挙したセクション(問題・履歴・条文等)は、メモリ上には
+   従来通り state.xxx として常駐させる(描画・編集・バックアップ等の既存コードは
+   無変更で動く)が、永続化先を localStorage から IndexedDB(extSections)へ切り替える。
 
-   起動時の同期ルール:
-   - localStorage 側に articles が残っている(旧形式 or IDB不可フォールバック中)
-     → localStorage 側を「正」とみなし、IndexedDB へ書き込んだうえで
-       localStorage からは除去する(自動マイグレーション)。
+   起動時の同期ルール(セクションごとに判定):
+   - localStorage 側にデータが残っている(旧形式 or IDB不可フォールバック中)
+     → localStorage 側を「正」とみなし IndexedDB へ書き込み、localStorage からは
+       除去する(自動マイグレーション)。
    - localStorage 側に無い(=移行済) → IndexedDB から読み込んでメモリへ展開。
-   - IndexedDB が使えない環境 → フォールバック: 従来通り localStorage に含めて保存。 */
+   - IndexedDB 側にも無い → 現在のメモリ内容で IndexedDB を初期化。
+   - IndexedDB が使えない環境 → フォールバック: 従来通り localStorage に含めて保存。
+
+   データ消失防御(改修50の思想を踏襲):
+   - 過去に移行済(state._extMigrated)なのに IndexedDB へアクセスできない/全セクションが
+     空の場合は、実データが取り出せない異常事態とみなし、保存を凍結して空データによる
+     上書きを物理的に防ぐ(バックアップ復元で解除される)。 */
 async function initExternalStorage(){
+  const hasAnyLegacy = EXT_SECTION_KEYS.some(k => _extLegacyInLS[k]);
   const ok = await extStore.ready();
   if(!ok){
-    console.warn('[改修V2_01] IndexedDB 利用不可のため、条文・解説は従来通り localStorage に保存します');
+    if(state && state._extMigrated && !hasAnyLegacy){
+      // 移行済みデータが IndexedDB 内に取り残されているのにアクセスできない。
+      // ここで保存すると空データで localStorage を確定させてしまうため凍結する。
+      _saveFrozen = true;
+      _extSyncReady = true;
+      console.error('[改修V2_02] IndexedDB にアクセスできないため保存を凍結しました');
+      setTimeout(()=>{ try{ alert('⚠️ データベース(IndexedDB)にアクセスできません。\n\nプライベートブラウズの利用や、別タブでこのアプリを開いていないかを確認のうえ、アプリを再読み込みしてください。\n\n安全のため、データの自動保存を一時停止しています。'); }catch(_){ } }, 500);
+      return false;
+    }
+    console.warn('[改修V2_02] IndexedDB 利用不可のため、従来通り localStorage に保存します');
     _extSectionFallbackLS = true;
+    _extSyncReady = true;
+    _extApplyDeferredDefaults();
     return false;
   }
+
+  // === 全セクションの IndexedDB 値を先に取得する ===
+  const idbVals = {};
+  let readError = false;
+  for(const key of EXT_SECTION_KEYS){
+    try{ idbVals[key] = await extStore.get(key) }
+    catch(e){ readError = true; console.warn('[改修V2_02] '+key+' の読込に失敗', e) }
+  }
+  if(readError){
+    if(state && state._extMigrated && !hasAnyLegacy){
+      _saveFrozen = true;
+      _extSyncReady = true;
+      console.error('[改修V2_02] IndexedDB の読込エラーのため保存を凍結しました');
+      setTimeout(()=>{ try{ alert('⚠️ データベース(IndexedDB)の読み込みに失敗しました。\n\nアプリを再読み込みしてください。改善しない場合は完全バックアップからの復元をお試しください。\n\n安全のため、データの自動保存を一時停止しています。'); }catch(_){ } }, 500);
+      return false;
+    }
+    _extSectionFallbackLS = true;
+    _extSyncReady = true;
+    _extApplyDeferredDefaults();
+    return false;
+  }
+
+  // === 移行済みフラグが立っているのに IndexedDB が全セクション空 → データ喪失の疑い ===
+  const allNull = EXT_SECTION_KEYS.every(k => idbVals[k] == null);
+  if(allNull && state && state._extMigrated && !hasAnyLegacy){
+    _saveFrozen = true;
+    _extSyncReady = true;
+    _extApplyDeferredDefaults(); // 画面表示用にサンプルは出すが、保存は凍結済み
+    console.error('[改修V2_02] IndexedDB 内に移行済みデータが見つかりません。保存を凍結しました');
+    setTimeout(()=>{ try{ alert('⚠️ 保存されていたデータ(問題・履歴等)が見つかりません。\n\nブラウザのキャッシュ削除等により IndexedDB のデータが消去された可能性があります。\n\n「データ」タブから完全バックアップの復元を行ってください。\n(誤った上書きを防ぐため、復元まで自動保存を一時停止しています)'); }catch(_){ } }, 500);
+    return false;
+  }
+
+  // === セクションごとの同期 ===
   let migrated = 0;
-  let loadedAny = false;
   for(const key of EXT_SECTION_KEYS){
     try{
       if(_extLegacyInLS[key]){
-        // === localStorage → IndexedDB マイグレーション ===
-        const json = JSON.stringify(state[key] ?? {});
+        // localStorage → IndexedDB マイグレーション(localStorage 側が正)
+        const json = JSON.stringify(state[key] ?? null);
         await extStore.put(key, json);
         _extSectionLastJson[key] = json;
         migrated++;
-        console.log('[改修V2_01] '+key+' を localStorage から IndexedDB へ移行しました ('+(json.length*2/1024).toFixed(0)+' KB)');
+      }else if(idbVals[key] != null){
+        // IndexedDB → メモリ展開
+        state[key] = JSON.parse(idbVals[key]);
+        _extSectionLastJson[key] = idbVals[key];
       }else{
-        // === IndexedDB → メモリ展開 ===
-        const json = await extStore.get(key);
-        if(json != null){
-          state[key] = JSON.parse(json);
-          _extSectionLastJson[key] = json;
-          loadedAny = true;
-        }else{
-          // IDB にも未保存(=本当にデータ無し)。現状の空オブジェクトを基準値にする。
-          _extSectionLastJson[key] = JSON.stringify(state[key] ?? {});
-        }
+        // 双方に無い → 現在のメモリ内容(空配列/空オブジェクト等)で IndexedDB を初期化
+        const json = JSON.stringify(state[key] ?? null);
+        await extStore.put(key, json);
+        _extSectionLastJson[key] = json;
       }
     }catch(e){
-      console.warn('[改修V2_01] '+key+' の IndexedDB 同期に失敗。localStorage 併用モードへ切替', e);
+      console.warn('[改修V2_02] '+key+' の IndexedDB 同期に失敗。localStorage 併用モードへ切替', e);
       _extSectionFallbackLS = true;
     }
   }
-  if(migrated > 0 && !_extSectionFallbackLS){
-    // localStorage から該当セクションを除去して縮小を確定させる
-    try{ saveState() }catch(e){ console.warn('saveState after ext migration failed', e) }
+  if(migrated > 0){
+    console.log('[改修V2_02] '+migrated+' セクションを localStorage から IndexedDB へ移行しました');
   }
-  if(loadedAny){
-    // 起動時の初回描画は条文ロード前に済んでいるため、関係画面を再描画する
-    try{ if(typeof renderQuiz==='function') renderQuiz() }catch(_){}
-    try{
-      const av = document.getElementById('view-articles');
-      if(av && av.style.display !== 'none' && typeof renderArticles==='function') renderArticles();
-    }catch(_){}
-    try{
-      const pv = document.getElementById('view-progress');
-      if(pv && pv.style.display !== 'none' && typeof renderProgress==='function') renderProgress();
-    }catch(_){}
+
+  // === サンプルデータの注入(従来 loadState で行っていた処理。同期完了後に判断) ===
+  _extApplyDeferredDefaults();
+
+  // === 同期完了 ===
+  state._extMigrated = true;                 // 「IndexedDB 運用へ移行済み」の印(localStorage に保存される)
+  _lastGoodCounts = _snapshotCounts(state);  // 改修50: 実データ読込後の件数を保存ガードの基準にする
+  _extSyncReady = true;                      // 以後、saveState から IndexedDB への書き込みを許可
+  if(!_extSectionFallbackLS){
+    // localStorage から分離セクションを除去して縮小を確定させる(_extMigrated の保存も兼ねる)
+    try{ saveState() }catch(e){ console.warn('saveState after ext sync failed', e) }
   }
   return true;
+}
+
+/* 改修V2_02: loadState から先送りしたサンプルデータ注入。
+   IndexedDB との同期が済んでもなお空の場合のみ、初期サンプルを入れる。 */
+function _extApplyDeferredDefaults(){
+  try{
+    if(!Array.isArray(state.questions) || !state.questions.length){
+      state.questions = SAMPLE_QUESTIONS.slice();
+      for(const q of state.questions){
+        if(q.kind == null) q.kind = 'pastA';
+        if(!Array.isArray(q.linkedBlocks)) q.linkedBlocks = [];
+        if(!Array.isArray(q.linkedWhys)) q.linkedWhys = [];
+      }
+    }
+    if(!Array.isArray(state.selectQuestions) || !state.selectQuestions.length){
+      state.selectQuestions = SAMPLE_SELECT_QUESTIONS.slice();
+    }
+    if(!Array.isArray(state.cases) || !state.cases.length){
+      state.cases = SAMPLE_CASES.slice();
+    }
+  }catch(e){ console.warn('[改修V2_02] サンプル注入に失敗', e) }
 }
 
 /* ===== State & Storage ===== */
@@ -5044,14 +5112,32 @@ let _loadHadRawData = false;
 let _lastGoodCounts = null;
 
 /* 改修V2_01: IndexedDB へ分離保存する state のトップレベルキー一覧。
-   将来 '5why(whys)' 等を分離したくなったら、この配列にキーを足すだけでよい。
+   改修V2_02: 条文・解説に加え、増加し続ける大容量データ(問題・履歴等)を分離対象に拡大。
+   localStorage に残るのは ブックマーク/メモ/図表メタ/各種ビュー・セッション・設定 等の
+   小さなデータのみとなり、iPhone Safari の 5MB 制限に対して大きな余裕が生まれる。
    ・_extLegacyInLS … 起動時、localStorage 側に該当セクションのデータが残っていたか。
    ・_extSectionLastJson … 最後に IndexedDB と同期した JSON 文字列(差分検知用)。
-   ・_extSectionFallbackLS … IndexedDB が使えない時 true。従来通り localStorage に保存する。 */
-const EXT_SECTION_KEYS = ['articles'];
+   ・_extSectionFallbackLS … IndexedDB が使えない時 true。従来通り localStorage に保存する。
+   ・_extSyncReady … initExternalStorage() による初期同期が完了したか。完了前は
+     IndexedDB への書き込みを禁止する(未ロードの空データで実データを上書きする事故の防止)。 */
+const EXT_SECTION_KEYS = [
+  'questions',        // 択一問題
+  'selectQuestions',  // 選択式問題
+  'cases',            // 事例問題
+  'senbon',           // 千本ノック
+  'history',          // 解答履歴
+  'selectHistory',    // 選択式履歴
+  'caseHistory',      // 事例履歴
+  'senbonHistory',    // 千本ノック履歴
+  'frameAttempts',    // フレーム演習履歴
+  'whys',             // 5why
+  'articles',         // 条文・解説
+  'studySessions'     // タイパ(実績タイムテーブル)
+];
 const _extLegacyInLS = {};
 const _extSectionLastJson = {};
 let _extSectionFallbackLS = false;
+let _extSyncReady = false;
 
 let state = loadState();
 
@@ -5257,9 +5343,10 @@ function loadState(){
     if(raw){
       _loadHadRawData = true;
       const s = JSON.parse(raw);
-      if(!s.questions || !s.questions.length){
-        s.questions = SAMPLE_QUESTIONS.slice();
-      }
+      // 改修V2_02: 択一問題は IndexedDB 分離対象。localStorage 側が空でも
+      // IndexedDB に実データがある可能性があるため、サンプル注入は
+      // initExternalStorage() の同期完了後に判断する。
+      s.questions ||= [];
       s.history ||= [];
       s.bookmarks ||= {};
       s.myNotes ||= {};
@@ -5275,9 +5362,8 @@ function loadState(){
       s.session.frameMode ??= null;
       s.session.kindMode ||= 'both'; // 'past' | 'forecast' | 'both'
       // 選択式の追加 (後方互換)
-      if(!s.selectQuestions || !s.selectQuestions.length){
-        s.selectQuestions = SAMPLE_SELECT_QUESTIONS.slice();
-      }
+      // 改修V2_02: サンプル注入は initExternalStorage() の同期完了後に判断する
+      s.selectQuestions ||= [];
       s.selectHistory ||= [];
       s.selectSession ||= {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:''};
       s.selectSession.answered ||= false;
@@ -5318,9 +5404,8 @@ function loadState(){
       // 進行中セッションの id (running/paused のもの)。null=計測なし。
       if(typeof s.activeSessionId === 'undefined') s.activeSessionId = null;
       // 事例問題機能の追加 (後方互換)
-      if(!s.cases || !s.cases.length){
-        s.cases = SAMPLE_CASES.slice();
-      }
+      // 改修V2_02: サンプル注入は initExternalStorage() の同期完了後に判断する
+      s.cases ||= [];
       s.caseHistory ||= [];
       s.caseView ||= {mode:'list', selectedCaseId:null, filterSubject:'', filterFrame:''};
       s.caseSession ||= {currentSubIdx:0, answered:{}, userAnswers:{}};
@@ -5562,6 +5647,10 @@ function _stringifyStateForLS(){
    (saveState は画面操作のたびに呼ばれるため、無駄な大容量書き込みを避ける)。
    書き込み失敗時は localStorage 併用モードへ切り替え、データ喪失を防ぐ。 */
 function _persistExternalSections(){
+  // 改修V2_02: 初期同期(initExternalStorage)完了前は IndexedDB へ書き込まない。
+  // IndexedDB からのロード完了前に saveState が呼ばれた場合、メモリ上はまだ空の
+  // セクションで IndexedDB の実データを上書きしてしまう事故を防ぐ(V2_01の競合バグ修正)。
+  if(!_extSyncReady) return Promise.resolve();
   if(_extSectionFallbackLS) return Promise.resolve();
   const jobs = [];
   for(const key of EXT_SECTION_KEYS){
@@ -5642,7 +5731,7 @@ function saveState(){
     // 画像本体は IndexedDB / キャッシュ側、条文・解説も IndexedDB 側に分離済みなので、
     // 再試行しても解消しない。ユーザーには明示的に通知する。
     console.error('saveState failed', e);
-    alert('保存に失敗しました: '+e.message+'\n\n画像本体と条文・解説は IndexedDB に分離済みです。\nブラウザのキャッシュ削除前に「データ」タブから完全バックアップを取得してください。');
+    alert('保存に失敗しました: '+e.message+'\n\n画像・問題・履歴などの大容量データは IndexedDB に分離済みです。\nブラウザのキャッシュ削除前に「データ」タブから完全バックアップを取得してください。');
   }
   // 改修46: state の変更ごとにバナーを更新(未バックアップ件数の自動反映)
   // updateBackupReminderBanner は DOM 未生成の起動初期にも呼ばれうるので try で防御
@@ -7461,7 +7550,7 @@ async function runStorageDiagnostic(){
       {label:'択一問題 (questions)',         key:'questions'},
       {label:'選択式問題 (selectQuestions)', key:'selectQuestions'},
       {label:'事例問題 (cases)',             key:'cases'},
-      {label:'条文・解説 (articles) ※IndexedDBへ分離', key:'articles'},
+      {label:'条文・解説 (articles)',        key:'articles'},
       {label:'5why (whys)',                  key:'whys'},
       {label:'解答履歴 (history)',           key:'history'},
       {label:'選択式履歴 (selectHistory)',   key:'selectHistory'},
@@ -7473,13 +7562,15 @@ async function runStorageDiagnostic(){
     const breakdown = [];
     for(const s of sections){
       const v = stateObj[s.key];
-      if(v === undefined){ breakdown.push({label:s.label, bytes:0, count:0}); continue }
+      // 改修V2_02: IndexedDB 分離対象セクションには印を付ける
+      const label = EXT_SECTION_KEYS.includes(s.key) ? s.label + ' ※IndexedDBへ分離' : s.label;
+      if(v === undefined){ breakdown.push({label:label, bytes:0, count:0}); continue }
       const json = JSON.stringify(v);
       const bytes = json.length * 2;
       let count = 0;
       if(Array.isArray(v)) count = v.length;
       else if(v && typeof v==='object') count = Object.keys(v).length;
-      breakdown.push({label:s.label, bytes, count});
+      breakdown.push({label:label, bytes, count});
     }
     // 大きい順にソート
     breakdown.sort((a,b)=>b.bytes - a.bytes);
@@ -7496,17 +7587,25 @@ async function runStorageDiagnostic(){
       }
     }
 
-    // === 改修V2_01: 条文・解説が localStorage に残存していないか ===
-    const lsArticlesLeak = !!(stateObj.articles && Object.keys(stateObj.articles).length > 0);
-    const lsArticlesBytes = lsArticlesLeak ? JSON.stringify(stateObj.articles).length * 2 : 0;
+    // === 改修V2_02: 分離対象セクションが localStorage に残存していないか ===
+    let lsExtLeakKeys = [];
+    let lsExtLeakBytes = 0;
+    for(const k of EXT_SECTION_KEYS){
+      const v = stateObj[k];
+      const hasData = v && typeof v === 'object' && Object.keys(v).length > 0;
+      if(hasData){
+        lsExtLeakKeys.push(k);
+        lsExtLeakBytes += JSON.stringify(v).length * 2;
+      }
+    }
 
     // === IndexedDB の状況 ===
     let idbAvailable = false;
     let idbCount = 0;
     let idbBytes = 0;
     let idbErrMsg = '';
-    // 改修V2_01: IndexedDB 側の条文・解説サイズ(-1 = 取得失敗/未保存)
-    let idbArticlesBytes = -1;
+    // 改修V2_02: IndexedDB 側の各分離セクションのサイズ({key: bytes}、-1 = 未保存)
+    const idbExtSizes = {};
     try{
       const ok = await figureStore.ready();
       if(ok){
@@ -7516,10 +7615,12 @@ async function runStorageDiagnostic(){
         for(const ent of all){
           idbBytes += (ent.dataURL || '').length * 2;
         }
-        try{
-          const artJson = await extStore.get('articles');
-          idbArticlesBytes = artJson ? artJson.length * 2 : 0;
-        }catch(_){ idbArticlesBytes = -1 }
+        for(const k of EXT_SECTION_KEYS){
+          try{
+            const j = await extStore.get(k);
+            idbExtSizes[k] = (j != null) ? j.length * 2 : -1;
+          }catch(_){ idbExtSizes[k] = -1 }
+        }
       }else{
         idbErrMsg = 'IndexedDB が利用できない環境です';
       }
@@ -7570,11 +7671,11 @@ async function runStorageDiagnostic(){
       html += `</div>`;
     }
 
-    // 改修V2_01: 条文・解説の残存警告
-    if(lsArticlesLeak){
+    // 改修V2_02: 分離対象セクションの残存警告
+    if(lsExtLeakKeys.length > 0){
       html += `<div style="background:#fff3cd;border:1px solid #ffc107;padding:14px;border-radius:6px;margin-top:10px">`;
-      html += `<div style="font-weight:600;color:#856404;margin-bottom:6px">⚠ localStorage に条文・解説が残存しています</div>`;
-      html += `<div style="font-size:12px;color:#856404;line-height:1.6">条文・解説データ (${fmt(lsArticlesBytes)}) が localStorage に残っています。<br>
+      html += `<div style="font-weight:600;color:#856404;margin-bottom:6px">⚠ localStorage に分離対象データが残存しています</div>`;
+      html += `<div style="font-size:12px;color:#856404;line-height:1.6">${lsExtLeakKeys.map(escapeHtml).join(', ')} (合計 ${fmt(lsExtLeakBytes)}) が localStorage に残っています。<br>
       通常はアプリの再読み込み(リロード)で自動的に IndexedDB へ移行されます。<br>
       リロードしても残る場合は、お使いのブラウザで IndexedDB が利用できない可能性があります(従来方式で動作継続します)。</div>`;
       html += `</div>`;
@@ -7603,15 +7704,32 @@ async function runStorageDiagnostic(){
 
     // IndexedDB
     html += `<div style="background:var(--bg);border:1px solid var(--line);padding:14px;border-radius:6px;margin-top:10px">`;
-    html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px">IndexedDB (図表画像本体・条文解説)</div>`;
+    html += `<div style="font-weight:600;font-size:13px;margin-bottom:8px">IndexedDB (図表画像本体・問題・履歴・条文など)</div>`;
     if(idbAvailable){
+      // 改修V2_02: 分離セクションの合計と内訳
+      let idbExtTotal = 0;
+      for(const k of EXT_SECTION_KEYS){ if(idbExtSizes[k] > 0) idbExtTotal += idbExtSizes[k] }
       html += `<div style="font-size:13px;line-height:1.8">
         状態: <strong style="color:#27ae60">利用可</strong><br>
         画像枚数: <strong>${idbCount}</strong> 枚 (メタ情報側: ${metaCount}件)<br>
         画像合計サイズ: <strong>${fmt(idbBytes)}</strong><br>
-        条文・解説 (articles): <strong>${idbArticlesBytes >= 0 ? fmt(idbArticlesBytes) : '(未保存/取得不可)'}</strong><br>
+        分離データ合計 (問題・履歴・条文等): <strong>${fmt(idbExtTotal)}</strong><br>
         in-memory キャッシュ: ${cacheCount}枚 / ${fmt(cacheBytes)}
       </div>`;
+      // 分離セクションの内訳テーブル
+      html += `<table style="width:100%;font-size:12px;border-collapse:collapse;margin-top:8px">`;
+      html += `<thead><tr style="border-bottom:1px solid var(--line);text-align:left;color:var(--mut)">
+        <th style="padding:4px 8px;font-weight:500">分離セクション</th>
+        <th style="padding:4px 8px;text-align:right;font-weight:500">サイズ</th>
+      </tr></thead><tbody>`;
+      for(const k of EXT_SECTION_KEYS){
+        const b = idbExtSizes[k];
+        html += `<tr style="border-bottom:1px solid #f0f0f0">
+          <td style="padding:4px 8px">${escapeHtml(k)}</td>
+          <td style="padding:4px 8px;text-align:right">${b >= 0 ? fmt(b) : '(未保存)'}</td>
+        </tr>`;
+      }
+      html += `</tbody></table>`;
       // 整合性チェック
       if(metaCount !== idbCount){
         html += `<div style="font-size:12px;color:#d68910;margin-top:8px">⚠ メタ件数(${metaCount}) と IndexedDB枚数(${idbCount}) が一致しません。${idbCount<metaCount?'(マイグレーション未完了の可能性。図表タブを開き直してください)':'(古い未削除データが残っている可能性)'}</div>`;
@@ -7646,7 +7764,7 @@ async function runStorageDiagnostic(){
       html += `定期的なバックアップ取得を推奨します。`;
     }else{
       html += `✓ 使用率は ${pct.toFixed(0)}% で、十分余裕があります。<br>`;
-      html += `図表画像と条文・解説は IndexedDB に分離されているため、これらを増やしてもこの値はほとんど増えません。`;
+      html += `図表画像・問題・履歴・条文などの大容量データは IndexedDB に分離されているため、学習データを増やしてもこの値はほとんど増えません。`;
     }
     html += `</div></div>`;
 
@@ -8732,6 +8850,9 @@ async function _applyMergeRestore(){
     delete state._dedupNenkinF9Removed;
   }catch(_){ }
 
+  // 改修V2_02: 復元データも saveState 経由で IndexedDB へ保存されるため、移行済みフラグを再設定
+  state._extMigrated = true;
+
   saveState();
   closeMergeRestoreModal();
 
@@ -8892,6 +9013,8 @@ function restoreBackup(){
           state._dedupNenkinF9Done = true;
           delete state._dedupNenkinF9Removed; // 通知は下のサマリーに含めるのでフラグは消す
         }catch(_){ }
+        // 改修V2_02: 復元データも saveState 経由で IndexedDB へ保存されるため、移行済みフラグを再設定
+        state._extMigrated = true;
         saveState();
         renderQuiz();renderManage();renderSidebar();
         // 進捗管理画面も明示的に更新
@@ -17460,7 +17583,7 @@ function renderStatsDayBody(day){
 }
 
 /* ===== Wire up ===== */
-function init(){
+async function init(){  // 改修V2_02: IndexedDB 読み込みを await するため async 化
   // ブランドアイコン:apple-touch-icon の base64 を再利用
   const brandIcon = document.getElementById('brand-icon');
   const appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
@@ -17783,15 +17906,17 @@ function init(){
     else if(e.key==='ArrowRight'){e.preventDefault();nav(1)}
   });
 
+  // 改修V2_02: 問題・履歴等の大容量データを IndexedDB から読み込み(または初回マイグレーション)
+  // してから初回描画する。これにより「サンプル問題が一瞬表示される」「ロード前の操作で
+  // 空データが保存される」といった事故を防ぐ。
+  try{ await initExternalStorage() }catch(err){ console.warn('initExternalStorage failed', err) }
+
   renderQuiz();
   renderSidebar();
 
   // IndexedDB を初期化し、既存 localStorage 画像を移行 + キャッシュを構築
   // (非同期。完了後に図表タブが開いていれば再描画される)
   initFigureStorage().catch(err=>console.warn('initFigureStorage failed', err));
-
-  // 改修V2_01: 条文・解説の IndexedDB 同期(localStorage からの自動移行 or IDB からのロード)
-  initExternalStorage().catch(err=>console.warn('initExternalStorage failed', err));
 
   // 改修57_05: 重複削除が行われた場合、起動後に一度だけ結果を通知する
   if(state && state._dedupNenkinF9Removed && state._dedupNenkinF9Removed > 0){
@@ -17806,7 +17931,7 @@ function init(){
     }, 1000);
   }
 }
-init();
+init().catch(err=>console.error('init failed', err));
 </script>
 </body>
 </html>
