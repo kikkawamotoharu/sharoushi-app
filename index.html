@@ -6074,7 +6074,10 @@ function renderQuiz(){
     // 改修8: fmKind を 'pastA'|'pastB'|'forecast' に正規化(旧'past'→'pastA')
     let fmKind = fm.kind || 'pastA';
     if(fmKind === 'past') fmKind = 'pastA';
-    const keyN = fm.subFrameKey ? fm.subFrameKey : frameNo;
+    // 改修V02_05: 特訓フレームは tokkunKey をキー・フレーム参照に使う(frameNo は null)
+    const isTokkun = !!fm.tokkunKey;
+    const frameRefForSess = isTokkun ? fm.tokkunKey : (fm.subFrameKey != null ? fm.subFrameKey : frameNo);
+    const keyN = isTokkun ? fm.tokkunKey : (fm.subFrameKey ? fm.subFrameKey : frameNo);
     const k = frameKey(subject, keyN, fmKind);
     const fa = state.frameAttempts[k];
     const cur = fa && fa.current;
@@ -6083,15 +6086,17 @@ function renderQuiz(){
     const tot = cur.questionIds.length;
     const pct = tot ? Math.round(done/tot*100) : 0;
     const kindLbl = (fmKind==='forecast') ? '<span class="kind-badge" style="font-size:9px;margin-left:6px">予想</span>' : '';
-    // サブフレーム名を含めたタイトル
-    const titleStr = fm.subFrameKey
-      ? frameOrSubFrameLabel(subject, fm.subFrameKey)
-      : frameTitle(subject, frameNo);
+    // サブフレーム名を含めたタイトル(特訓フレームは F_T1 等のラベル)
+    const titleStr = isTokkun
+      ? frameOrSubFrameLabel(subject, fm.tokkunKey)
+      : (fm.subFrameKey
+          ? frameOrSubFrameLabel(subject, fm.subFrameKey)
+          : frameTitle(subject, frameNo));
     // 【改修42】進捗管理_予定_演習実施モードのボタンを択一画面にも表示する。
     //   進行中の学習セッション(running/paused/resting)があれば、その状態に応じた
     //   「中断/休憩/再開/完了/一旦終了/キャンセル」を frameMode バナー内に出す。
     //   進捗管理タブの plan-timer と同一の状態遷移・ラベルにする。
-    const sessHtml = renderQuizSessionTimer(subject, fm.subFrameKey != null ? fm.subFrameKey : frameNo);
+    const sessHtml = renderQuizSessionTimer(subject, frameRefForSess);
 
     return `<div class="frame-banner">
       <div class="fb-head">
@@ -6255,11 +6260,13 @@ function renderQuiz(){
     // 完了した演習(subject/frameNo/subFrameKey)に対応する進行中セッションを探して止める
     let stopped = false;
     if(fc){
-      const frefStr = fc.subFrameKey != null ? String(fc.subFrameKey) : String(fc.frameNo);
+      // 改修V02_05: 特訓は tokkunKey、サブフレームは subFrameKey、通常は frameNo を frameRef に使う
+      const frefStr = fc.tokkunKey != null ? String(fc.tokkunKey)
+                    : (fc.subFrameKey != null ? String(fc.subFrameKey) : String(fc.frameNo));
       const running = (state.studySessions||[]).filter(ss=>
         (ss.status==='running'||ss.status==='paused'||ss.status==='resting') &&
         ss.subject===fc.subject &&
-        (String(ss.frameRef)===frefStr || String(ss.frameRef)===String(fc.frameNo))
+        (String(ss.frameRef)===frefStr || (fc.tokkunKey==null && String(ss.frameRef)===String(fc.frameNo)))
       );
       for(const ss of running){
         finishStudySession(ss.id, {outcome:'done', silent:true});
@@ -7200,6 +7207,7 @@ function _checkFrameCompleteImpl(){
       subject: subject,
       frameNo: frameNo,
       subFrameKey: fm.subFrameKey || null,
+      tokkunKey: fm.tokkunKey || null,  // 改修V02_05: 特訓フレーム
       kind: fmKind,
       attemptNo: fa.history.length
     };
