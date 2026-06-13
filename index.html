@@ -5491,6 +5491,11 @@ function loadState(){
       //   senbonHistory: 解答ログ { id, ts, correct, category, subject, frameNo, level }
       s.senbon = Array.isArray(s.senbon) ? s.senbon : [];
       s.senbonHistory = Array.isArray(s.senbonHistory) ? s.senbonHistory : [];
+      // 改修V02_06: 千本ノック自動登録の「加工待ち下書き」
+      //   要素: { id, qid, subject, frameNo, subFrameKey, kind, text, explanation, answer(bool), createdAt, status('pending'|'done'), category }
+      //   フレーム完了時に「千本」付箋の付いた択一問題のスナップショットを溜める。
+      //   AI加工用に書き出し → 加工済み一問一答を取込 → status を 'done' にする。
+      s.senbonDrafts = Array.isArray(s.senbonDrafts) ? s.senbonDrafts : [];
       s.senbonSession ||= {category:'',subject:'',frame:'',level:3,running:false,idx:0,order:[],results:[]};
       s.senbonSession.level ||= 3;
       // 進捗タブの千本ノック配置用ビュー状態
@@ -6074,10 +6079,7 @@ function renderQuiz(){
     // 改修8: fmKind を 'pastA'|'pastB'|'forecast' に正規化(旧'past'→'pastA')
     let fmKind = fm.kind || 'pastA';
     if(fmKind === 'past') fmKind = 'pastA';
-    // 改修V02_05: 特訓フレームは tokkunKey をキー・フレーム参照に使う(frameNo は null)
-    const isTokkun = !!fm.tokkunKey;
-    const frameRefForSess = isTokkun ? fm.tokkunKey : (fm.subFrameKey != null ? fm.subFrameKey : frameNo);
-    const keyN = isTokkun ? fm.tokkunKey : (fm.subFrameKey ? fm.subFrameKey : frameNo);
+    const keyN = fm.subFrameKey ? fm.subFrameKey : frameNo;
     const k = frameKey(subject, keyN, fmKind);
     const fa = state.frameAttempts[k];
     const cur = fa && fa.current;
@@ -6086,17 +6088,15 @@ function renderQuiz(){
     const tot = cur.questionIds.length;
     const pct = tot ? Math.round(done/tot*100) : 0;
     const kindLbl = (fmKind==='forecast') ? '<span class="kind-badge" style="font-size:9px;margin-left:6px">予想</span>' : '';
-    // サブフレーム名を含めたタイトル(特訓フレームは F_T1 等のラベル)
-    const titleStr = isTokkun
-      ? frameOrSubFrameLabel(subject, fm.tokkunKey)
-      : (fm.subFrameKey
-          ? frameOrSubFrameLabel(subject, fm.subFrameKey)
-          : frameTitle(subject, frameNo));
+    // サブフレーム名を含めたタイトル
+    const titleStr = fm.subFrameKey
+      ? frameOrSubFrameLabel(subject, fm.subFrameKey)
+      : frameTitle(subject, frameNo);
     // 【改修42】進捗管理_予定_演習実施モードのボタンを択一画面にも表示する。
     //   進行中の学習セッション(running/paused/resting)があれば、その状態に応じた
     //   「中断/休憩/再開/完了/一旦終了/キャンセル」を frameMode バナー内に出す。
     //   進捗管理タブの plan-timer と同一の状態遷移・ラベルにする。
-    const sessHtml = renderQuizSessionTimer(subject, frameRefForSess);
+    const sessHtml = renderQuizSessionTimer(subject, fm.subFrameKey != null ? fm.subFrameKey : frameNo);
 
     return `<div class="frame-banner">
       <div class="fb-head">
@@ -6260,13 +6260,11 @@ function renderQuiz(){
     // 完了した演習(subject/frameNo/subFrameKey)に対応する進行中セッションを探して止める
     let stopped = false;
     if(fc){
-      // 改修V02_05: 特訓は tokkunKey、サブフレームは subFrameKey、通常は frameNo を frameRef に使う
-      const frefStr = fc.tokkunKey != null ? String(fc.tokkunKey)
-                    : (fc.subFrameKey != null ? String(fc.subFrameKey) : String(fc.frameNo));
+      const frefStr = fc.subFrameKey != null ? String(fc.subFrameKey) : String(fc.frameNo);
       const running = (state.studySessions||[]).filter(ss=>
         (ss.status==='running'||ss.status==='paused'||ss.status==='resting') &&
         ss.subject===fc.subject &&
-        (String(ss.frameRef)===frefStr || (fc.tokkunKey==null && String(ss.frameRef)===String(fc.frameNo)))
+        (String(ss.frameRef)===frefStr || String(ss.frameRef)===String(fc.frameNo))
       );
       for(const ss of running){
         finishStudySession(ss.id, {outcome:'done', silent:true});
@@ -7127,6 +7125,43 @@ function abandonFrameAttempt(){
   switchTab('progress');
 }
 
+// 改修V02_06: フレーム完了時、出題された問題のうち「千本」付箋(s)の付いた択一問題を
+//   千本ノックの「加工待ち下書き(senbonDrafts)」へ収集する(半自動方式)。
+//   - 既に下書き済み(同 qid が pending/done で存在)の問題は重複追加しない。
+//   - スナップショット(text/explanation/answer 等)を保持し、後で AI 加工用に書き出す。
+//   返り値: 新規に追加した件数。
+function collectSenbonDraftsFromFrame(questionIds, subject, frameNo, subFrameKey, kind){
+  if(!Array.isArray(questionIds) || !questionIds.length) return 0;
+  if(!Array.isArray(state.senbonDrafts)) state.senbonDrafts = [];
+  // 既存下書きの qid 集合(pending/done 問わず。一度処理した問題は二度入れない)
+  const seenQids = new Set(state.senbonDrafts.map(d=> d && d.qid).filter(Boolean));
+  let added = 0;
+  for(const qid of questionIds){
+    if(seenQids.has(qid)) continue;
+    const bms = state.bookmarks[qid] || [];
+    if(!bms.includes('s')) continue;          // 「千本」付箋が付いていない問題は対象外
+    const q = (state.questions||[]).find(x=>x && x.id===qid);
+    if(!q) continue;                           // 実在しない問題はスキップ
+    state.senbonDrafts.push({
+      id: 'sd_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+      qid: qid,
+      subject: subject || q.subject || q.law || '',
+      frameNo: (frameNo!=null) ? frameNo : (q.frameNo!=null?q.frameNo:null),
+      subFrameKey: subFrameKey || null,
+      kind: kind || 'pastA',
+      text: q.text || '',
+      explanation: q.explanation || '',
+      answer: !!q.answer,
+      category: 'A',           // 既定は A(基本・重点数字)。加工取込時に上書き可
+      status: 'pending',       // 'pending'(加工待ち) | 'done'(登録済み)
+      createdAt: Date.now()
+    });
+    seenQids.add(qid);
+    added++;
+  }
+  return added;
+}
+
 function checkFrameComplete(){
   if(_inCheckFrameComplete) return;   // 改修48_改修05: 再入防止
   _inCheckFrameComplete = true;
@@ -7199,6 +7234,11 @@ function _checkFrameCompleteImpl(){
   for(const id of required){ if(!answered.has(id)){ allDone=false; break; } }
   if(allDone){
     fa.current.completedAt = Date.now();
+    // 改修V02_06: 完了したこのフレームの出題問題から「千本」付箋付きを下書き収集
+    //   (fa.current を null にする前に、出題対象 required を渡す)
+    try{
+      collectSenbonDraftsFromFrame(required, subject, frameNo, fm.subFrameKey || null, fmKind);
+    }catch(e){ /* 収集失敗は完了処理を妨げない */ }
     fa.history.push(fa.current);
     if(fa.history.length > 10) fa.history.shift(); // 最新10件保持
     fa.current = null;
@@ -7207,7 +7247,6 @@ function _checkFrameCompleteImpl(){
       subject: subject,
       frameNo: frameNo,
       subFrameKey: fm.subFrameKey || null,
-      tokkunKey: fm.tokkunKey || null,  // 改修V02_05: 特訓フレーム
       kind: fmKind,
       attemptNo: fa.history.length
     };
@@ -8474,6 +8513,7 @@ function _mergeBackupsCore(oldD, newD){
     studySessions:{addedPaths:0},
     senbon:{addedPaths:0},
     senbonHistory:{addedPaths:0},
+    senbonDrafts:{addedPaths:0},
     conflicts:[]
   };
 
@@ -8686,6 +8726,21 @@ function _mergeBackupsCore(oldD, newD){
       oldD.senbonHistory||[], result.senbonHistory,
       h=>`${h&&h.id||''}|${h&&h.ts||''}`);
     result.senbonHistory.sort((a,b)=>(a&&a.ts||0)-(b&&b.ts||0));
+  }
+  // 改修V02_06: 千本ノックの加工待ち下書き(senbonDrafts)も id 基準 add-only マージ
+  {
+    const oldArr = Array.isArray(oldD.senbonDrafts) ? oldD.senbonDrafts : [];
+    result.senbonDrafts = Array.isArray(result.senbonDrafts) ? result.senbonDrafts : [];
+    const seen = new Set(result.senbonDrafts.map(s=> s && s.id).filter(Boolean));
+    stats.senbonDrafts ||= {addedPaths:0};
+    for(const s of oldArr){
+      if(s && s.id && !seen.has(s.id)){
+        try{ result.senbonDrafts.push(JSON.parse(JSON.stringify(s))); }
+        catch(_){ result.senbonDrafts.push(s); }
+        seen.add(s.id);
+        stats.senbonDrafts.addedPaths++;
+      }
+    }
   }
 
   if(!result.whyIntro && oldD.whyIntro){
@@ -9016,6 +9071,7 @@ async function _applyMergeRestore(){
   state.figuresView ||= {filterSubject:'',filterFrame:''};
   state.senbon = Array.isArray(state.senbon) ? state.senbon : [];
   state.senbonHistory = Array.isArray(state.senbonHistory) ? state.senbonHistory : [];
+  state.senbonDrafts = Array.isArray(state.senbonDrafts) ? state.senbonDrafts : [];
   state.senbonSession ||= {category:'',subject:'',frame:'',level:3,running:false,idx:0,order:[],results:[]};
   state.senbonView ||= {mode:'subjects',subject:null,frameNo:null,tab:'list',weakSub:'weak'};
   state.cases ||= [];
@@ -9134,6 +9190,7 @@ function restoreBackup(){
         state.figuresView ||= {filterSubject:'',filterFrame:''};
         state.senbon = Array.isArray(state.senbon) ? state.senbon : [];
         state.senbonHistory = Array.isArray(state.senbonHistory) ? state.senbonHistory : [];
+        state.senbonDrafts = Array.isArray(state.senbonDrafts) ? state.senbonDrafts : [];
         state.senbonSession ||= {category:'',subject:'',frame:'',level:3,running:false,idx:0,order:[],results:[]};
         state.senbonView ||= {mode:'subjects',subject:null,frameNo:null,tab:'list',weakSub:'weak'};
         state.studyPlans ||= {};
@@ -12852,9 +12909,9 @@ const SENBON_LEVELS = [
   {lv:5, sec:3, label:'L5 かなり早い'},
 ];
 const SENBON_CATEGORIES = [
-  {key:'A', label:'A 基本・重要数字'},
-  {key:'B', label:'B 弱点(ミス問)'},
-  {key:'C', label:'C 罠問'},
+  {key:'A', label:'A 基本・重点数字'},
+  {key:'B', label:'B 基本・重点事項'},
+  {key:'C', label:'C 千本'},
   {key:'D', label:'D 改正・予想'},
   {key:'E', label:'E その他'},
 ];
@@ -13562,6 +13619,15 @@ function renderSenbonManage(root){
   if(v.mode==='subjects'){
     // 科目一覧(全科目を表示。択一とは別に独立配置できるよう全科目出す)
     html += `<div class="sbm-bar"><span class="sbm-crumb">🔫 千本ノック — 科目を選択</span></div>`;
+    // 改修V02_06: 「千本」付箋からの自動登録(AI加工待ち)への入口
+    {
+      const drafts = Array.isArray(state.senbonDrafts)?state.senbonDrafts:[];
+      const pend = drafts.filter(d=>d && d.status==='pending').length;
+      html += `<div style="margin:0 0 14px 0">
+        <button class="sbm-import" id="sbm-ai-drafts" style="margin:0">🤖 千本付箋からの自動登録${pend?` <span style="display:inline-block;min-width:18px;padding:0 6px;margin-left:4px;background:#D9822B;color:#fff;border-radius:9px;font-size:12px;line-height:18px;text-align:center">${pend}</span>`:''}</button>
+        <span style="font-size:12px;color:#888;margin-left:8px">択一で「千本」付箋を付けフレーム完了した問題が${pend}件、AI加工待ちです</span>
+      </div>`;
+    }
     html += `<div class="sbm-grid">`;
     SUBJECTS_ORDER.forEach(subj=>{
       const cnt = all.filter(q=>q.subject===subj).length;
@@ -13714,6 +13780,8 @@ function renderSenbonManage(root){
   if(addBtn) addBtn.addEventListener('click',()=>openSenbonEditor(null));
   const impBtn=document.getElementById('sbm-import');
   if(impBtn) impBtn.addEventListener('click',openSenbonImport);
+  const aiBtn=document.getElementById('sbm-ai-drafts');
+  if(aiBtn) aiBtn.addEventListener('click',openSenbonDraftManager);
   root.querySelectorAll('[data-sbm-edit]').forEach(b=>b.addEventListener('click',()=>openSenbonEditor(b.dataset.sbmEdit)));
   root.querySelectorAll('[data-sbm-article]').forEach(b=>b.addEventListener('click',()=>showSenbonArticle(b.dataset.sbmArticle)));
   root.querySelectorAll('[data-sbm-delete]').forEach(b=>b.addEventListener('click',()=>{
@@ -13723,6 +13791,163 @@ function renderSenbonManage(root){
       saveState(); renderProgress();
     }
   }));
+}
+
+// 改修V02_06: 千本ノック「AI加工待ち下書き」管理モーダル(半自動方式の中核UI)
+//   1) フレーム完了時に溜まった下書き(pending)を一覧表示
+//   2) 「AI加工用に書き出し」: 元問題(text/explanation/answer)をJSONで出力 → AIに渡す
+//   3) 「加工済みを取込」: AIが作った一問一答JSONを取り込み、対応する下書きを done 化
+//   4) 個別/一括の削除
+function openSenbonDraftManager(){
+  if(!Array.isArray(state.senbonDrafts)) state.senbonDrafts = [];
+  const pending = state.senbonDrafts.filter(d=>d && d.status==='pending');
+  const overlay = document.createElement('div');
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+
+  const listHtml = pending.length ? pending.map(d=>`
+    <div style="border:1px solid #eee;border-radius:8px;padding:10px;margin-bottom:8px">
+      <div style="font-size:11px;color:#888;margin-bottom:4px">${escapeHtml(d.subject||'')} ${d.frameNo!=null?('F'+d.frameNo):''} ・ この肢は${d.answer?'正しい':'誤り'}</div>
+      <div style="font-size:13px;line-height:1.6">${escapeHtml((d.text||'').slice(0,140))}${(d.text||'').length>140?'…':''}</div>
+      <div style="text-align:right;margin-top:6px"><button data-draft-del="${escapeHtml(d.id)}" style="font-size:11px;color:#c62828;border:1px solid #f0caca;border-radius:6px;background:#fff;padding:3px 10px;cursor:pointer">この下書きを削除</button></div>
+    </div>`).join('') : `<div style="text-align:center;color:#999;padding:24px 0;font-size:14px">加工待ちの下書きはありません。<br><span style="font-size:12px">択一演習で「千本」付箋を付け、予定演習でフレームを完了すると、ここに溜まります。</span></div>`;
+
+  overlay.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;padding:22px;max-height:90vh;overflow:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h3 style="margin:0;font-size:17px">🤖 千本付箋からの自動登録(AI加工待ち)</h3>
+      <button id="sd-close" style="border:none;background:#f1f1f1;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:16px">×</button>
+    </div>
+    <div style="font-size:12px;color:#888;line-height:1.7;margin-bottom:14px">
+      択一で「千本」付箋を付けた問題が、フレーム完了時にここへ集まります(現在 <b>${pending.length}</b> 件)。<br>
+      ①「AI加工用に書き出し」で元問題をコピー → ②AI(Claude)に渡して数字着目の一問一答に加工してもらう → ③「加工済みを取込」で千本ノックに登録。
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+      <button id="sd-export" ${pending.length?'':'disabled'} style="padding:9px 14px;border:none;border-radius:8px;background:#2b5dc9;color:#fff;font-weight:700;cursor:${pending.length?'pointer':'not-allowed'};opacity:${pending.length?'1':'.5'};font-size:13px">📋 AI加工用に書き出し(コピー)</button>
+      <button id="sd-import" style="padding:9px 14px;border:1px solid #2e7d32;border-radius:8px;background:#fff;color:#2e7d32;font-weight:700;cursor:pointer;font-size:13px">📥 加工済みを取込</button>
+      ${pending.length?`<button id="sd-clear" style="padding:9px 14px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#c62828;cursor:pointer;font-size:13px;margin-left:auto">全下書きを削除</button>`:''}
+    </div>
+    <div id="sd-list">${listHtml}</div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close=()=>overlay.remove();
+  document.getElementById('sd-close').addEventListener('click',close);
+  overlay.addEventListener('click',e=>{ if(e.target===overlay) close(); });
+
+  // 個別削除
+  overlay.querySelectorAll('[data-draft-del]').forEach(b=>b.addEventListener('click',()=>{
+    const id=b.dataset.draftDel;
+    state.senbonDrafts = state.senbonDrafts.filter(d=>d.id!==id);
+    saveState(); close(); openSenbonDraftManager();
+  }));
+  // 全削除
+  const clearBtn=document.getElementById('sd-clear');
+  if(clearBtn) clearBtn.addEventListener('click',()=>{
+    if(confirm('加工待ちの下書きをすべて削除しますか?(登録済みの千本ノック問題は消えません)')){
+      state.senbonDrafts = state.senbonDrafts.filter(d=>d.status!=='pending');
+      saveState(); close(); openSenbonDraftManager();
+    }
+  });
+  // AI加工用に書き出し(クリップボードコピー＋テキスト表示)
+  const expBtn=document.getElementById('sd-export');
+  if(expBtn && pending.length) expBtn.addEventListener('click',()=>{
+    const payload = {
+      _instruction: '次の択一問題それぞれを、主に「数字」に着目した千本ノック用の短い一問一答(○×)に加工してください。出力は [{"draftId":元のdraftId,"q":"短い問題文","a":true/false,"note":"正確な数字・要点","category":"A"}] の配列のみ(JSON)。categoryは原則"A"(基本・重点数字)。',
+      items: pending.map(d=>({ draftId:d.id, subject:d.subject, frameNo:d.frameNo, text:d.text, explanation:d.explanation, answer:d.answer }))
+    };
+    const json = JSON.stringify(payload, null, 2);
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(json).then(()=>{
+        alert('AI加工用のJSONをクリップボードにコピーしました。\nClaude等に貼り付けて加工を依頼し、返ってきたJSONを「加工済みを取込」から登録してください。');
+      }).catch(()=>{ showSenbonDraftExportText(json); });
+    } else {
+      showSenbonDraftExportText(json);
+    }
+  });
+  // 加工済みを取込
+  const impBtn=document.getElementById('sd-import');
+  if(impBtn) impBtn.addEventListener('click',()=>{ close(); openProcessedDraftImport(); });
+}
+
+// クリップボードが使えない環境向け: 書き出しJSONをテキストエリアで表示(手動コピー)
+function showSenbonDraftExportText(json){
+  const ov=document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:600px;width:100%;padding:20px;max-height:85vh;overflow:auto">
+    <h3 style="margin:0 0 10px;font-size:16px">AI加工用JSON(コピーしてClaudeへ)</h3>
+    <textarea readonly style="width:100%;height:300px;font-family:monospace;font-size:12px;border:1px solid #ddd;border-radius:8px;padding:10px;box-sizing:border-box">${escapeHtml(json)}</textarea>
+    <div style="text-align:right;margin-top:12px"><button id="sde-close" style="padding:9px 16px;border:none;border-radius:8px;background:#2b5dc9;color:#fff;font-weight:700;cursor:pointer">閉じる</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('#sde-close').addEventListener('click',()=>ov.remove());
+  ov.addEventListener('click',e=>{ if(e.target===ov) ov.remove(); });
+  const ta=ov.querySelector('textarea'); ta.focus(); ta.select();
+}
+
+// 加工済み一問一答JSONの取込モーダル
+function openProcessedDraftImport(){
+  const overlay=document.createElement('div');
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:600px;width:100%;padding:22px;max-height:90vh;overflow:auto">
+    <h3 style="margin:0 0 8px;font-size:17px">📥 加工済み一問一答を取込</h3>
+    <div style="font-size:12px;color:#888;line-height:1.7;margin-bottom:12px">
+      AIが加工して返したJSONを貼り付けてください。各要素の <code>draftId</code> で元の下書きと突き合わせ、対応する下書きを「登録済み」にします。<br>
+      形式: <code>[{"draftId":"sd_...","q":"…","a":true,"note":"…","category":"A"}]</code><br>
+      <span style="font-size:11px;color:#999">※draftId が無い要素も「新規の一問一答」として取り込めます(その場合は下書きとの突合は行いません)。配置先(科目/フレーム)は draftId があればそこから自動設定されます。</span>
+    </div>
+    <textarea id="pd-text" rows="10" placeholder='[{"draftId":"sd_...","q":"…","a":false,"note":"…","category":"A"}]' style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:monospace;box-sizing:border-box;margin-bottom:14px"></textarea>
+    <div style="display:flex;gap:10px">
+      <button id="pd-cancel" style="flex:1;padding:12px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer">キャンセル</button>
+      <button id="pd-go" style="flex:1;padding:12px;border:none;border-radius:8px;background:#2e7d32;color:#fff;font-weight:700;cursor:pointer">取込</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('pd-cancel').addEventListener('click',()=>overlay.remove());
+  overlay.addEventListener('click',e=>{ if(e.target===overlay) overlay.remove(); });
+  document.getElementById('pd-go').addEventListener('click',()=>{
+    let arr;
+    try{ arr=JSON.parse(document.getElementById('pd-text').value); }
+    catch(e){ alert('JSONの解析に失敗しました: '+e.message); return; }
+    if(!Array.isArray(arr)){ alert('配列形式のJSONを入力してください'); return; }
+    const res = importProcessedSenbonDrafts(arr);
+    overlay.remove();
+    alert(`取り込みました。\n登録: ${res.added}問 / 下書きを登録済みに更新: ${res.matched}件` + (res.skipped?`\nスキップ(q が無い等): ${res.skipped}件`:''));
+    renderProgress();
+  });
+}
+
+// 加工済み配列を千本ノックへ登録し、draftId に対応する下書きを done 化する
+function importProcessedSenbonDrafts(arr){
+  if(!Array.isArray(state.senbon)) state.senbon = [];
+  if(!Array.isArray(state.senbonDrafts)) state.senbonDrafts = [];
+  const draftById = new Map(state.senbonDrafts.map(d=>[d.id, d]));
+  let added=0, matched=0, skipped=0;
+  arr.forEach(o=>{
+    if(!o || typeof o.q!=='string' || !o.q.trim()){ skipped++; return; }
+    const d = o.draftId ? draftById.get(o.draftId) : null;
+    // 配置先: draftId があればその下書きから、無ければ JSON 内の値
+    const subject = (d && d.subject) || o.subject || '';
+    const frameNo = (d && d.frameNo!=null) ? d.frameNo : (o.frameNo!=null?o.frameNo:null);
+    const subFrameKey = (d && d.subFrameKey) || o.subFrameKey || null;
+    state.senbon.push({
+      id: 'sb_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+      subject: subject,
+      frameNo: frameNo,
+      subFrameKey: subFrameKey,
+      category: o.category || (d && d.category) || 'A',
+      q: o.q.trim(),
+      a: (typeof o.a==='boolean')?o.a:(o.a==='true'||o.a===1||o.a==='〇'||o.a==='○'),
+      note: o.note || '',
+      source: o.source || '択一_千本付箋',
+      checkMark: 0,
+      checkMemo: '',
+      articleRef: o.articleRef || '',
+      articleText: o.articleText || '',
+      createdAt: Date.now()
+    });
+    added++;
+    if(d && d.status==='pending'){ d.status='done'; d.doneAt=Date.now(); matched++; }
+  });
+  saveState();
+  return {added, matched, skipped};
 }
 
 // 一問一答 追加/編集モーダル
