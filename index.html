@@ -2582,6 +2582,10 @@
   .taipa-fix-suggest:hover,.taipa-fix-reset:hover{background:var(--card)}
   .taipa-fix-reset{border-color:#c98d00;color:#9a6c00}
   .taipa-fix-none{font-size:11px;color:var(--ink-muted);padding:4px 2px}
+  /* 改修V02_05: 集中特訓フレーム */
+  .prog-tokkun-divider{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:18px 2px 10px;padding-top:14px;border-top:2px dashed var(--line)}
+  .prog-tokkun-divider>span:first-child{font-weight:700;font-size:14px;color:#c0392b}
+  .prog-tokkun-note{font-size:11px;color:var(--ink-muted)}
   @media(max-width:640px){
     .taipa-sumcards{grid-template-columns:1fr}
     .taipa-tt{grid-template-columns:40px 1fr 1fr}
@@ -3996,6 +4000,48 @@ const FRAMES = {
   ]
 };
 
+/* ===== 改修V02_05: 集中特訓フレーム(F_T1/T2/T3) =====
+   各科目の通常フレーム(F1〜)の後ろに、科目横断的な「特訓」フレームを3つ追加する。
+   これらは通常フレームと違い「問題を固定登録」せず、付箋やミス回数などの
+   現在の状態から対象問題を動的に抽出する(A案)。
+   - key: フレーム参照に使う文字列("T1"/"T2"/"T3")。frameNo の代わりに使う。
+   - bm:  対象を絞る付箋色コード(state.bookmarks の値)。'k'=撃墜 / 't'=罠問。
+   - weak: true の場合、付箋ではなく「累計ミス≧WEAK_THRESHOLD回」で抽出。 */
+const TOKKUN_FRAMES = [
+  {key:'T1', t:'集中特訓_撃墜', short:'撃墜', bm:'k',  weak:false, mark:'⚫'},
+  {key:'T2', t:'集中特訓_罠問', short:'罠問', bm:'t',  weak:false, mark:'☠'},
+  {key:'T3', t:'集中特訓_弱点', short:'弱点', bm:null, weak:true,  mark:'⚠'}
+];
+function isTokkunRef(frameRef){
+  return typeof frameRef==='string' && /^T[123]$/.test(frameRef);
+}
+function getTokkunDef(frameRef){
+  return TOKKUN_FRAMES.find(f=>f.key===frameRef) || null;
+}
+/* 特訓フレームの対象問題を動的抽出して返す(科目横断・過去問A限定)。
+   - subject: 科目名
+   - frameRef: 'T1'/'T2'/'T3'
+   現在の付箋状態・解答履歴から都度計算するため、付箋を外せば次回から対象外になる。 */
+function getTokkunQuestions(subject, frameRef){
+  const def = getTokkunDef(frameRef);
+  if(!def) return [];
+  // 母集団: その科目の過去問A(通常フレームに属する問題)
+  const pool = (state.questions||[]).filter(q=>
+    lawToSubject(q.law)===subject && getKind(q)==='pastA'
+  );
+  if(def.weak){
+    // 弱点: 累計ミス回数 ≧ WEAK_THRESHOLD
+    //   解答履歴のキーは qid(answerQuestion が {qid:q.id,...} で記録)。
+    return pool.filter(q=>{
+      const hist = (state.history||[]).filter(h=>h.qid===q.id);
+      const miss = hist.filter(h=>!h.correct).length;
+      return miss >= WEAK_THRESHOLD;
+    });
+  }
+  // 撃墜/罠問: 付箋色を持つ問題
+  return pool.filter(q=> (state.bookmarks[q.id]||[]).includes(def.bm));
+}
+
 /* ===== 改修: フレーム中分類項目(表示用) =====
    進捗管理タブ・条文解説タブのフレーム表記のところに、その中身(項目)を併記するための補助データ。
    既存の SUB_FRAMES とは独立(SUB_FRAMES は中分類別の演習・条文管理のための機能データで、
@@ -4271,18 +4317,22 @@ function getSubFrameForQuestion(subject, frameNo, qLaw){
 /* frameRef を解釈して {frameNo, subFrameKey, subFrame, isSubFrame} を返す。
    frameRef は数値(例: 2)または文字列("2" / "2.1")。 */
 function resolveFrameRef(subject, frameRef){
+  // 改修V02_05: 特訓フレーム("T1"/"T2"/"T3")
+  if(isTokkunRef(frameRef)){
+    return {frameNo: null, subFrameKey: null, subFrame: null, isSubFrame: false, isTokkun: true, tokkunKey: frameRef};
+  }
   // 数値、または数字のみの文字列 → 親フレーム
   if(typeof frameRef === 'number' || (typeof frameRef === 'string' && /^\d+$/.test(frameRef))){
-    return {frameNo: parseInt(frameRef,10), subFrameKey: null, subFrame: null, isSubFrame: false};
+    return {frameNo: parseInt(frameRef,10), subFrameKey: null, subFrame: null, isSubFrame: false, isTokkun: false};
   }
   if(typeof frameRef === 'string'){
     const parsed = parseSubFrameKey(frameRef);
     if(parsed){
       const sf = getSubFrames(subject, parsed.parent).find(s=>s.n===parsed.n) || null;
-      return {frameNo: parsed.parent, subFrameKey: frameRef, subFrame: sf, isSubFrame: true};
+      return {frameNo: parsed.parent, subFrameKey: frameRef, subFrame: sf, isSubFrame: true, isTokkun: false};
     }
   }
-  return {frameNo: null, subFrameKey: null, subFrame: null, isSubFrame: false};
+  return {frameNo: null, subFrameKey: null, subFrame: null, isSubFrame: false, isTokkun: false};
 }
 
 /* このフレームはサブフレーム(中分類)を持つか? */
@@ -4302,6 +4352,11 @@ function parseSubFrameKey(key){
 }
 /* キー(整数 or "2.1"形式)から表示用ラベルを得る */
 function frameOrSubFrameLabel(subject, key){
+  // 改修V02_05: 特訓フレーム
+  if(isTokkunRef(key)){
+    const def = getTokkunDef(key);
+    return def ? `F_${def.key} ${def.t}` : String(key);
+  }
   if(typeof key === 'number' || /^\d+$/.test(String(key))){
     const n = parseInt(key,10);
     return `F${n} ${(FRAMES[subject]||[]).find(f=>f.n===n)?.t || ''}`.trim();
@@ -5837,6 +5892,10 @@ function getPool(){
   // フレーム演習モードが有効なら、そのフレームの問題に強制限定
   if(s.frameMode){
     const subj = s.frameMode.subject || s.frameMode.law; // 後方互換
+    // 改修V02_05: 特訓フレーム(撃墜/罠問/弱点)は付箋・ミス回数から動的抽出
+    if(s.frameMode.tokkunKey){
+      return getTokkunQuestions(subj, s.frameMode.tokkunKey);
+    }
     // 改修8: frameMode.kind は 'pastA' | 'pastB' | 'forecast'。 旧値 'past' は 'pastA' へ正規化。
     let fmKind = s.frameMode.kind || 'pastA';
     if(fmKind === 'past') fmKind = 'pastA';
@@ -6340,7 +6399,7 @@ function answerQuestion(userAns){
     const fm = state.session.frameMode;
     const subj = fm.subject || fm.law;
     let fmKind = fm.kind || 'pastA'; if(fmKind === 'past') fmKind = 'pastA';
-    const keyN = fm.subFrameKey ? fm.subFrameKey : fm.frameNo;
+    const keyN = fm.tokkunKey ? fm.tokkunKey : (fm.subFrameKey ? fm.subFrameKey : fm.frameNo); // 改修V02_05: 特訓対応
     const k = frameKey(subj, keyN, fmKind);
     const fa = state.frameAttempts[k];
     const attemptNo = (fa && fa.current) ? fa.current.attemptNo : null;
@@ -6354,7 +6413,7 @@ function answerQuestion(userAns){
     const fm = state.session.frameMode;
     const subj = fm.subject || fm.law;
     let fmKind = fm.kind || 'pastA'; if(fmKind === 'past') fmKind = 'pastA';
-    const keyN = fm.subFrameKey ? fm.subFrameKey : fm.frameNo;
+    const keyN = fm.tokkunKey ? fm.tokkunKey : (fm.subFrameKey ? fm.subFrameKey : fm.frameNo); // 改修V02_05: 特訓対応
     const k = frameKey(subj, keyN, fmKind);
     const fa = state.frameAttempts[k];
     if(fa && fa.current){
@@ -6425,7 +6484,7 @@ function getFrameUnansweredIndices(){
   const fm = s.frameMode;
   const subject = fm.subject || fm.law;
   let fmKind = fm.kind || 'pastA'; if(fmKind === 'past') fmKind = 'pastA';
-  const keyN = fm.subFrameKey ? fm.subFrameKey : fm.frameNo;
+  const keyN = fm.tokkunKey ? fm.tokkunKey : (fm.subFrameKey ? fm.subFrameKey : fm.frameNo); // 改修V02_05: 特訓対応
   const k = frameKey(subject, keyN, fmKind);
   const fa = state.frameAttempts[k];
   if(!fa || !fa.current) return [];
@@ -6797,8 +6856,41 @@ function startFrameAttempt(subject, frameRef, kind){
   if(normKind === 'past' || normKind === 'both') normKind = 'pastA';
   kind = normKind;
   state.session.frameCompleted = null; // 前回完了フラグをクリア
-  // frameRef を解析(数値=親フレーム、"2.1"形式=サブフレーム)
+  // frameRef を解析(数値=親フレーム、"2.1"形式=サブフレーム、"T1"等=特訓)
   const fref = resolveFrameRef(subject, frameRef);
+
+  // 改修V02_05: 特訓フレーム(T1/T2/T3)は付箋・ミス回数から動的抽出。kind は pastA 固定。
+  if(fref.isTokkun){
+    kind = 'pastA';
+    const k = frameKey(subject, fref.tokkunKey, kind);
+    state.frameAttempts[k] ||= {history:[], current:null};
+    const fa = state.frameAttempts[k];
+    const def = getTokkunDef(fref.tokkunKey);
+    const tlbl = def ? def.t : '特訓';
+    if(fa.current){
+      if(!confirm(`この特訓(${tlbl})には進行中の演習(${fa.current.answeredIds.length}/${fa.current.questionIds.length}問解答済)があります。\n中止して新しい演習を始めますか?\n(OKで新規開始、キャンセルで現在の演習を継続)`)){
+        enterFrameMode(subject, null, kind, null, fref.tokkunKey);
+        return;
+      }
+      fa.current = null;
+    }
+    const qTok = getTokkunQuestions(subject, fref.tokkunKey);
+    if(!qTok.length){
+      const how = def && def.weak ? `${WEAK_THRESHOLD}回以上ミスした問題` : `付箋「${def?def.short:''}」が付いた問題`;
+      alert(`この特訓フレームの対象問題がありません。\n(${subject}で${how}が対象です)\n問題演習で付箋を付ける、または弱点になると、ここに自動で集まります。`);
+      return;
+    }
+    fa.current = {
+      attemptNo: fa.history.length + 1,
+      startedAt: Date.now(),
+      questionIds: qTok.map(q=>q.id),
+      answeredIds: []
+    };
+    saveState();
+    enterFrameMode(subject, null, kind, null, fref.tokkunKey);
+    return;
+  }
+
   if(fref.frameNo == null){alert('フレーム参照が不正です: '+frameRef);return}
   // frameAttempts のキーは subFrameKey があれば "2.1" 文字列、無ければ整数
   const keyN = fref.isSubFrame ? fref.subFrameKey : fref.frameNo;
@@ -6838,17 +6930,18 @@ function startFrameAttempt(subject, frameRef, kind){
   enterFrameMode(subject, fref.frameNo, kind, fref.subFrameKey);
 }
 
-function enterFrameMode(subject, frameNo, kind, subFrameKey){
+function enterFrameMode(subject, frameNo, kind, subFrameKey, tokkunKey){
   // 改修8: kind 引数を正規化(旧 'past'/'both'/省略 → 'pastA')
   let normKind = kind || 'pastA';
   if(normKind === 'past' || normKind === 'both') normKind = 'pastA';
   kind = normKind;
-  state.session.frameMode = {subject, frameNo, kind, subFrameKey: subFrameKey || null};
+  // 改修V02_05: 特訓フレームは tokkunKey を保持(frameNo は null)
+  state.session.frameMode = {subject, frameNo, kind, subFrameKey: subFrameKey || null, tokkunKey: tokkunKey || null};
   state.session.mode = 'seq';
   state.session.answered = false;
   state.session.userAnswer = null;
   // 進行中の演習があれば、最初の未解答問題から再開する
-  const keyN = subFrameKey ? subFrameKey : frameNo;
+  const keyN = tokkunKey ? tokkunKey : (subFrameKey ? subFrameKey : frameNo);
   const k = frameKey(subject, keyN, kind);
   const fa = state.frameAttempts[k];
   if(fa && fa.current && fa.current.answeredIds && fa.current.answeredIds.length > 0){
@@ -7020,7 +7113,7 @@ function abandonFrameAttempt(){
   const fm = state.session.frameMode;
   const subj = fm.subject || fm.law;
   let fmKind = fm.kind || 'pastA'; if(fmKind === 'past') fmKind = 'pastA';
-  const keyN = fm.subFrameKey ? fm.subFrameKey : fm.frameNo;
+  const keyN = fm.tokkunKey ? fm.tokkunKey : (fm.subFrameKey ? fm.subFrameKey : fm.frameNo); // 改修V02_05: 特訓対応
   const k = frameKey(subj, keyN, fmKind);
   if(state.frameAttempts[k]) state.frameAttempts[k].current = null;
   exitFrameMode();
@@ -7043,7 +7136,8 @@ function _checkFrameCompleteImpl(){
   const subject = fm.subject || fm.law;
   const frameNo = fm.frameNo;
   let fmKind = fm.kind || 'pastA'; if(fmKind === 'past') fmKind = 'pastA';
-  const keyN = fm.subFrameKey ? fm.subFrameKey : frameNo;
+  // 改修V02_05: 特訓フレームは tokkunKey をキーに使う
+  const keyN = fm.tokkunKey ? fm.tokkunKey : (fm.subFrameKey ? fm.subFrameKey : frameNo);
   const k = frameKey(subject, keyN, fmKind);
   const fa = state.frameAttempts[k];
   if(!fa || !fa.current) return;
@@ -14447,6 +14541,11 @@ function splitPlanKey(key){
 // 並び順用: 親フレーム番号と中分類番号(なければ0)を返す
 function planSortIndex(subject, frameRef){
   const r = resolveFrameRef(subject, frameRef);
+  // 改修V02_05: 特訓フレームは通常フレームの後ろ(900番台、T1<T2<T3)に並べる
+  if(r.isTokkun){
+    const ti = TOKKUN_FRAMES.findIndex(f=>f.key===r.tokkunKey);
+    return {fno: 900 + (ti<0?0:ti), sub: 0};
+  }
   return {fno: (r.frameNo!=null ? r.frameNo : 999), sub: (r.subFrame ? r.subFrame.n : 0)};
 }
 
@@ -14722,14 +14821,25 @@ function startStudySession(subject, frameRef, dateKey){
   // ① まず、この予定フレームに過去問A が登録されているかを事前確認する。
   //    0問なら計測セッションを開始せずに中止する(計測だけ始まる空振りを防ぐ)。
   const fref0 = resolveFrameRef(subject, frameRef);
-  if(fref0.frameNo == null){ alert('フレーム参照が不正です: ' + frameRef); return; }
-  let qPre = state.questions.filter(q=>lawToSubject(q.law)===subject && q.frameNo===fref0.frameNo && getKind(q)==='pastA');
-  if(fref0.isSubFrame && fref0.subFrame){
-    qPre = qPre.filter(q=>questionMatchesSubFrame(q.law, fref0.subFrame));
-  }
-  if(qPre.length === 0){
-    alert('このフレームには過去問Aが登録されていないため、演習を開始できません。\n(「過去問A」タブで問題を追加してください)');
-    return;
+  // 改修V02_05: 特訓フレームは付箋・弱点から動的抽出。対象0問なら開始しない。
+  if(fref0.isTokkun){
+    const qTok = getTokkunQuestions(subject, fref0.tokkunKey);
+    if(qTok.length === 0){
+      const def = getTokkunDef(fref0.tokkunKey);
+      const how = def && def.weak ? `${WEAK_THRESHOLD}回以上ミスした問題` : `付箋「${def?def.short:''}」が付いた問題`;
+      alert(`この特訓フレームには対象問題がありません。\n(${subject}で${how}が対象です)\n演習で付箋を付ける・弱点になると自動で集まります。`);
+      return;
+    }
+  }else{
+    if(fref0.frameNo == null){ alert('フレーム参照が不正です: ' + frameRef); return; }
+    let qPre = state.questions.filter(q=>lawToSubject(q.law)===subject && q.frameNo===fref0.frameNo && getKind(q)==='pastA');
+    if(fref0.isSubFrame && fref0.subFrame){
+      qPre = qPre.filter(q=>questionMatchesSubFrame(q.law, fref0.subFrame));
+    }
+    if(qPre.length === 0){
+      alert('このフレームには過去問Aが登録されていないため、演習を開始できません。\n(「過去問A」タブで問題を追加してください)');
+      return;
+    }
   }
 
   // ② 既存の進行中セッションがあれば、まず確定(終了)する
@@ -16129,6 +16239,7 @@ function formatRelativeDays(ts){
 
 function buildProgressFrameRow(opts){
   const {displayN, title, totalCount, fkN, subjectVal, kindModeVal, lawBreakdown, dataFno, itemsLabel} = opts;
+  const isTokkun = !!opts.isTokkun; // 改修V02_05
   const k = frameKey(subjectVal, fkN, kindModeVal);
   const fa = state.frameAttempts[k] || {history:[], current:null};
   const completed = fa.history.length;
@@ -16164,7 +16275,9 @@ function buildProgressFrameRow(opts){
   }
   let status = '';
   if(totalCount===0){
-    status = `<span class="prog-status empty">問題未登録</span>`;
+    status = isTokkun
+      ? `<span class="prog-status empty">対象問題なし(条件に合う問題が出てくると自動で集まります)</span>`
+      : `<span class="prog-status empty">問題未登録</span>`;
   }else if(cur){
     // 改修02: 演習中の正答数を加算
     const curStats = computeAttemptStats({
@@ -16315,6 +16428,32 @@ function renderProgressFrames(root, summary, subject, kindMode){
       planTarget: (kindMode==='pastA') ? {subject:subject, frameRef:fr.n} : null  // 改修30: 過去問A のみ予定ボタン
     });
   }
+  // 改修V02_05: 集中特訓フレーム(F_T1/T2/T3)を、通常フレームの後ろに追加表示。
+  //   過去問A(pastA)モードのときのみ表示する(付箋・弱点は pastA の問題が対象のため)。
+  if(kindMode==='pastA'){
+    html += `<div class="prog-tokkun-divider"><span>🔥 集中特訓</span><span class="prog-tokkun-note">付箋・弱点から自動で問題が集まります(開くたびに最新化)</span></div>`;
+    for(const def of TOKKUN_FRAMES){
+      const qTok = getTokkunQuestions(subject, def.key);
+      const total = qTok.length;
+      const howNote = def.weak ? `${WEAK_THRESHOLD}回以上ミスした問題` : `付箋「${def.short}${def.mark}」を付けた問題`;
+      const itemsLabel = `${subject}内で${howNote}を横断的に集めた特訓フレーム`;
+      shownFrames++;
+      html += buildProgressFrameRow({
+        displayN: '_'+def.key,           // 表示 "F_T1" 等
+        title: def.t,
+        totalCount: total,
+        fkN: def.key,                    // frameAttempts のキー = "T1"/"T2"/"T3"
+        subjectVal: subject,
+        kindModeVal: kindMode,
+        lawBreakdown: '',
+        dataFno: def.key,                // 演習開始ボタンの data-fno に特訓キーを渡す
+        itemsLabel: itemsLabel,
+        planTarget: {subject:subject, frameRef:def.key},
+        isTokkun: true
+      });
+    }
+  }
+
   if(shownFrames===0 && !progressKindShowAll(kindMode)){
     const lbl = progressKindLabel(kindMode);
     html += `<div class="prog-frame" style="text-align:center;color:var(--ink-muted);padding:30px">
