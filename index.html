@@ -13823,6 +13823,7 @@ function openSenbonDraftManager(){
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
       <button id="sd-export" ${pending.length?'':'disabled'} style="padding:9px 14px;border:none;border-radius:8px;background:#2b5dc9;color:#fff;font-weight:700;cursor:${pending.length?'pointer':'not-allowed'};opacity:${pending.length?'1':'.5'};font-size:13px">📋 AI加工用に書き出し(コピー)</button>
       <button id="sd-import" style="padding:9px 14px;border:1px solid #2e7d32;border-radius:8px;background:#fff;color:#2e7d32;font-weight:700;cursor:pointer;font-size:13px">📥 加工済みを取込</button>
+      <button id="sd-dedupe" style="padding:9px 14px;border:1px solid #b8860b;border-radius:8px;background:#fff;color:#b8860b;font-weight:700;cursor:pointer;font-size:13px">🧹 重複を整理</button>
       ${pending.length?`<button id="sd-clear" style="padding:9px 14px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#c62828;cursor:pointer;font-size:13px;margin-left:auto">全下書きを削除</button>`:''}
     </div>
     <div id="sd-list">${listHtml}</div>
@@ -13865,6 +13866,17 @@ function openSenbonDraftManager(){
   // 加工済みを取込
   const impBtn=document.getElementById('sd-import');
   if(impBtn) impBtn.addEventListener('click',()=>{ close(); openProcessedDraftImport(); });
+  // 重複を整理(問題文が同一の千本ノック問題を、最古1件を残して削除)
+  const dedBtn=document.getElementById('sd-dedupe');
+  if(dedBtn) dedBtn.addEventListener('click',()=>{
+    const res = dedupeSenbonQuestions();
+    if(res.removed){
+      alert(`重複を整理しました。\n削除: ${res.removed}問(重複していた問題文: ${res.groups}種類)\n各問題文につき最も古い1件を残しました。`);
+      close(); renderProgress(); openSenbonDraftManager();
+    } else {
+      alert('問題文が同一の重複は見つかりませんでした。');
+    }
+  });
 }
 
 // クリップボードが使えない環境向け: 書き出しJSONをテキストエリアで表示(手動コピー)
@@ -13909,7 +13921,7 @@ function openProcessedDraftImport(){
     if(!Array.isArray(arr)){ alert('配列形式のJSONを入力してください'); return; }
     const res = importProcessedSenbonDrafts(arr);
     overlay.remove();
-    alert(`取り込みました。\n登録: ${res.added}問 / 下書きを登録済みに更新: ${res.matched}件` + (res.skipped?`\nスキップ(q が無い等): ${res.skipped}件`:''));
+    alert(`取り込みました。\n登録: ${res.added}問 / 下書きを登録済みに更新: ${res.matched}件` + (res.dup?`\n重複スキップ(既に登録済み): ${res.dup}件`:'') + (res.skipped?`\nスキップ(q が無い等): ${res.skipped}件`:''));
     renderProgress();
   });
 }
@@ -13919,16 +13931,30 @@ function importProcessedSenbonDrafts(arr){
   if(!Array.isArray(state.senbon)) state.senbon = [];
   if(!Array.isArray(state.senbonDrafts)) state.senbonDrafts = [];
   const draftById = new Map(state.senbonDrafts.map(d=>[d.id, d]));
-  let added=0, matched=0, skipped=0;
+  // 重複対策: 既存の千本問題id集合・問題文の正規化キー集合
+  const existingIds = new Set(state.senbon.map(q=>q && q.id).filter(Boolean));
+  const normQ = s => String(s||'').replace(/\s+/g,'').trim();
+  const existingQkeys = new Set(state.senbon.map(q=>normQ(q && q.q)));
+  let added=0, matched=0, skipped=0, dup=0;
   arr.forEach(o=>{
     if(!o || typeof o.q!=='string' || !o.q.trim()){ skipped++; return; }
     const d = o.draftId ? draftById.get(o.draftId) : null;
+    // ① 下書きが既に登録済み(done)で、登録先の千本問題が実在するなら再登録しない
+    if(d && d.status==='done' && d.senbonId && existingIds.has(d.senbonId)){ dup++; return; }
+    // ② 同じ問題文(正規化後)が既に千本ノックに存在するなら登録しない
+    if(existingQkeys.has(normQ(o.q))){
+      dup++;
+      // 下書きがまだ pending のままなら、実質登録済みなので done にしておく
+      if(d && d.status!=='done'){ d.status='done'; d.doneAt=Date.now(); matched++; }
+      return;
+    }
     // 配置先: draftId があればその下書きから、無ければ JSON 内の値
     const subject = (d && d.subject) || o.subject || '';
     const frameNo = (d && d.frameNo!=null) ? d.frameNo : (o.frameNo!=null?o.frameNo:null);
     const subFrameKey = (d && d.subFrameKey) || o.subFrameKey || null;
+    const newId = 'sb_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
     state.senbon.push({
-      id: 'sb_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+      id: newId,
       subject: subject,
       frameNo: frameNo,
       subFrameKey: subFrameKey,
@@ -13943,11 +13969,45 @@ function importProcessedSenbonDrafts(arr){
       articleText: o.articleText || '',
       createdAt: Date.now()
     });
+    existingIds.add(newId);
+    existingQkeys.add(normQ(o.q));
     added++;
-    if(d && d.status==='pending'){ d.status='done'; d.doneAt=Date.now(); matched++; }
+    if(d){ d.status='done'; d.doneAt=Date.now(); d.senbonId=newId; matched++; }
   });
   saveState();
-  return {added, matched, skipped};
+  return {added, matched, skipped, dup};
+}
+
+// 改修V02_06(重複対策): 既存の千本ノック問題から、問題文が同一の重複を整理する。
+//   各問題文(正規化キー)について最も古い createdAt の1件を残し、残りを削除。
+//   返り値: {removed, groups} removed=削除件数, groups=重複していた問題文の種類数
+function dedupeSenbonQuestions(){
+  if(!Array.isArray(state.senbon)) return {removed:0, groups:0};
+  const normQ = s => String(s||'').replace(/\s+/g,'').trim();
+  // 問題文キー → 同一問題の配列
+  const byKey = new Map();
+  for(const q of state.senbon){
+    if(!q) continue;
+    const k = normQ(q.q);
+    if(!k) continue;
+    if(!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k).push(q);
+  }
+  const removeIds = new Set();
+  let groups = 0;
+  for(const [k, arr] of byKey){
+    if(arr.length <= 1) continue;
+    groups++;
+    // createdAt 昇順(古い順)。createdAt 欠落は 0 扱いで最古とみなす
+    arr.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+    // 先頭(最古)を残し、残りを削除対象に
+    for(let i=1;i<arr.length;i++){ removeIds.add(arr[i].id); }
+  }
+  if(removeIds.size){
+    state.senbon = state.senbon.filter(q=> q && !removeIds.has(q.id));
+    saveState();
+  }
+  return {removed:removeIds.size, groups};
 }
 
 // 一問一答 追加/編集モーダル
