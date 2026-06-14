@@ -2898,12 +2898,16 @@
   .gantt-row-slots .gs-slot.prog{background:var(--amber);color:#fff;border:none}
   /* 改修V02_07: 千本ノック表示(濃紺) */
   .gantt-row-slots .gs-slot.senbon-done{background:#1f2a5a;color:#fff;border:none}
-  /* 過去問A行のハコ底に重ねる千本ノック完走バー(濃紺の太い下線) */
-  .gantt-row-slots .gs-slot{position:relative}
-  .gantt-row-slots .gs-slot.has-senbon::after{
-    content:'';position:absolute;left:0;right:0;bottom:0;height:3px;
-    background:#1f2a5a;border-bottom-left-radius:3px;border-bottom-right-radius:3px;
+  /* 改修V02_07b: 付随表示(＋α)では、択一ハコ列の「真下」に独立した千本ノック帯を1段追加する。
+     緑のハコと物理的に分離するため重なりがなく、上段=択一/下段=千本 と読める。 */
+  .gantt-row-slots .gs-senbon-grid{
+    display:grid;grid-template-columns:repeat(10,1fr);gap:2px;
+    width:100%;margin-top:3px;
   }
+  .gantt-row-slots .gs-senbon-cell{
+    height:4px;border-radius:2px;background:transparent;
+  }
+  .gantt-row-slots .gs-senbon-cell.on{background:#1f2a5a}
   .gantt-legend .leg-dot.senbon{background:#1f2a5a}
 
   /* 日付セル(grid 直接子) — 改修28-2: grid破綻の修正 */
@@ -16009,8 +16013,8 @@ function _gBuildSenbonRowData(subject, frameNo, subFrameKey, frameForDisplay){
 }
 
 // 付随表示(＋α)用: 過去問Aの行データに、同一フレームの千本ノック実施情報を付与する。
-//   rowData.senbonRuns に完走回(ts昇順)を持たせ、描画側がスロット底の濃紺バーと
-//   濃紺オーバーレイ(点・線)を追加できるようにする。
+//   rowData.senbonRuns に完走回(ts昇順)を持たせ、描画側がオーバーレイ(濃紺の点・線)を追加できるようにする。
+//   さらに、択一ハコ列の真下に独立した千本ノック帯(10列)を1段追加する(緑ハコと重ならない)。
 function _gAttachSenbonInfo(rowData){
   if(!rowData || !rowData.frame) return rowData;
   const fr = rowData.frame;
@@ -16018,19 +16022,15 @@ function _gAttachSenbonInfo(rowData){
   const subFrameKey = fr._isSubFrame ? fr.n : null;
   const runs = _gSenbonRunsFor(rowData.subject, frameNo, subFrameKey);
   rowData.senbonRuns = runs;
-  // 過去問Aのスロット(10ハコ)の底に、千本完走回数ぶんの濃紺バー(has-senbon)を付与する。
-  //   完走 i+1 回目を i 番目のハコ底に対応させる(過去問Aの回数と独立。あくまで「同フレームで千本を何回完走したか」を底線で表す)。
+  // 択一ハコ列(gs-grid)の下に、千本完走回数ぶんを点灯させた帯を1段追加する。
   if(runs.length){
     const sCount = Math.min(runs.length, 10);
-    // 既存スロットHTMLの各 gs-slot に、先頭から sCount 個だけ has-senbon を追加する。
-    let idx = -1;
-    rowData.slotsHtml = rowData.slotsHtml.replace(/<div class="gs-slot([^"]*)"/g, (m, cls)=>{
-      idx++;
-      if(idx < sCount){
-        return `<div class="gs-slot${cls} has-senbon" data-senbon-run="${idx}"`;
-      }
-      return m;
-    });
+    let strip = '<div class="gs-senbon-grid" title="千本ノック完走 '+runs.length+'回">';
+    for(let i=0;i<10;i++){
+      strip += `<div class="gs-senbon-cell${i<sCount?' on':''}"></div>`;
+    }
+    strip += '</div>';
+    rowData.slotsHtml = rowData.slotsHtml + strip;
   }
   return rowData;
 }
