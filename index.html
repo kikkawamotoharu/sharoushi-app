@@ -2896,6 +2896,15 @@
   .gantt-row-slots .gs-slot.done.warn{background:#E8B923;color:#3a2a00}
   .gantt-row-slots .gs-slot.done.overdue{background:#D9534F;color:#fff}
   .gantt-row-slots .gs-slot.prog{background:var(--amber);color:#fff;border:none}
+  /* 改修V02_07: 千本ノック表示(濃紺) */
+  .gantt-row-slots .gs-slot.senbon-done{background:#1f2a5a;color:#fff;border:none}
+  /* 過去問A行のハコ底に重ねる千本ノック完走バー(濃紺の太い下線) */
+  .gantt-row-slots .gs-slot{position:relative}
+  .gantt-row-slots .gs-slot.has-senbon::after{
+    content:'';position:absolute;left:0;right:0;bottom:0;height:3px;
+    background:#1f2a5a;border-bottom-left-radius:3px;border-bottom-right-radius:3px;
+  }
+  .gantt-legend .leg-dot.senbon{background:#1f2a5a}
 
   /* 日付セル(grid 直接子) — 改修28-2: grid破綻の修正 */
   .gantt-day-cell{
@@ -2922,6 +2931,9 @@
   .gantt-point.warn{background:#E8B923}
   .gantt-point.overdue{background:#D9534F}
   .gantt-point.prog{background:var(--amber)}
+  /* 改修V02_07: 千本ノックの点(濃紺)。付随表示では小さめ・縁取りで区別 */
+  .gantt-point.senbon{background:#1f2a5a}
+  .gantt-point.senbon-sub{background:#1f2a5a;width:8px;height:8px;border:1.5px solid #fff;box-shadow:0 0 0 1px #1f2a5a}
 
   /* 「今」を示す縦ライン */
   .gantt-now-line{
@@ -5491,6 +5503,11 @@ function loadState(){
       //   senbonHistory: 解答ログ { id, ts, correct, category, subject, frameNo, level }
       s.senbon = Array.isArray(s.senbon) ? s.senbon : [];
       s.senbonHistory = Array.isArray(s.senbonHistory) ? s.senbonHistory : [];
+      // 改修V02_07: 千本ノックの「完走した実施回」記録(ガントチャート用)
+      //   要素: { id, subject, frameNo, subFrameKey, ts(完走時刻), total(出題数), correct(正答数) }
+      //   1回の完走 = そのフレームの千本ノックを最初から最後まで解き切ったもの。
+      //   科目・フレームをまたぐ演習では、結果を subject+frameNo 単位に分けて複数記録する。
+      s.senbonRuns = Array.isArray(s.senbonRuns) ? s.senbonRuns : [];
       // 改修V02_06: 千本ノック自動登録の「加工待ち下書き」
       //   要素: { id, qid, subject, frameNo, subFrameKey, kind, text, explanation, answer(bool), createdAt, status('pending'|'done'), category }
       //   フレーム完了時に「千本」付箋の付いた択一問題のスナップショットを溜める。
@@ -8514,6 +8531,7 @@ function _mergeBackupsCore(oldD, newD){
     senbon:{addedPaths:0},
     senbonHistory:{addedPaths:0},
     senbonDrafts:{addedPaths:0},
+    senbonRuns:{addedPaths:0},
     conflicts:[]
   };
 
@@ -8741,6 +8759,22 @@ function _mergeBackupsCore(oldD, newD){
         stats.senbonDrafts.addedPaths++;
       }
     }
+  }
+  // 改修V02_07: 千本ノックの完走実施回(senbonRuns)も id 基準 add-only マージ
+  {
+    const oldArr = Array.isArray(oldD.senbonRuns) ? oldD.senbonRuns : [];
+    result.senbonRuns = Array.isArray(result.senbonRuns) ? result.senbonRuns : [];
+    const seen = new Set(result.senbonRuns.map(s=> s && s.id).filter(Boolean));
+    stats.senbonRuns ||= {addedPaths:0};
+    for(const s of oldArr){
+      if(s && s.id && !seen.has(s.id)){
+        try{ result.senbonRuns.push(JSON.parse(JSON.stringify(s))); }
+        catch(_){ result.senbonRuns.push(s); }
+        seen.add(s.id);
+        stats.senbonRuns.addedPaths++;
+      }
+    }
+    result.senbonRuns.sort((a,b)=>(a&&a.ts||0)-(b&&b.ts||0));
   }
 
   if(!result.whyIntro && oldD.whyIntro){
@@ -9072,6 +9106,7 @@ async function _applyMergeRestore(){
   state.senbon = Array.isArray(state.senbon) ? state.senbon : [];
   state.senbonHistory = Array.isArray(state.senbonHistory) ? state.senbonHistory : [];
   state.senbonDrafts = Array.isArray(state.senbonDrafts) ? state.senbonDrafts : [];
+  state.senbonRuns = Array.isArray(state.senbonRuns) ? state.senbonRuns : [];
   state.senbonSession ||= {category:'',subject:'',frame:'',level:3,running:false,idx:0,order:[],results:[]};
   state.senbonView ||= {mode:'subjects',subject:null,frameNo:null,tab:'list',weakSub:'weak'};
   state.cases ||= [];
@@ -9191,6 +9226,7 @@ function restoreBackup(){
         state.senbon = Array.isArray(state.senbon) ? state.senbon : [];
         state.senbonHistory = Array.isArray(state.senbonHistory) ? state.senbonHistory : [];
         state.senbonDrafts = Array.isArray(state.senbonDrafts) ? state.senbonDrafts : [];
+        state.senbonRuns = Array.isArray(state.senbonRuns) ? state.senbonRuns : [];
         state.senbonSession ||= {category:'',subject:'',frame:'',level:3,running:false,idx:0,order:[],results:[]};
         state.senbonView ||= {mode:'subjects',subject:null,frameNo:null,tab:'list',weakSub:'weak'};
         state.studyPlans ||= {};
@@ -13211,6 +13247,7 @@ function startSenbonRun(isRepeat){
   s.idx = 0;
   s.order = order;
   s.results = [];
+  s._runsRecorded = false;   // 改修V02_07: 新しい演習なので実施回の記録フラグをリセット
   saveState();
   renderSenbon();
 }
@@ -13362,9 +13399,56 @@ function quitSenbonRun(){
 }
 
 // ===== 結果画面 =====
+// 改修V02_07: 完走した千本演習の結果を、科目+フレーム単位で senbonRuns に記録する。
+//   - 同一セッションで二重記録しないよう、senbonSession._runsRecorded で一度きりに制御。
+//   - 「繰り返し(同じ問題をもう一度)」で再度完走した場合は、新しいセッション扱いで別途記録される
+//     (startSenbonRun が _runsRecorded をリセットするため)。
+function recordSenbonRunsFromResults(results){
+  if(!Array.isArray(results) || !results.length) return 0;
+  const s = state.senbonSession;
+  if(s && s._runsRecorded) return 0;   // このセッションは記録済み
+  if(!Array.isArray(state.senbonRuns)) state.senbonRuns = [];
+  // 結果問題を subject + frameNo + subFrameKey 単位に集計
+  const groups = new Map(); // key -> {subject, frameNo, subFrameKey, total, correct}
+  for(const r of results){
+    const q = senbonAllQuestions().find(x=>x.id===r.id);
+    if(!q) continue;
+    const subject = q.subject || '';
+    const frameNo = (q.frameNo!=null) ? q.frameNo : null;
+    const subFrameKey = q.subFrameKey || null;
+    const key = `${subject}|${frameNo}|${subFrameKey||''}`;
+    if(!groups.has(key)) groups.set(key, {subject, frameNo, subFrameKey, total:0, correct:0});
+    const g = groups.get(key);
+    g.total++;
+    if(r.correct) g.correct++;
+  }
+  const now = Date.now();
+  let recorded = 0;
+  for(const g of groups.values()){
+    if(!g.subject || g.frameNo==null) continue;   // 配置先不明の問題は記録しない
+    state.senbonRuns.push({
+      id: 'sr_'+now+'_'+Math.random().toString(36).slice(2,7),
+      subject: g.subject,
+      frameNo: g.frameNo,
+      subFrameKey: g.subFrameKey,
+      ts: now,
+      total: g.total,
+      correct: g.correct
+    });
+    recorded++;
+  }
+  if(s) s._runsRecorded = true;
+  saveState();
+  return recorded;
+}
+
 function renderSenbonResult(root){
   const s = state.senbonSession;
   const res = s.results || [];
+  // 改修V02_07: 完走(最初から最後まで解き切った)ので、千本ノックの実施回を記録する。
+  //   科目・フレームをまたぐ演習に対応するため、結果を subject+frameNo 単位に分けて記録。
+  //   重複記録防止のため、このセッションでまだ記録していない場合のみ実行する。
+  try{ recordSenbonRunsFromResults(res); }catch(e){ /* 記録失敗は結果表示を妨げない */ }
   const total = res.length;
   const correctN = res.filter(r=>r.correct).length;
   const timeoutN = res.filter(r=>r.timedOut).length;
@@ -13460,7 +13544,7 @@ function renderSenbonReview(root){
   if(retryBtn) retryBtn.addEventListener('click',()=>{
     // ミスした問題だけで新セッションを組む
     const ids = wrong.map(o=>o.q.id);
-    s.order = ids; s.idx = 0; s.results = []; s.running = true; s.paused = false; s.remainMs = 0;
+    s.order = ids; s.idx = 0; s.results = []; s.running = true; s.paused = false; s.remainMs = 0; s._runsRecorded = false;
     saveState(); renderSenbon();
   });
   document.getElementById('sbrv-back').addEventListener('click',()=>renderSenbonResult(root));
@@ -15864,20 +15948,113 @@ function _gBuildSubFrameRowData(subject, parentFr, subFrame, kindMode, snap){
   };
 }
 
+/* ===== 改修V02_07: 千本ノックのガントチャート対応 ===== */
+
+// 指定科目・フレーム(中分類含む)の千本ノック「完走実施回」を、古い順の配列で返す。
+//   返り値: [{ts, total, correct}, ...] (ts昇順)
+function _gSenbonRunsFor(subject, frameNo, subFrameKey){
+  const runs = Array.isArray(state.senbonRuns) ? state.senbonRuns : [];
+  const fnoStr = String(frameNo);
+  const sfk = subFrameKey || null;
+  const out = runs.filter(r=>{
+    if(!r) return false;
+    if(r.subject !== subject) return false;
+    if(String(r.frameNo) !== fnoStr) return false;
+    // subFrameKey は両方 null/同値のときのみ一致(中分類単位で区別)
+    const rsfk = r.subFrameKey || null;
+    return rsfk === sfk;
+  }).map(r=>({ts:r.ts, total:r.total, correct:r.correct}));
+  out.sort((a,b)=>(a.ts||0)-(b.ts||0));
+  return out;
+}
+
+// 千本ノック単独表示用の行データ。過去問Aの _gBuildRowData と同じ形を、senbonRuns から作る。
+//   slot は完走回数ぶん濃紺で塗り、point は最終完走日に置く。
+function _gBuildSenbonRowData(subject, frameNo, subFrameKey, frameForDisplay){
+  const runs = _gSenbonRunsFor(subject, frameNo, subFrameKey);
+  // そのフレームに千本問題が登録されているか
+  const totalQs = senbonAllQuestions().filter(q=>
+    q.subject===subject && String(q.frameNo)===String(frameNo) &&
+    ((q.subFrameKey||null)===(subFrameKey||null))
+  ).length;
+  const completed = runs.length;
+  let pointDate = null, pointStatus = 'empty', attemptNo = 0, statusText = '未着手';
+  if(completed > 0){
+    const last = runs[completed-1];
+    pointDate = last.ts ? new Date(last.ts) : null;
+    pointStatus = 'senbon';            // 千本専用ステータス(濃紺)
+    attemptNo = completed;
+    statusText = `千本${completed}回完了`;
+  }
+  // スロット(10ハコ)。完走ぶんを濃紺(gs-slot senbon)で塗る。
+  let slotsHtml = '<div class="gs-grid">';
+  for(let i=0;i<10;i++){
+    if(i < completed){
+      slotsHtml += `<div class="gs-slot senbon-done" title="千本${i+1}回目完了 (${runs[i].correct}/${runs[i].total}問正解)">${i+1}</div>`;
+    }else{
+      slotsHtml += `<div class="gs-slot">${i+1}</div>`;
+    }
+  }
+  slotsHtml += '</div>';
+  return {
+    subject,
+    frame: frameForDisplay,
+    totalQs,
+    eligible: totalQs > 0,
+    pointDate, pointStatus, attemptNo, slotsHtml, statusText,
+    hasNoQ: totalQs === 0,
+    isSenbon: true,
+    senbonRuns: runs
+  };
+}
+
+// 付随表示(＋α)用: 過去問Aの行データに、同一フレームの千本ノック実施情報を付与する。
+//   rowData.senbonRuns に完走回(ts昇順)を持たせ、描画側がスロット底の濃紺バーと
+//   濃紺オーバーレイ(点・線)を追加できるようにする。
+function _gAttachSenbonInfo(rowData){
+  if(!rowData || !rowData.frame) return rowData;
+  const fr = rowData.frame;
+  const frameNo = fr._isSubFrame ? fr._parentN : fr.n;
+  const subFrameKey = fr._isSubFrame ? fr.n : null;
+  const runs = _gSenbonRunsFor(rowData.subject, frameNo, subFrameKey);
+  rowData.senbonRuns = runs;
+  // 過去問Aのスロット(10ハコ)の底に、千本完走回数ぶんの濃紺バー(has-senbon)を付与する。
+  //   完走 i+1 回目を i 番目のハコ底に対応させる(過去問Aの回数と独立。あくまで「同フレームで千本を何回完走したか」を底線で表す)。
+  if(runs.length){
+    const sCount = Math.min(runs.length, 10);
+    // 既存スロットHTMLの各 gs-slot に、先頭から sCount 個だけ has-senbon を追加する。
+    let idx = -1;
+    rowData.slotsHtml = rowData.slotsHtml.replace(/<div class="gs-slot([^"]*)"/g, (m, cls)=>{
+      idx++;
+      if(idx < sCount){
+        return `<div class="gs-slot${cls} has-senbon" data-senbon-run="${idx}"`;
+      }
+      return m;
+    });
+  }
+  return rowData;
+}
+
 /* ガントチャート本体の描画 */
 function renderProgressGantt(root){
   const snap = _gGetSnapshot();
   // ガントチャート用のサブ状態
-  state.progressView.ganttMode    ||= 'all';      // 'all' | 'subject'
+  state.progressView.ganttMode    ||= 'all';      // 'all' | 'all_plus' | 'subject' | 'subject_plus'
   state.progressView.ganttSubject ||= SUBJECTS_ORDER[0];
-  state.progressView.ganttKindMode ||= 'pastA';  // 'pastA' | 'pastB' | 'forecast'
+  state.progressView.ganttKindMode ||= 'pastA';  // 'pastA' | 'pastB' | 'forecast' | 'senbon'
   const ganttMode = state.progressView.ganttMode;
   const ganttSubject = state.progressView.ganttSubject;
   const ganttKindMode = state.progressView.ganttKindMode;
+  // 改修V02_07: 表示モードの「+α(千本ノック付随表示)」かどうか
+  const withSenbon = (ganttMode === 'all_plus' || ganttMode === 'subject_plus');
+  // 単一科目系かどうか
+  const isSingle = (ganttMode === 'subject' || ganttMode === 'subject_plus');
+  // 問題区分が「千本ノック」単独表示か
+  const isSenbonKind = (ganttKindMode === 'senbon');
 
   // 対象科目リスト
   let subjects;
-  if(ganttMode === 'subject'){
+  if(isSingle){
     subjects = [ganttSubject];
   }else{
     subjects = SUBJECTS_ORDER.slice();
@@ -15891,26 +16068,31 @@ function renderProgressGantt(root){
     const frames = FRAMES[subject] || [];
     const rows = [];
     for(const fr of frames){
-      // 改修28-5: サブフレームを持つ親フレームの場合、サブフレームを1つずつ個別の行として展開する。
-      // (旧仕様では親フレーム集約で1行にしていたが、社一・労一など中分類が多い科目で
-      //  進捗が見えなくなる問題があったため、個別表示に切り替え)
-      // 改修28-7: 問題未登録(hasNoQ)のフレームも除外しない。
-      //  俯瞰用ガントチャートの目的(=全体を見る)を満たすため、未登録フレームは
-      //  メタ列を薄く(dim+pending)表示するのみで、行自体は残す。
-      //  これにより労働基準法・労一・社一など問題が少ない科目でも全フレームが見える。
       if(typeof hasSubFrames === 'function' && hasSubFrames(subject, fr.n)){
         const subs = getSubFrames(subject, fr.n) || [];
         for(const sf of subs){
-          const subRow = _gBuildSubFrameRowData(subject, fr, sf, ganttKindMode, snap);
+          let subRow;
+          if(isSenbonKind){
+            // 千本ノック単独表示
+            subRow = _gBuildSenbonRowData(subject, fr.n, sf.key, {n:sf.key, t:sf.t, _parentN:fr.n, _isSubFrame:true});
+          }else{
+            subRow = _gBuildSubFrameRowData(subject, fr, sf, ganttKindMode, snap);
+            if(withSenbon && ganttKindMode==='pastA') _gAttachSenbonInfo(subRow);
+          }
           rows.push(subRow);
         }
       }else{
-        // サブフレームを持たない通常フレーム
-        const rowData = _gBuildRowData(subject, fr, ganttKindMode, snap);
+        let rowData;
+        if(isSenbonKind){
+          rowData = _gBuildSenbonRowData(subject, fr.n, null, fr);
+        }else{
+          rowData = _gBuildRowData(subject, fr, ganttKindMode, snap);
+          if(withSenbon && ganttKindMode==='pastA') _gAttachSenbonInfo(rowData);
+        }
         rows.push(rowData);
       }
     }
-    if(rows.length > 0 || ganttMode === 'subject'){
+    if(rows.length > 0 || isSingle){
       groups.push({subject, rows});
     }
   }
@@ -15946,9 +16128,11 @@ function renderProgressGantt(root){
       <label>表示モード</label>
       <select id="gantt-mode-sel">
         <option value="all"${ganttMode==='all'?' selected':''}>全体(全科目)</option>
+        <option value="all_plus"${ganttMode==='all_plus'?' selected':''}>全体(全科目)＋α(千本)</option>
         <option value="subject"${ganttMode==='subject'?' selected':''}>単一科目</option>
+        <option value="subject_plus"${ganttMode==='subject_plus'?' selected':''}>単一科目＋α(千本)</option>
       </select>
-      <span id="gantt-subj-wrap" style="${ganttMode==='subject'?'':'display:none'}">
+      <span id="gantt-subj-wrap" style="${isSingle?'':'display:none'}">
         <label>科目</label>
         <select id="gantt-subject-sel">${subjectOptions}</select>
       </span>
@@ -15957,6 +16141,7 @@ function renderProgressGantt(root){
         <option value="pastA"${ganttKindMode==='pastA'?' selected':''}>過去問A</option>
         <option value="pastB"${ganttKindMode==='pastB'?' selected':''}>過去問B</option>
         <option value="forecast"${ganttKindMode==='forecast'?' selected':''}>予想問</option>
+        <option value="senbon"${ganttKindMode==='senbon'?' selected':''}>千本ノック</option>
       </select>
       <button id="gantt-refresh-btn" class="btn ghost btn-sm" style="margin-left:8px" title="起点(左端)を「今日-7日」にリセットします">🔄 起点リセット</button>
       <div class="gantt-base-info">${baseInfo}</div>
@@ -15966,6 +16151,7 @@ function renderProgressGantt(root){
       <span class="leg"><span class="leg-dot warn"></span> 復習推奨(黄)</span>
       <span class="leg"><span class="leg-dot overdue"></span> 要復習(赤)</span>
       <span class="leg"><span class="leg-dot prog"></span> 演習中</span>
+      <span class="leg"><span class="leg-dot senbon"></span> 千本ノック(完走)</span>
       <span class="leg" style="color:var(--ink-muted)">フレーム名がグレー = 未着手</span>
       <span style="margin-left:auto;font-size:10.5px;color:var(--ink-muted)">縦の黄色ライン = 基準日(=「今」)</span>
     </div>
@@ -16273,6 +16459,54 @@ function _gPaintOverlays(groups, dayDates, snap, ganttMode){
     pl.setAttribute('points', coords.join(' '));
     svg.appendChild(pl);
   }
+
+  // 改修V02_07: 千本ノックの点(濃紺)と線。
+  //   - 千本単独表示(行が isSenbon): 各行の最終完走日に濃紺の点を置き、濃紺線で結ぶ。
+  //   - 付随表示(行に senbonRuns あり): 過去問Aの点とは別に、最終完走日へ濃紺サブ点を置き結ぶ。
+  {
+    const senbonCoords = [];
+    let rIdx = 0;
+    for(let gi=0; gi<groups.length; gi++){
+      for(let ri=0; ri<groups[gi].rows.length; ri++){
+        const row = groups[gi].rows[ri];
+        const runs = row.senbonRuns;
+        const isSenbonRow = !!row.isSenbon;
+        if(Array.isArray(runs) && runs.length){
+          const lastTs = runs[runs.length-1].ts;
+          const dayIdx = _gDayDiff(new Date(lastTs), snap.startDate);
+          if(dayIdx >= 0 && dayIdx < dayDates.length){
+            const cell = table.querySelector(`.gantt-day-cell[data-row-idx="${rIdx}"][data-day-idx="${dayIdx}"]`);
+            if(cell){
+              // 単独表示で既に point があるなら座標だけ取得(点は既設)。付随表示なら濃紺サブ点を追加。
+              let dot = isSenbonRow ? cell.querySelector('.gantt-point') : null;
+              if(!isSenbonRow){
+                dot = document.createElement('div');
+                dot.className = 'gantt-point senbon-sub';
+                dot.title = `千本ノック ${runs.length}回完走`;
+                cell.appendChild(dot);
+              }
+              const dRect = (dot || cell).getBoundingClientRect();
+              const x = (dRect.left + dRect.width/2) - tableRect.left + table.scrollLeft;
+              const y = (dRect.top  + dRect.height/2) - tableRect.top  + table.scrollTop;
+              senbonCoords.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+            }
+          }
+        }
+        rIdx++;
+      }
+    }
+    if(senbonCoords.length >= 2){
+      const spl = document.createElementNS(svgNS,'polyline');
+      spl.setAttribute('points', senbonCoords.join(' '));
+      spl.setAttribute('fill','none');
+      spl.setAttribute('stroke','#1f2a5a');
+      spl.setAttribute('stroke-width','2');
+      spl.setAttribute('stroke-dasharray','4 3');
+      spl.setAttribute('opacity','0.85');
+      svg.appendChild(spl);
+    }
+  }
+
   table.appendChild(svg);
 
   // === 基準日(=「今」)の縦ライン ===
