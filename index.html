@@ -2900,6 +2900,8 @@
   .gantt-row-slots .gs-slot.senbon-done{background:#1f2a5a;color:#fff;border:none}
   /* 改修V02_07b: 付随表示(＋α)では、択一ハコ列の「真下」に独立した千本ノック帯を1段追加する。
      緑のハコと物理的に分離するため重なりがなく、上段=択一/下段=千本 と読める。 */
+  /* 改修V02_07b: ハコ列と千本帯を縦に積むラッパー(.gantt-row-slots が flex 横並びのため必要) */
+  .gantt-row-slots .gs-stack{display:flex;flex-direction:column;width:100%}
   .gantt-row-slots .gs-senbon-grid{
     display:grid;grid-template-columns:repeat(10,1fr);gap:2px;
     width:100%;margin-top:3px;
@@ -16023,6 +16025,8 @@ function _gAttachSenbonInfo(rowData){
   const runs = _gSenbonRunsFor(rowData.subject, frameNo, subFrameKey);
   rowData.senbonRuns = runs;
   // 択一ハコ列(gs-grid)の下に、千本完走回数ぶんを点灯させた帯を1段追加する。
+  //   .gantt-row-slots は display:flex(横並び)なので、ハコ列と帯を縦積みラッパーで囲んで
+  //   「上=ハコ / 下=帯」に並べる(囲まないと帯が右隣に並んで潰れて見えなくなる)。
   if(runs.length){
     const sCount = Math.min(runs.length, 10);
     let strip = '<div class="gs-senbon-grid" title="千本ノック完走 '+runs.length+'回">';
@@ -16030,7 +16034,7 @@ function _gAttachSenbonInfo(rowData){
       strip += `<div class="gs-senbon-cell${i<sCount?' on':''}"></div>`;
     }
     strip += '</div>';
-    rowData.slotsHtml = rowData.slotsHtml + strip;
+    rowData.slotsHtml = `<div class="gs-stack">${rowData.slotsHtml}${strip}</div>`;
   }
   return rowData;
 }
