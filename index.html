@@ -5459,6 +5459,102 @@ function _dedupNenkinF9(s, opts){
   return removed;
 }
 
+/* === 改修58_01: 厚生年金保険法フレーム8(離婚時の年金分割)の択一問題
+   「合意分割の請求前に甲が死亡 → 死亡日から起算15日目に公正証書を添えて請求」
+   の正誤判定の誤り(本来「○(正)」のはずが answer:false として登録されている)を是正する。
+
+   背景:
+     当事者の一方が死亡した日から起算して「1月以内」に、当事者の他方が公正証書等を
+     添えて標準報酬改定請求(合意分割の請求)を行った場合、その一方が死亡した日の前日に
+     請求があったものとみなされる(法78条の2第3項、令3条の12の7、則78条の4第1項1号イ他)。
+     本問は死亡日から15日目(=1月以内)であるため、当該請求があったものとみなされる。
+     したがって正しい(○)。よって answer は true が正。
+
+   方針:
+     ・端末に既に登録済みの当該問題を「問題文の正規化一致」で特定する(ID は端末ごとに
+       異なり得るため、ID では特定しない)。これにより、どの端末のデータでも是正できる。
+     ・該当問題の answer が true でなければ true に直す(冪等)。
+     ・解答履歴(history)は実績なので一切書き換えない。本是正で過去の「×と判定された」
+       履歴の正誤表示が変わるのは、判定の基準(answer)が正しくなった結果として妥当。
+     ・誤是正に備え、初回のみ localStorage に直前バックアップを取る。
+     ・読込時/復元時に一度だけ実行(_fixKoseiF8AnswerDone フラグで端末ごとに管理)。
+   引数 s は state(またはそれ相当)。s を破壊的に編集し、是正件数を返す。 */
+function _fixKoseiF8GoiBunkatuAnswer(s, opts){
+  opts = opts || {};
+  if(!s || !Array.isArray(s.questions)) return 0;
+
+  // 厚生年金保険法フレーム8 判定(法名の表記ゆれに配慮)
+  const isKoseiF8 = (q)=>{
+    if(!q) return false;
+    const law = (q.law||'').trim();
+    const isKosei = (law === '厚生年金保険法' || law === '厚年法' || law === '厚年');
+    return isKosei && Number(q.frameNo) === 8;
+  };
+
+  // 問題文の正規化(空白・改行・全角空白・強調用の【】記号を除去して比較する)
+  const normKey = (t)=>{
+    if(t==null) return '';
+    return String(t)
+      .replace(/[【】]/g, '')
+      .replace(/\s+/g, '')
+      .replace(/\u3000/g, '')
+      .trim();
+  };
+
+  // 是正対象の問題文(本文)。設問本体の文言で照合する。
+  // 「甲が死亡した日から起算し(て)15日目に…公正証書を添えて合意分割の請求」が骨子。
+  const targetNorm = normKey(
+    '甲と乙は離婚したが、合意分割(厚生年金保険法第78条の2に規定する離婚等をした場合における標準報酬の改定の特例をいう。)の請求前に甲が死亡した。その後、乙は、甲の死亡した日から起算し15日目に、所定の事項が記載された公正証書を添えて合意分割の請求を行った。この場合、甲が死亡した日の前日に当該請求があったものとみなされる。'
+  );
+
+  // 照合の頑健性確保のため、ID断片(R7-2A)＋特徴的フレーズでも拾えるようにする。
+  // (問題文の句読点・括弧の全半角揺れに備えた緩い一致)
+  const looksLikeTarget = (q)=>{
+    const n = normKey(q.text);
+    if(!n) return false;
+    if(n === targetNorm) return true;
+    // 緩い一致: 設問を一意に特定できる特徴的フレーズの同時出現で判定
+    return n.includes('甲の死亡した日から起算')
+        && n.includes('15日目')
+        && n.includes('公正証書')
+        && n.includes('合意分割の請求')
+        && n.includes('死亡した日の前日に');
+  };
+
+  const candidates = s.questions.filter(q => isKoseiF8(q) && looksLikeTarget(q));
+  // フレーム情報が欠落している端末向けのフォールバック(法名・フレーム不問で本文一致のみ)
+  const fallback = candidates.length ? [] : s.questions.filter(q => looksLikeTarget(q));
+  const targets = candidates.length ? candidates : fallback;
+
+  if(!targets.length) return 0;
+
+  // 既に正(true)なら是正不要(冪等)
+  const needFix = targets.filter(q => q.answer !== true);
+  if(!needFix.length) return 0;
+
+  // --- 是正前バックアップ(localStorage に1回限り退避) ---
+  if(opts.takeBackup){
+    try{
+      const bkey = 'sharoushi_fix58_01_backup';
+      if(!localStorage.getItem(bkey)){
+        localStorage.setItem(bkey, JSON.stringify({
+          ts: Date.now(),
+          reason: '改修58_01 厚生年金F8 合意分割問題 正誤是正の直前バックアップ',
+          // 該当問題のみを退避(全件は容量を圧迫しうるため対象だけ保存)
+          targets: needFix.map(q => ({id:q.id, law:q.law, frameNo:q.frameNo, qno:q.qno, answer:q.answer, text:q.text}))
+        }));
+      }
+    }catch(_){ /* 退避失敗は致命的でないため握りつぶす */ }
+  }
+
+  let fixed = 0;
+  for(const q of needFix){ q.answer = true; fixed++; }
+
+  console.log(`[改修58_01] 厚生年金F8 合意分割問題の正誤を是正: ${fixed}件(answer:false → true)`);
+  s._fixKoseiF8AnswerFixed = fixed; // 起動後/復元後の通知用
+  return fixed;
+}
+
 function loadState(){
   let rawForGuard = null;
   try{
@@ -5670,6 +5766,16 @@ function loadState(){
           s._dedupNenkinF9Done = true;   // 旧フラグも立てておく(後方互換)
         }
       }catch(e){ console.warn('[改修57_05] 重複削除中にエラー', e); }
+
+      // === 改修58_01: 厚生年金F8 合意分割問題の正誤是正(answer:false → true)===
+      // 読込時に一度だけ実行(端末ごとに _fixKoseiF8AnswerDone フラグで管理)。
+      // 詳細ロジックは _fixKoseiF8GoiBunkatuAnswer() に集約(復元時にも再利用)。
+      try{
+        if(!s._fixKoseiF8AnswerDone){
+          _fixKoseiF8GoiBunkatuAnswer(s, {takeBackup:true});
+          s._fixKoseiF8AnswerDone = true; // 端末ごとに一度だけ実行
+        }
+      }catch(e){ console.warn('[改修58_01] 厚生年金F8 正誤是正中にエラー', e); }
 
       // frameAttempts キーの '|past' を '|pastA' に変換
       let faKindMigrated = 0;
@@ -9143,6 +9249,14 @@ async function _applyMergeRestore(){
     delete state._dedupNenkinF9Removed;
   }catch(_){ }
 
+  // 改修58_01: マージ後に厚生年金F8 合意分割問題の正誤誤りが再混入していれば是正する。
+  let _fixKoseiF8Merged = 0;
+  try{
+    _fixKoseiF8Merged = _fixKoseiF8GoiBunkatuAnswer(state, {takeBackup:true}) || 0;
+    state._fixKoseiF8AnswerDone = true;
+    delete state._fixKoseiF8AnswerFixed;
+  }catch(_){ }
+
   // 改修V2_02: 復元データも saveState 経由で IndexedDB へ保存されるため、移行済みフラグを再設定
   state._extMigrated = true;
 
@@ -9153,7 +9267,8 @@ async function _applyMergeRestore(){
   // (renderMergePreview の stats を表示済なので、ここでは件数サマリを alert で出す)
   const a = _analyzeForMerge(state);
   alert(`マージ復元が完了しました。\n\n■ 択一問題: ${state.questions.length}問\n■ 選択式: ${state.selectQuestions.length}問\n■ 事例: ${state.cases.length}件\n■ 図表: ${state.figures.length}件\n■ 千本ノック: ${(state.senbon||[]).length}問\n■ 解答履歴: ${state.history.length}件\n■ フレーム履歴: ${Object.keys(state.frameAttempts).length}件`
-    + (_dedupMerged>0 ? `\n\n※ 国民年金法F9の重複問題 ${_dedupMerged}件を自動削除しました。` : ''));
+    + (_dedupMerged>0 ? `\n\n※ 国民年金法F9の重複問題 ${_dedupMerged}件を自動削除しました。` : '')
+    + (_fixKoseiF8Merged>0 ? `\n\n※ 厚生年金法F8 合意分割問題の正誤(○)を ${_fixKoseiF8Merged}件 是正しました。` : ''));
 
   // 画面再描画
   try{ renderQuiz() }catch(_){}
