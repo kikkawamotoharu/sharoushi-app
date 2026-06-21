@@ -704,9 +704,11 @@
     display:inline-block;margin-left:4px;letter-spacing:.02em;
   }
   .pf-slots{
-    display:grid;grid-template-columns:repeat(10,1fr);gap:4px;
+    display:grid;grid-template-columns:repeat(var(--pf-n,10),1fr);gap:4px;
     margin-bottom:8px;max-width:420px;
   }
+  /* 改修V02_09: 11回以上は10列で複数段に折り返す(1マスの大きさを保つ) */
+  .pf-slots.multi{grid-template-columns:repeat(10,1fr);max-width:420px}
   .slot{
     aspect-ratio:1;border-radius:4px;display:flex;flex-direction:column;
     align-items:center;justify-content:center;font-size:10px;
@@ -2884,7 +2886,7 @@
     padding:4px 6px;
   }
   .gantt-row-slots .gs-grid{
-    display:grid;grid-template-columns:repeat(10,1fr);gap:2px;
+    display:grid;grid-template-columns:repeat(var(--gs-n,10),1fr);gap:2px;
     width:100%;
   }
   .gantt-row-slots .gs-slot{
@@ -2904,7 +2906,7 @@
   /* 改修V02_07b: ハコ列と千本帯を縦に積むラッパー(.gantt-row-slots が flex 横並びのため必要) */
   .gantt-row-slots .gs-stack{display:flex;flex-direction:column;width:100%}
   .gantt-row-slots .gs-senbon-grid{
-    display:grid;grid-template-columns:repeat(10,1fr);gap:2px;
+    display:grid;grid-template-columns:repeat(var(--gs-n,10),1fr);gap:2px;
     width:100%;margin-top:3px;
   }
   .gantt-row-slots .gs-senbon-cell{
@@ -4443,6 +4445,25 @@ function statsSubjectColor(subject){
 /* 改修04 (v2): 弱点モード対象の判定しきい値(累計ミス回数 ≥ N 回で弱点入り、以後は外れない)。
    ここの数字を変えると、択一タブの「弱点」モードと解答履歴バッジの判定が連動して変わる。 */
 const WEAK_THRESHOLD = 3;
+
+/* 改修V02_09: フレーム演習の最大保持回数。
+   従来は 10 回までしか履歴を保持できず、11 回目を「予定」から開始すると
+   確認ダイアログ→キャンセル相当で fa.current が作られず、択一画面の
+   タイマー(演習中バナー)が出ない・実績が計上されない不具合があった。
+   基本 20 回まで 10 回までと同様に演習できるよう上限を引き上げる。
+   進捗ドット表示は max(10, 完了数+1) を本定数でクランプして動的に並べる。 */
+const MAX_FRAME_ATTEMPTS = 20;
+
+/* 改修V02_09: 進捗ドット(スロット)の表示個数を決める。
+   10 回までは従来どおり 10 個。11 回以上は「完了数(＋進行中の1)」だけ
+   並べ、MAX_FRAME_ATTEMPTS(20) でクランプする。これでガント図が
+   無駄に横長にならず、かつ 11〜20 回も表示できる。 */
+function frameSlotCount(completed, hasCurrent){
+  let n = (completed || 0) + (hasCurrent ? 1 : 0);
+  if(n < 10) n = 10;
+  if(n > MAX_FRAME_ATTEMPTS) n = MAX_FRAME_ATTEMPTS;
+  return n;
+}
 
 /* 改修03: 5why タブのトップ画面のイントロ文(デフォルト値)。
    ユーザーが編集すると state.whyIntro に保存され、こちらの値より優先される。
@@ -7016,7 +7037,7 @@ function startFrameAttempt(subject, frameRef, kind){
     if(fa.current){
       if(!confirm(`この特訓(${tlbl})には進行中の演習(${fa.current.answeredIds.length}/${fa.current.questionIds.length}問解答済)があります。\n中止して新しい演習を始めますか?\n(OKで新規開始、キャンセルで現在の演習を継続)`)){
         enterFrameMode(subject, null, kind, null, fref.tokkunKey);
-        return;
+        return true; // 既存演習を継続(演習画面に入る)
       }
       fa.current = null;
     }
@@ -7024,7 +7045,7 @@ function startFrameAttempt(subject, frameRef, kind){
     if(!qTok.length){
       const how = def && def.weak ? `${WEAK_THRESHOLD}回以上ミスした問題` : `付箋「${def?def.short:''}」が付いた問題`;
       alert(`この特訓フレームの対象問題がありません。\n(${subject}で${how}が対象です)\n問題演習で付箋を付ける、または弱点になると、ここに自動で集まります。`);
-      return;
+      return false;
     }
     fa.current = {
       attemptNo: fa.history.length + 1,
@@ -7034,10 +7055,10 @@ function startFrameAttempt(subject, frameRef, kind){
     };
     saveState();
     enterFrameMode(subject, null, kind, null, fref.tokkunKey);
-    return;
+    return true;
   }
 
-  if(fref.frameNo == null){alert('フレーム参照が不正です: '+frameRef);return}
+  if(fref.frameNo == null){alert('フレーム参照が不正です: '+frameRef);return false}
   // frameAttempts のキーは subFrameKey があれば "2.1" 文字列、無ければ整数
   const keyN = fref.isSubFrame ? fref.subFrameKey : fref.frameNo;
   const k = frameKey(subject, keyN, kind);
@@ -7050,13 +7071,13 @@ function startFrameAttempt(subject, frameRef, kind){
     if(!confirm(`このフレーム(${kindLbl})には進行中の演習(${fa.current.answeredIds.length}/${fa.current.questionIds.length}問解答済)があります。\n中止して新しい演習を始めますか?\n(OKで新規開始、キャンセルで現在の演習を継続)`)) {
       // 継続
       enterFrameMode(subject, fref.frameNo, kind, fref.subFrameKey);
-      return;
+      return true; // 既存演習を継続(演習画面に入る)
     }
     // 中止して新規
     fa.current = null;
   }
-  if(fa.history.length >= 10){
-    if(!confirm(`このフレーム(${kindLbl})は既に10回完了しています。さらに演習を始めますか?\n(履歴は最新10件まで保持されます)`)) return;
+  if(fa.history.length >= MAX_FRAME_ATTEMPTS){
+    if(!confirm(`このフレーム(${kindLbl})は既に${MAX_FRAME_ATTEMPTS}回完了しています。さらに演習を始めますか?\n(履歴は最新${MAX_FRAME_ATTEMPTS}件まで保持されます)`)) return false;
   }
   // 該当フレームに属する問題のIDを取得(科目=章 + kind + サブフレーム法律でフィルタ)
   // 改修8: getKind(q) で q.kind を 'pastA'|'pastB'|'forecast' に正規化したものと比較
@@ -7065,7 +7086,7 @@ function startFrameAttempt(subject, frameRef, kind){
     qFiltered = qFiltered.filter(q=>questionMatchesSubFrame(q.law, fref.subFrame));
   }
   const qids = qFiltered.map(q=>q.id);
-  if(!qids.length){alert(`このフレームには${kindLbl}が登録されていません。`);return}
+  if(!qids.length){alert(`このフレームには${kindLbl}が登録されていません。`);return false}
   fa.current = {
     attemptNo: fa.history.length + 1,
     startedAt: Date.now(),
@@ -7074,6 +7095,7 @@ function startFrameAttempt(subject, frameRef, kind){
   };
   saveState();
   enterFrameMode(subject, fref.frameNo, kind, fref.subFrameKey);
+  return true;
 }
 
 function enterFrameMode(subject, frameNo, kind, subFrameKey, tokkunKey){
@@ -7381,7 +7403,7 @@ function _checkFrameCompleteImpl(){
       collectSenbonDraftsFromFrame(required, subject, frameNo, fm.subFrameKey || null, fmKind);
     }catch(e){ /* 収集失敗は完了処理を妨げない */ }
     fa.history.push(fa.current);
-    if(fa.history.length > 10) fa.history.shift(); // 最新10件保持
+    if(fa.history.length > MAX_FRAME_ATTEMPTS) fa.history.shift(); // 最新N件保持(改修V02_09: 10→20)
     fa.current = null;
     // フレーム完了フラグを設定(frameModeはまだ維持 → 最終問の解説を引き続き表示)
     state.session.frameCompleted = {
@@ -15386,7 +15408,18 @@ function startStudySession(subject, frameRef, dateKey){
   //    startFrameAttempt 内部で enterFrameMode → switchTab('quiz') まで実行され、
   //    予定していた科目・フレームの問題演習がすぐ始まる。
   //    既に同フレームの進行中演習がある場合は「継続/新規」の確認が出る(従来挙動)。
-  startFrameAttempt(subject, frameRef, 'pastA');
+  // 改修V02_09: startFrameAttempt が演習を開始できなかった場合(上限超過の確認を
+  //    キャンセルした等で fa.current が用意されなかった場合)、②で先に作った計測
+  //    セッションだけが宙に浮き「タイマーは出るが実績は付かない」不整合になる。
+  //    開始失敗時は、いま作ったセッションを破棄して状態を元に戻す。
+  const started = startFrameAttempt(subject, frameRef, 'pastA');
+  if(started === false){
+    const arr = state.studySessions || [];
+    const idx = arr.findIndex(x=>x.id===sess.id);
+    if(idx>=0) arr.splice(idx,1);
+    if(state.activeSessionId===sess.id) state.activeSessionId = null;
+    saveState();
+  }
 }
 
 // 改修31b: 現在のセグメントを閉じ、新しいモードのセグメントを開く共通処理
@@ -15985,8 +16018,8 @@ function _gBuildRowData(subject, fr, kindMode, snap){
   // スロット(10ハコ)。既存 buildProgressFrameRow と同じ形式だが「%」非表示。
   const completed = fa ? (fa.history||[]).length : 0;
   const cur = fa ? fa.current : null;
-  let slotsHtml = '<div class="gs-grid">';
-  for(let i=0;i<10;i++){
+  let slotsHtml = '<div class="gs-grid" style="--gs-n:'+frameSlotCount(completed, !!cur)+'">';
+  for(let i=0;i<frameSlotCount(completed, !!cur);i++){
     if(fa && i < completed){
       const isLatest = (i === completed - 1);
       const st = isLatest ? _gReviewStatus(fa.history[i], completed, refTs) : 'ok';
@@ -16057,8 +16090,8 @@ function _gBuildSubFrameRowData(subject, parentFr, subFrame, kindMode, snap){
   // スロット(10ハコ)
   const completed = fa ? (fa.history||[]).length : 0;
   const cur = fa ? fa.current : null;
-  let slotsHtml = '<div class="gs-grid">';
-  for(let i=0;i<10;i++){
+  let slotsHtml = '<div class="gs-grid" style="--gs-n:'+frameSlotCount(completed, !!cur)+'">';
+  for(let i=0;i<frameSlotCount(completed, !!cur);i++){
     if(fa && i < completed){
       const isLatest = (i === completed - 1);
       const st = isLatest ? _gReviewStatus(fa.history[i], completed, refTs) : 'ok';
@@ -16127,9 +16160,9 @@ function _gBuildSenbonRowData(subject, frameNo, subFrameKey, frameForDisplay){
     attemptNo = completed;
     statusText = `千本${completed}回完了`;
   }
-  // スロット(10ハコ)。完走ぶんを濃紺(gs-slot senbon)で塗る。
-  let slotsHtml = '<div class="gs-grid">';
-  for(let i=0;i<10;i++){
+  // スロット(10ハコ)。完走ぶんを濃紺(gs-slot senbon)で塗る。改修V02_09: 11回以上に対応。
+  let slotsHtml = '<div class="gs-grid" style="--gs-n:'+frameSlotCount(completed, false)+'">';
+  for(let i=0;i<frameSlotCount(completed, false);i++){
     if(i < completed){
       slotsHtml += `<div class="gs-slot senbon-done" title="千本${i+1}回目完了 (${runs[i].correct}/${runs[i].total}問正解)">${i+1}</div>`;
     }else{
@@ -16163,9 +16196,15 @@ function _gAttachSenbonInfo(rowData){
   //   .gantt-row-slots は display:flex(横並び)なので、ハコ列と帯を縦積みラッパーで囲んで
   //   「上=ハコ / 下=帯」に並べる(囲まないと帯が右隣に並んで潰れて見えなくなる)。
   if(runs.length){
-    const sCount = Math.min(runs.length, 10);
-    let strip = '<div class="gs-senbon-grid" title="千本ノック完走 '+runs.length+'回">';
-    for(let i=0;i<10;i++){
+    // 改修V02_09: 上段(択一ハコ gs-grid)の列数に帯を合わせる。
+    //   上段 slotsHtml には既に style="--gs-n:N" が埋め込まれているので、それを読む。
+    let nSlots = 10;
+    const mm = /--gs-n:\s*(\d+)/.exec(rowData.slotsHtml || '');
+    if(mm) nSlots = parseInt(mm[1],10);
+    nSlots = Math.max(nSlots, frameSlotCount(runs.length, false));
+    const sCount = Math.min(runs.length, nSlots);
+    let strip = '<div class="gs-senbon-grid" style="--gs-n:'+nSlots+'" title="千本ノック完走 '+runs.length+'回">';
+    for(let i=0;i<nSlots;i++){
       strip += `<div class="gs-senbon-cell${i<sCount?' on':''}"></div>`;
     }
     strip += '</div>';
@@ -16431,8 +16470,8 @@ function _gBuildParentFrameRowData(subject, fr, kindMode, snap){
   else if(maxCompleted>0)   statusText = `${maxCompleted}回完了(中分類最大)`;
 
   // スロット(集約: 最大完了回数を done で埋める)
-  let slotsHtml = '<div class="gs-grid">';
-  for(let i=0;i<10;i++){
+  let slotsHtml = '<div class="gs-grid" style="--gs-n:'+frameSlotCount(maxCompleted, inProgress)+'">';
+  for(let i=0;i<frameSlotCount(maxCompleted, inProgress);i++){
     if(i < maxCompleted){
       const isLatest = (i === maxCompleted - 1);
       const cls = isLatest ? (bestStatus === 'overdue' ? ' overdue' : (bestStatus === 'warn' ? ' warn' : '')) : '';
@@ -16474,7 +16513,7 @@ function _gBuildGanttTableHtml(groups, dayDates, snap, ganttMode){
 
   // ヘッダ行(grid の最初の N+2 要素)
   html += `<div class="gantt-h-meta">科目 / フレーム</div>`;
-  html += `<div class="gantt-h-slots">進捗(10回分)</div>`;
+  html += `<div class="gantt-h-slots">進捗(最大${MAX_FRAME_ATTEMPTS}回)</div>`;
   for(const d of dayDates){
     const dow = d.getDay(); // 0=Sun, 6=Sat
     const dowClass = dow===0 ? ' sun weekend' : (dow===6 ? ' sat weekend' : '');
@@ -16918,7 +16957,8 @@ function buildProgressFrameRow(opts){
     latestReviewStatus = getReviewStatus(latestAttempt, completed);
   }
   let slots = '';
-  for(let i=0;i<10;i++){
+  const slotN = frameSlotCount(completed, !!cur); // 改修V02_09: 11〜20回対応
+  for(let i=0;i<slotN;i++){
     if(i < fa.history.length){
       const att = fa.history[i];
       const isLatest = (i === fa.history.length - 1);
@@ -16996,7 +17036,7 @@ function buildProgressFrameRow(opts){
       <div class="pf-title"><span class="pf-n">F${displayN}</span> ${escapeHtml(title)}${kindIcon} <span class="pf-q">(${totalCount}問)</span>${lawBreakdown}${itemsHtml}</div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">${btn}${planBtn}</div>
     </div>
-    <div class="pf-slots">${slots}</div>
+    <div class="pf-slots${slotN>10?' multi':''}">${slots}</div>
     <div class="pf-status">${status}</div>
   </div>`;
 }
