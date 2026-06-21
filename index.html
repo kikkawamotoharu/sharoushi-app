@@ -2573,6 +2573,7 @@
   .taipa-fix-seg-badge{font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;color:#fff}
   .taipa-fix-seg-badge.b{background:#7a6cc9}
   .taipa-fix-seg-badge.r{background:#5a9aa8}
+  .taipa-fix-seg-badge.a{background:#c0683a}
   .taipa-fix-seg-time{font-feature-settings:"tnum";color:var(--ink-soft)}
   .taipa-fix-seg-raw{color:var(--ink-muted);font-feature-settings:"tnum"}
   .taipa-fix-long{color:#d9820b;font-weight:700;margin-left:2px}
@@ -6208,7 +6209,13 @@ function renderQuiz(){
     // 改修8: fmKind を 'pastA'|'pastB'|'forecast' に正規化(旧'past'→'pastA')
     let fmKind = fm.kind || 'pastA';
     if(fmKind === 'past') fmKind = 'pastA';
-    const keyN = fm.subFrameKey ? fm.subFrameKey : frameNo;
+    // 改修V02_08: 特訓フレーム(tokkunKey)を frameAttempts 参照キーへ反映する。
+    //   これが抜けていたため、進捗管理「予定」→集中特訓を「開始」した際に
+    //   frameAttempts のキーが startFrameAttempt 側(tokkunKey)と食い違い、
+    //   fa(=cur)が取れず演習中バナー自体が描画されず、セッションタイマーも
+    //   出現しなかった(=「タイマーが表示されない」不具合)。
+    //   enterFrameMode と同じ優先順位 tokkunKey → subFrameKey → frameNo で揃える。
+    const keyN = fm.tokkunKey ? fm.tokkunKey : (fm.subFrameKey ? fm.subFrameKey : frameNo);
     const k = frameKey(subject, keyN, fmKind);
     const fa = state.frameAttempts[k];
     const cur = fa && fa.current;
@@ -6217,15 +6224,20 @@ function renderQuiz(){
     const tot = cur.questionIds.length;
     const pct = tot ? Math.round(done/tot*100) : 0;
     const kindLbl = (fmKind==='forecast') ? '<span class="kind-badge" style="font-size:9px;margin-left:6px">予想</span>' : '';
-    // サブフレーム名を含めたタイトル
-    const titleStr = fm.subFrameKey
-      ? frameOrSubFrameLabel(subject, fm.subFrameKey)
-      : frameTitle(subject, frameNo);
+    // サブフレーム名(または特訓名)を含めたタイトル
+    // 改修V02_08: 特訓フレームは frameNo=null のため frameTitle では空になる。
+    //   tokkunKey があれば frameOrSubFrameLabel で「F_T2 集中特訓_罠問」等を出す。
+    const titleStr = fm.tokkunKey
+      ? frameOrSubFrameLabel(subject, fm.tokkunKey)
+      : (fm.subFrameKey
+          ? frameOrSubFrameLabel(subject, fm.subFrameKey)
+          : frameTitle(subject, frameNo));
     // 【改修42】進捗管理_予定_演習実施モードのボタンを択一画面にも表示する。
     //   進行中の学習セッション(running/paused/resting)があれば、その状態に応じた
     //   「中断/休憩/再開/完了/一旦終了/キャンセル」を frameMode バナー内に出す。
     //   進捗管理タブの plan-timer と同一の状態遷移・ラベルにする。
-    const sessHtml = renderQuizSessionTimer(subject, fm.subFrameKey != null ? fm.subFrameKey : frameNo);
+    // 改修V02_08: 特訓フレームでも planKey が一致するよう keyN(tokkunKey含む)を渡す。
+    const sessHtml = renderQuizSessionTimer(subject, keyN);
 
     return `<div class="frame-banner">
       <div class="fb-head">
@@ -15225,16 +15237,24 @@ function segEffectiveEnd(sg, nowTs){
 // V02_04_01: あるセッションに「補正すべき長時間の中断/休憩」があるかを判定。
 //   既定しきい値(LONG_GAP_MS)を超える B/R 区間があり、まだ capMs 未設定のものを返す。
 const LONG_GAP_MS = 30*60*1000; // 30分超の中断/休憩を「要確認」とみなす
+// 改修V02_08: 「休憩/一旦停止のし忘れ」で解答(A)区間が丸ごと巨大化した
+//   セッションも補正対象に含める。A区間は正常でも数十分かかり得るため、
+//   B/R より高いしきい値(LONG_A_MS)を超えたものだけを「異常な長時間解答」とみなす。
+const LONG_A_MS = 2*60*60*1000; // 2時間超の連続「解答」区間は放置(し忘れ)の疑い
 function sessionLongGaps(sess){
   const segs = Array.isArray(sess.segments) ? sess.segments : [];
   const out = [];
   for(let i=0;i<segs.length;i++){
     const sg = segs[i];
-    if(sg.mode!=='B' && sg.mode!=='R') continue;
     if(sg.end==null) continue;
     if(sg.capMs!=null) continue; // 既に補正済み
     const raw = (sg.end>sg.start) ? (sg.end-sg.start) : 0;
-    if(raw > LONG_GAP_MS) out.push({index:i, seg:sg, rawMs:raw});
+    if(sg.mode==='B' || sg.mode==='R'){
+      if(raw > LONG_GAP_MS) out.push({index:i, seg:sg, rawMs:raw});
+    }else if(sg.mode==='A'){
+      // 改修V02_08: 異常に長い解答区間(し忘れ放置)も要補正として検出する。
+      if(raw > LONG_A_MS) out.push({index:i, seg:sg, rawMs:raw});
+    }
   }
   return out;
 }
@@ -18039,7 +18059,7 @@ function openTaipaFixModal(fk, dateKey){
   if(desc){
     desc.innerHTML = `<b>${escapeHtml(shortSubject(subject))} ${escapeHtml(frameOrSubFrameLabel(subject, frameRef))}</b>(${escapeHtml(planDateLabel(dateKey))})<br>
       各「中断」「休憩」の時間を実際に合わせて補正できます。長時間放置してしまった区間は、ここで実際の分数に直してください。<br>
-      <span style="color:var(--ink-muted)">※「解答」区間は実測のまま保持されます。補正しても解答数・正答数は変わりません。</span>`;
+      <span style="color:var(--ink-muted)">※「休憩/一旦停止のし忘れ」などで「解答」区間が異常に長くなった場合(2時間超)も補正できます。補正すると、その実態時間外に紛れ込んだ解答は集計から除外されます。</span>`;
   }
   _renderTaipaFixBody();
   const m = document.getElementById('taipa-fix-modal');
@@ -18072,29 +18092,38 @@ function _renderTaipaFixBody(){
     let hasEditable = false;
     for(let i=0;i<segs.length;i++){
       const sg = segs[i];
-      if(sg.mode==='A') continue; // 解答区間は補正対象外
       if(sg.end==null) continue;
-      hasEditable = true;
       const rawMs = (sg.end>sg.start)?(sg.end-sg.start):0;
-      const isLong = rawMs > LONG_GAP_MS;
+      // 改修V02_08: 解答(A)区間は原則補正対象外。ただし「休憩/一旦停止のし忘れ」で
+      //   異常に長くなった区間(LONG_A_MS超)、または既に補正済みの区間は編集を許可し、
+      //   8時間級の異常値を実態に直せるようにする。
+      const isAnswer = (sg.mode==='A');
+      const isLongA = isAnswer && rawMs > LONG_A_MS;
+      const cappedSeg = (sg.capMs!=null);
+      if(isAnswer && !isLongA && !cappedSeg) continue; // 通常の解答区間は従来どおりスキップ
+      hasEditable = true;
+      const isLong = isAnswer ? isLongA : (rawMs > LONG_GAP_MS);
       const curMs = (sg.capMs!=null) ? sg.capMs : rawMs;
-      const label = sg.mode==='B' ? '中断(ロックオン)' : '休憩';
-      const capped = (sg.capMs!=null);
+      const label = isAnswer ? '解答(長時間)' : (sg.mode==='B' ? '中断(ロックオン)' : '休憩');
+      const badgeCls = isAnswer ? 'a' : (sg.mode==='B' ? 'b' : 'r');
+      const capped = cappedSeg;
       html += `<div class="taipa-fix-seg ${isLong?'is-long':''}" data-seg-index="${i}">
         <div class="taipa-fix-seg-info">
-          <span class="taipa-fix-seg-badge ${sg.mode==='B'?'b':'r'}">${label}</span>
+          <span class="taipa-fix-seg-badge ${badgeCls}">${label}</span>
           <span class="taipa-fix-seg-time">${fmtHM(sg.start)}〜${fmtHM(sg.end)}</span>
           <span class="taipa-fix-seg-raw">実測 ${fmtDurationMs(rawMs)}${isLong?' <span class=\"taipa-fix-long\">⚠長時間</span>':''}</span>
         </div>
         <div class="taipa-fix-seg-edit">
           <label>実際の時間：<input type="number" class="taipa-fix-input" min="0" step="1" value="${_fmtGapInput(curMs)}" data-seg-index="${i}"> 分</label>
           ${capped?`<button class="taipa-fix-reset" data-seg-index="${i}">補正解除</button>`:''}
-          ${isLong&&!capped?`<button class="taipa-fix-suggest" data-seg-index="${i}" data-suggest="5">5分に</button><button class="taipa-fix-suggest" data-seg-index="${i}" data-suggest="0">0分に</button>`:''}
+          ${isLong&&!capped?(isAnswer
+              ? `<button class="taipa-fix-suggest" data-seg-index="${i}" data-suggest="30">30分に</button><button class="taipa-fix-suggest" data-seg-index="${i}" data-suggest="15">15分に</button>`
+              : `<button class="taipa-fix-suggest" data-seg-index="${i}" data-suggest="5">5分に</button><button class="taipa-fix-suggest" data-seg-index="${i}" data-suggest="0">0分に</button>`):''}
         </div>
       </div>`;
     }
     if(!hasEditable){
-      html += `<div class="taipa-fix-none">このセッションには補正できる中断・休憩がありません。</div>`;
+      html += `<div class="taipa-fix-none">このセッションには補正できる区間がありません。</div>`;
     }
     html += `</div>`;
   }
