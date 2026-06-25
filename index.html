@@ -2533,7 +2533,11 @@
   .taipa-resize{position:absolute;left:0;right:0;height:8px;cursor:ns-resize;z-index:2}
   .taipa-resize.top{top:0}
   .taipa-resize.bottom{bottom:0}
-  .taipa-block.dragging{opacity:.85;box-shadow:0 3px 10px rgba(0,0,0,.25);z-index:10}
+  .taipa-block.dragging{opacity:.9;box-shadow:0 4px 14px rgba(0,0,0,.30);z-index:30}
+  /* 改修V02_11: 左右セット間移動の操作ヒント */
+  .taipa-move-hint{margin:8px 2px 0;padding:8px 12px;font-size:12px;line-height:1.6;
+    color:var(--ink-soft);background:rgba(75,85,180,.06);border:1px solid var(--line);
+    border-radius:8px}
   .taipa-block.dragging .taipa-block-sub{color:var(--indigo)}
   .taipa-drag-time{position:absolute;right:3px;top:1px;font-size:10px;font-weight:700;color:var(--indigo);background:rgba(255,255,255,.9);border-radius:2px;padding:0 3px;pointer-events:none;z-index:11}
   .taipa-block-sub{font-weight:700;color:var(--ink);display:flex;align-items:center;gap:3px;font-size:12px}
@@ -2596,6 +2600,8 @@
     /* 改修57_01②-2: 狭い画面では2セット目を隠し、従来どおり1セットだけ表示する */
     .taipa-tt-2col{grid-template-columns:1fr}
     .taipa-tt-2col .taipa-tt-set2{display:none}
+    /* 改修V02_11: 2セット目が無い狭い画面では左右間移動ヒントは出さない */
+    .taipa-move-hint{display:none}
   }
 
   .stats-h2{margin:0 0 6px 0;font-size:20px;font-weight:600;display:flex;align-items:center;gap:8px}
@@ -17748,6 +17754,7 @@ function renderTaipaView(){
   //   (同じ全時間帯を2セット表示。狭い画面=iPhoneでは2セット目をCSSで非表示にし従来の1セット表示)
   //   2セットの予定ハコは data-plan-key が同じだが、確定時は studyPlans を更新して全体を
   //   再描画するため、どちらのセットでドラッグしても正しく反映される。
+  html += `<p class="taipa-move-hint">💡 予定ハコは<strong>左右のタイムテーブル間でもドラッグ移動できます</strong>。例えば右側を朝の時間帯までスクロールしておけば、左側の夜の予定をそのまま右側の朝へドロップして時間帯を変更できます(大きく離れた時間帯への移動でも長距離スクロール不要)。</p>`;
   html += `<div class="taipa-tt-2col">
     <div class="taipa-tt-wrap taipa-tt-set1">${renderTaipaTimetable(dateKey, plans, sessions, 1)}</div>
     <div class="taipa-tt-wrap taipa-tt-set2">${renderTaipaTimetable(dateKey, plans, sessions, 2)}</div>
@@ -17869,7 +17876,7 @@ function renderTaipaTimetable(dateKey, plans, sessions, set){
     // 改修57_01②-3: 完了済みの予定には右端に【済】(黒・太字)を表示。
     //   従来の「薄く表示(.done)」は維持しつつ、完了を明確に分かるようにする。
     const doneB = p.done ? `<span class="taipa-done-badge">【済】</span>` : '';
-    planBlocks += `<div class="taipa-block plan ${p.done?'done':''}" data-plan-key="${escapeHtml(p.key)}" data-plan-start="${escapeHtml(p.startTime)}" data-plan-dur="${e-s}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.10)}" title="ドラッグで時間帯を移動 / 上下の端で長さ変更">
+    planBlocks += `<div class="taipa-block plan ${p.done?'done':''}" data-plan-key="${escapeHtml(p.key)}" data-plan-start="${escapeHtml(p.startTime)}" data-plan-dur="${e-s}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.10)}" title="ドラッグで時間帯を移動(左右のタイムテーブル間でも移動可) / 上下の端で長さ変更">
       <div class="taipa-resize top"></div>
       ${doneB}
       <div class="taipa-block-sub">${escapeHtml(shortSubject(p.subject))}${kindB}</div>
@@ -18262,83 +18269,144 @@ function _wireTaipaView(root){
    ============================================================ */
 function _wireTaipaDrag(root){
   // 改修57_01②-2: 2セット(taipa-plan-grid-1 / -2)それぞれに配線する。
-  const grids = root.querySelectorAll('[id^="taipa-plan-grid"]');
-  grids.forEach(g => _wireTaipaDragGrid(root, g));
+  // 改修V02_11: 左右セット間でのブロック移動に対応するため、全グリッドを1つの
+  //   コントローラで束ねて配線する(grid単体ではなく root 全体を見る)。
+  const grids = Array.from(root.querySelectorAll('[id^="taipa-plan-grid"]'));
+  if(!grids.length) return;
+  _wireTaipaDragMulti(root, grids);
 }
 
-// 1つのグリッド要素に対してドラッグ配線を行う(改修05のロジックを踏襲)
-function _wireTaipaDragGrid(root, grid){
-  if(!grid) return;
-  const rowPx   = parseFloat(grid.dataset.rowPx) || TAIPA_ROW_PX;
-  const slotMin = parseInt(grid.dataset.slotMin,10) || TAIPA_SLOT_MIN;
-  const startSlot = parseInt(grid.dataset.startSlot,10) || 0;
-  const nSlots  = parseInt(grid.dataset.nSlots,10) || 0;
-
+/* 改修V02_11: 複数グリッド(左右セット)をまたいだ予定ブロックのドラッグ移動。
+   - 本体ドラッグ(move): ポインタが乗っているグリッドを判定し、そのグリッドの
+     時間軸(startSlot)基準で開始時刻を算出。別セットへ運べば、落とした位置の
+     時刻に変更される(例: 右セットの朝7時へドロップ → 22時の予定が7時へ)。
+     これにより、夜→朝のような大移動でも長距離スクロールが不要になる。
+   - 上端/下端ドラッグ(top/bottom): 従来どおり同一グリッド内で長さ(所要時間)変更。
+   5分(=1スロット)単位スナップ。Pointer Events でマウス/タッチ両対応。
+   ※ 狭い画面(≤640px)では2セット目が CSS で非表示のため、実質1グリッドで
+      従来と同じ縦移動になる(後方互換)。 */
+function _wireTaipaDragMulti(root, grids){
   // 分(0時起点) → "HH:MM"
   const minToHm = (mn)=>{
     mn = Math.max(0, Math.min(24*60-1, Math.round(mn)));
     return String(Math.floor(mn/60)).padStart(2,'0')+':'+String(mn%60).padStart(2,'0');
   };
+  // グリッドのレイアウト情報を取得(rowPx/slotMin/startSlot/nSlots)
+  const gridInfo = (grid)=>({
+    grid,
+    rowPx:   parseFloat(grid.dataset.rowPx) || TAIPA_ROW_PX,
+    slotMin: parseInt(grid.dataset.slotMin,10) || TAIPA_SLOT_MIN,
+    startSlot: parseInt(grid.dataset.startSlot,10) || 0,
+    nSlots:  parseInt(grid.dataset.nSlots,10) || 0
+  });
+  // 画面上に実際に表示されているグリッドのみ対象(2セット目が display:none の端末を除外)
+  const visibleGrids = ()=> grids.filter(g => g.offsetParent !== null);
 
-  let drag = null; // {block, key, mode, startY, origTopPx, origHpx, durPx, label}
+  // ポインタ座標(clientX/Y)が乗っているグリッドを返す(複数表示時のドロップ先判定)。
+  //   水平方向は rect 内、垂直方向は上下に余裕(=外れても最寄り)を持たせて拾う。
+  const gridAtPoint = (cx, cy, fallback)=>{
+    const vis = visibleGrids();
+    // まず水平範囲に収まるグリッドを優先
+    for(const g of vis){
+      const r = g.getBoundingClientRect();
+      if(cx >= r.left && cx <= r.right) return g;
+    }
+    // 横方向に外れた場合は、中心が最も近いグリッド
+    let best = fallback, bestDist = Infinity;
+    for(const g of vis){
+      const r = g.getBoundingClientRect();
+      const mid = (r.left + r.right)/2;
+      const d = Math.abs(cx - mid);
+      if(d < bestDist){ bestDist = d; best = g; }
+    }
+    return best || fallback;
+  };
+
+  let drag = null;
+  // drag = { block, key, mode, startY, origTopPx, origHpx, newTopPx, newHpx,
+  //          homeGrid, homeInfo, curGrid, curInfo, label }
 
   const onDown = (e, block, mode)=>{
     // 改修05修正: 完了済み(done)でもドラッグ可能とする(予定の組み替えを優先)
     e.preventDefault();
-    const key = block.dataset.planKey;
+    const homeGrid = block.closest('[id^="taipa-plan-grid"]');
+    const homeInfo = gridInfo(homeGrid);
     const topPx = parseFloat(block.style.top) || 0;
-    const hPx = parseFloat(block.style.height) || rowPx;
+    const hPx = parseFloat(block.style.height) || homeInfo.rowPx;
     drag = {
-      block, key, mode,
-      startY: e.clientY,
-      origTopPx: topPx,
-      origHpx: hPx,
-      newTopPx: topPx,
-      newHpx: hPx
+      block, key: block.dataset.planKey, mode,
+      startX: e.clientX, startY: e.clientY,
+      origTopPx: topPx, origHpx: hPx,
+      newTopPx: topPx, newHpx: hPx,
+      homeGrid, homeInfo,
+      curGrid: homeGrid, curInfo: homeInfo
     };
     block.classList.add('dragging');
     block.setPointerCapture && block.setPointerCapture(e.pointerId);
-    // ドラッグ中の時刻ラベルを表示
     let lab = block.querySelector('.taipa-drag-time');
     if(!lab){ lab = document.createElement('div'); lab.className='taipa-drag-time'; block.appendChild(lab); }
     drag.label = lab;
     updateLabel();
   };
 
-  const slotsToMin = (px)=> (startSlot + px/rowPx) * slotMin;
+  // px(curGrid基準のtop) → 分。curInfo を使う。
+  const slotsToMin = (px, info)=> (info.startSlot + px/info.rowPx) * info.slotMin;
 
   const updateLabel = ()=>{
     if(!drag) return;
-    const sMin = slotsToMin(drag.newTopPx);
-    const eMin = slotsToMin(drag.newTopPx + drag.newHpx + 2); // +2は height-2の補正
-    drag.label.textContent = minToHm(sMin)+'–'+minToHm(eMin);
+    const sMin = slotsToMin(drag.newTopPx, drag.curInfo);
+    const eMin = slotsToMin(drag.newTopPx + drag.newHpx + 2, drag.curInfo);
+    const crossed = drag.curGrid !== drag.homeGrid;
+    drag.label.textContent = (crossed?'→ ':'') + minToHm(sMin)+'–'+minToHm(eMin);
   };
 
   const onMove = (e)=>{
     if(!drag) return;
     e.preventDefault();
     const dy = e.clientY - drag.startY;
-    const maxPx = nSlots * rowPx;
+
     if(drag.mode==='move'){
-      let t = drag.origTopPx + dy;
-      // スナップ
-      t = Math.round(t/rowPx)*rowPx;
-      t = Math.max(0, Math.min(maxPx - drag.origHpx - 2, t));
+      // 改修V02_11: ポインタが乗っているグリッドを判定。別セットなら移籍。
+      const overGrid = gridAtPoint(e.clientX, e.clientY, drag.curGrid);
+      if(overGrid && overGrid !== drag.curGrid){
+        // 別グリッドへ移籍: ブロックをそのグリッドへ移動して追従表示。
+        drag.curGrid = overGrid;
+        drag.curInfo = gridInfo(overGrid);
+        if(drag.block.parentNode !== overGrid) overGrid.appendChild(drag.block);
+      }
+      const info = drag.curInfo;
+      const maxPx = info.nSlots * info.rowPx;
+      // 移籍先グリッド上でのポインタY(rect基準)から top を直接決める。
+      //   ブロックの掴んだ位置オフセットを保つため、開始時のブロック内オフセットを反映。
+      const rect = drag.curGrid.getBoundingClientRect();
+      // 掴んだ点のブロック内オフセット(初回 down 時の relativeY)を維持
+      if(drag._grabOffset==null){
+        // 初回 move 時に算出: down 時点のポインタY - ブロックtopの画面Y
+        drag._grabOffset = Math.max(0, Math.min(drag.origHpx, (drag.startY - (drag.homeGrid.getBoundingClientRect().top + drag.origTopPx))));
+      }
+      let t = (e.clientY - rect.top) - drag._grabOffset;
+      t = Math.round(t/info.rowPx)*info.rowPx;
+      t = Math.max(0, Math.min(Math.max(0, maxPx - drag.origHpx - 2), t));
       drag.newTopPx = t;
+      drag.newHpx = drag.origHpx;
       drag.block.style.top = t+'px';
     }else if(drag.mode==='top'){
+      // 長さ変更は同一グリッド内(home)のまま
+      const info = drag.homeInfo;
       let t = drag.origTopPx + dy;
-      t = Math.round(t/rowPx)*rowPx;
+      t = Math.round(t/info.rowPx)*info.rowPx;
       const bottom = drag.origTopPx + drag.origHpx;
-      t = Math.max(0, Math.min(bottom - rowPx, t));
+      t = Math.max(0, Math.min(bottom - info.rowPx, t));
       drag.newTopPx = t;
       drag.newHpx = bottom - t;
       drag.block.style.top = t+'px';
       drag.block.style.height = drag.newHpx+'px';
     }else if(drag.mode==='bottom'){
+      const info = drag.homeInfo;
+      const maxPx = info.nSlots * info.rowPx;
       let h = drag.origHpx + dy;
-      h = Math.round(h/rowPx)*rowPx;
-      h = Math.max(rowPx, Math.min(maxPx - drag.origTopPx - 2, h));
+      h = Math.round(h/info.rowPx)*info.rowPx;
+      h = Math.max(info.rowPx, Math.min(maxPx - drag.origTopPx - 2, h));
       drag.newHpx = h;
       drag.block.style.height = h+'px';
     }
@@ -18348,61 +18416,95 @@ function _wireTaipaDragGrid(root, grid){
   const onUp = (e)=>{
     if(!drag) return;
     e.preventDefault();
-    const sMin = Math.round(slotsToMin(drag.newTopPx));
-    const eMin = Math.round(slotsToMin(drag.newTopPx + drag.newHpx + 2));
+    try{ drag.block.releasePointerCapture && drag.block.releasePointerCapture(e.pointerId); }catch(_){}
+    // 確定時はドロップ先(move時はcurInfo、長さ変更時はhomeInfo)の時間軸で算出
+    const info = (drag.mode==='move') ? drag.curInfo : drag.homeInfo;
+    const sMin = Math.round(slotsToMin(drag.newTopPx, info));
+    const eMin = Math.round(slotsToMin(drag.newTopPx + drag.newHpx + 2, info));
     const startTime = minToHm(sMin);
     const endTime = minToHm(eMin);
-    const durationMin = Math.max(slotMin, eMin - sMin);
+    const durationMin = Math.max(info.slotMin, eMin - sMin);
     const key = drag.key;
     const blockRef = drag.block;
+    const crossed = (drag.mode==='move') && (drag.curGrid !== drag.homeGrid);
     if(drag.label && drag.label.parentNode) drag.label.parentNode.removeChild(drag.label);
     drag.block.classList.remove('dragging');
     drag = null;
-    // データ書き戻し(初回・復習共通の startTime/endTime を更新)
     if(state.studyPlans && state.studyPlans[key]){
       state.studyPlans[key].startTime = startTime;
       state.studyPlans[key].endTime = endTime;
       state.studyPlans[key].durationMin = durationMin;
       saveState();
-      // 改修05修正: 全体を再描画するとスクロールが先頭へ飛ぶため、再描画しない。
-      // ハコは既にドラッグ後の位置に表示済み。data属性だけ最新化し、続けて他のハコも編集できるようにする。
-      if(blockRef){ blockRef.dataset.planStart = startTime; blockRef.dataset.planDur = String(eMin - sMin); }
-      // 同じ予定キーの他オカレンス(復習回など)が同じ画面にあれば、その位置も更新
-      _taipaSyncSameKeyBlocks(root, key, blockRef, sMin, eMin, startSlot, rowPx, slotMin);
+      if(crossed){
+        // 改修V02_11: 左右セット間を移籍した場合は、両グリッドの時間軸が異なり
+        //   オカレンスの整合も必要なため、タイパビューだけを再描画して配線し直す。
+        //   再描画でのスクロール飛びを防ぐため、両セットのスクロール位置を保存→復元。
+        _taipaRerenderPreserveScroll(root);
+      }else{
+        // 同一セット内の移動/長さ変更: 再描画せず、その場で確定(スクロール維持・連続編集可)。
+        if(blockRef){ blockRef.dataset.planStart = startTime; blockRef.dataset.planDur = String(eMin - sMin); }
+        _taipaSyncSameKeyBlocksAll(root, key, sMin, eMin);
+      }
     }
   };
 
-  // 各予定ブロックに配線
-  grid.querySelectorAll('.taipa-block.plan').forEach(block=>{
-    const top = block.querySelector('.taipa-resize.top');
-    const bottom = block.querySelector('.taipa-resize.bottom');
-    block.addEventListener('pointerdown', (e)=>{
-      // ハンドル上は除外(下で個別配線)
-      if(e.target.classList.contains('taipa-resize')) return;
-      onDown(e, block, 'move');
+  // 各予定ブロックに配線(全グリッド分をまとめて)
+  grids.forEach(grid=>{
+    grid.querySelectorAll('.taipa-block.plan').forEach(block=>{
+      const top = block.querySelector('.taipa-resize.top');
+      const bottom = block.querySelector('.taipa-resize.bottom');
+      block.addEventListener('pointerdown', (e)=>{
+        if(e.target.classList.contains('taipa-resize')) return;
+        onDown(e, block, 'move');
+      });
+      if(top) top.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); onDown(e, block, 'top'); });
+      if(bottom) bottom.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); onDown(e, block, 'bottom'); });
+      block.addEventListener('pointermove', onMove);
+      block.addEventListener('pointerup', onUp);
+      block.addEventListener('pointercancel', onUp);
     });
-    if(top) top.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); onDown(e, block, 'top'); });
-    if(bottom) bottom.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); onDown(e, block, 'bottom'); });
-    block.addEventListener('pointermove', onMove);
-    block.addEventListener('pointerup', onUp);
-    block.addEventListener('pointercancel', onUp);
   });
 }
 
-/* 改修05修正: 同じ予定キーの他のハコ(同一画面内の復習回など)の表示位置も、
-   再描画せずにその場で更新する。startMin/endMin はドラッグ確定後の分。 */
-function _taipaSyncSameKeyBlocks(root, key, draggedBlock, startMin, endMin, startSlot, rowPx, slotMin){
-  // 改修57_01②-2: 2セット表示のため、root 内の全グリッドにある同一キーのハコを同期する。
-  const top = ((startMin/slotMin) - startSlot) * rowPx;
-  const h = Math.max(rowPx, ((endMin-startMin)/slotMin) * rowPx);
-  root.querySelectorAll('.taipa-block.plan').forEach(b=>{
-    if(b === draggedBlock) return;
-    if(b.dataset.planKey !== key) return;
-    b.style.top = top + 'px';
-    b.style.height = (h-2) + 'px';
-    b.dataset.planStart = String(startMin/60|0).padStart(2,'0');
+/* 改修V02_11: 同一予定キーのハコを「全グリッド」で再同期する(同一セット内移動時)。
+   各グリッドは時間軸(startSlot)が異なり得るため、グリッドごとに自前で top/height
+   を算出して配置する。移籍を伴わない移動・長さ変更で使用(再描画なし=スクロール維持)。
+   startMin/endMin はドラッグ確定後の分(0時起点)。 */
+function _taipaSyncSameKeyBlocksAll(root, key, startMin, endMin){
+  const grids = Array.from(root.querySelectorAll('[id^="taipa-plan-grid"]'));
+  const hm = String(Math.floor(startMin/60)).padStart(2,'0')+':'+String(startMin%60).padStart(2,'0');
+  grids.forEach(grid=>{
+    const rowPx   = parseFloat(grid.dataset.rowPx) || TAIPA_ROW_PX;
+    const slotMin = parseInt(grid.dataset.slotMin,10) || TAIPA_SLOT_MIN;
+    const startSlot = parseInt(grid.dataset.startSlot,10) || 0;
+    const top = ((startMin/slotMin) - startSlot) * rowPx;
+    const h = Math.max(rowPx, ((endMin-startMin)/slotMin) * rowPx);
+    grid.querySelectorAll('.taipa-block.plan').forEach(b=>{
+      if(b.dataset.planKey !== key) return;
+      b.style.top = top + 'px';
+      b.style.height = (h-2) + 'px';
+      b.dataset.planStart = hm;
+      b.dataset.planDur = String(endMin - startMin);
+    });
   });
 }
+
+/* 改修V02_11: タイパビューだけを再描画し、両セットのスクロール位置を復元する。
+   左右セット間の移籍後、両グリッドの時間軸ずれとオカレンス整合を正しく反映するため、
+   renderStats() で再構築する。スクロール飛びを防ぐため wrap のスクロール量を保存→復元。 */
+function _taipaRerenderPreserveScroll(root){
+  // 各タイムテーブル wrap(独立スクロール領域)の scrollTop/Left を保存
+  const wraps = Array.from(document.querySelectorAll('.taipa-tt-wrap'));
+  const saved = wraps.map(w=>({top:w.scrollTop, left:w.scrollLeft}));
+  renderStats();
+  // 再描画後、同順の wrap に復元(DOMが作り直されるため取得し直す)
+  requestAnimationFrame(()=>{
+    const after = Array.from(document.querySelectorAll('.taipa-tt-wrap'));
+    after.forEach((w,i)=>{ if(saved[i]){ w.scrollTop = saved[i].top; w.scrollLeft = saved[i].left; } });
+  });
+}
+
+/* 改修V02_11: 旧 _taipaSyncSameKeyBlocks は _taipaSyncSameKeyBlocksAll に統合・置換済み。 */
 
 /* ============================================================
    改修31: 学習時間サブタブ — 日別トータル学習時間の棒グラフ
