@@ -1483,6 +1483,12 @@
   }
   .plan-badge.first{background:var(--indigo-soft);color:var(--indigo)}
   .plan-badge.review{background:#FBEFD3;color:#8A6308}
+  /* 改修V02_13: 演習回数バッジ・遅延バッジ */
+  .plan-badge.attempt{background:#E8EAF6;color:#3949AB}
+  .plan-badge.attempt.prog{background:#E3F2FD;color:#1565C0}
+  .plan-badge.attempt.none{background:var(--line);color:var(--ink-muted)}
+  .plan-badge.delay.overdue{background:#F8D7DA;color:#B02A37}
+  .plan-badge.delay.warn{background:#FFF3CD;color:#8A6D00}
   .plan-subj-dot{display:inline-block;width:9px;height:9px;border-radius:50%;flex-shrink:0}
   .plan-box-title{font-size:13px;font-weight:600;color:var(--ink);margin:1px 0 1px;line-height:1.35;display:flex;align-items:center;gap:6px}
   .plan-box-items{font-size:11px;color:var(--ink-muted);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -15183,6 +15189,44 @@ function planFrameQuestionCount(subject, frameRef){
   }catch(_){ return 0; }
 }
 
+/* 改修V02_13: 予定タブ表示用 — 指定の科目・フレーム(過去問A)の「演習回数」と
+   「遅延ステータス」を、ガントチャート(_gBuildRowData/_gReviewStatus)と同一基準で返す。
+   進捗管理「予定」タブの各ボックスに、何回目の演習か・遅延(赤/黄)かを出して、
+   当日の学習優先度をその場で判断できるようにする(ガントを見に行く手間の削減)。
+   返り値: {
+     attemptNo,        // 次に行うべき演習が何回目か(完了0回→1, 1回完了→2 …)。演習中はその回。
+     completedCount,   // 完了済み回数
+     inProgress,       // 現在演習中(current)か
+     status,           // 'ok' | 'warn' | 'overdue' (最終完了回の復習遅延。未完了/演習中は 'ok')
+     hasAttempt        // frameAttempts に記録があるか
+   } */
+function _planFrameStatus(subject, frameRef){
+  try{
+    const r = resolveFrameRef(subject, frameRef);
+    if(r.frameNo == null) return {attemptNo:1, completedCount:0, inProgress:false, status:'ok', hasAttempt:false};
+    const k = frameKey(subject, r.frameNo, 'pastA');
+    const fa = state.frameAttempts ? state.frameAttempts[k] : null;
+    if(!fa) return {attemptNo:1, completedCount:0, inProgress:false, status:'ok', hasAttempt:false};
+    const completedCount = Array.isArray(fa.history) ? fa.history.length : 0;
+    const inProgress = !!(fa.current && fa.current.startedAt);
+    const refTs = Date.now(); // ガントと同一基準(_gBuildRowData と一致)
+    let status = 'ok';
+    let attemptNo;
+    if(inProgress){
+      attemptNo = completedCount + 1; // 演習中はその回
+    }else if(completedCount > 0){
+      const lastAtt = fa.history[completedCount - 1];
+      status = _gReviewStatus(lastAtt, completedCount, refTs); // 'ok'|'warn'|'overdue'
+      attemptNo = completedCount + 1; // 次にやるべき回(復習回)
+    }else{
+      attemptNo = 1;
+    }
+    return {attemptNo, completedCount, inProgress, status, hasAttempt:true};
+  }catch(_){
+    return {attemptNo:1, completedCount:0, inProgress:false, status:'ok', hasAttempt:false};
+  }
+}
+
 // 指定日(dateKey)に発生する予定オカレンスを、開始時刻順 → 科目/フレーム順 で返す
 function getPlanOccurrencesForDate(dateKey){
   const list = [];
@@ -15740,6 +15784,23 @@ function renderProgressPlan(root){
       const badge = o.kind==='review'
         ? `<span class="plan-badge review">復習 ${o.offset}日後</span>`
         : `<span class="plan-badge first">初回</span>`;
+      // 改修V02_13: ガントと同基準の「演習回数」「遅延(赤/黄)」バッジを予定ボックスにも表示。
+      const pst = _planFrameStatus(o.subject, o.frameRef);
+      let attemptBadge = '';
+      if(pst.inProgress){
+        attemptBadge = `<span class="plan-badge attempt prog" title="現在 ${pst.attemptNo}回目を演習中">${pst.attemptNo}回目 演習中</span>`;
+      }else if(pst.completedCount > 0){
+        attemptBadge = `<span class="plan-badge attempt" title="${pst.completedCount}回完了 / 次は${pst.attemptNo}回目">${pst.completedCount}回完了→${pst.attemptNo}回目</span>`;
+      }else{
+        attemptBadge = `<span class="plan-badge attempt none" title="まだ着手していません">未着手(1回目)</span>`;
+      }
+      // 遅延バッジ(最終完了回の復習が遅れている場合のみ)。ガントの色基準と一致。
+      let delayBadge = '';
+      if(pst.status==='overdue'){
+        delayBadge = `<span class="plan-badge delay overdue" title="復習が大幅に遅れています(要復習)">🔴 遅延</span>`;
+      }else if(pst.status==='warn'){
+        delayBadge = `<span class="plan-badge delay warn" title="復習時期が近づいています/やや遅れ">🟡 やや遅れ</span>`;
+      }
       // 中分類名は label に含まれるため、content が label 末尾と重複する場合は省略
       const showContent = content && !label.endsWith(content);
       const itemsHtml = showContent ? `<div class="plan-box-items">${escapeHtml(content)}</div>` : '';
@@ -15790,7 +15851,7 @@ function renderProgressPlan(root){
       html += `<div class="plan-box ${o.done?'done':''}" style="border-left-color:${subjCol}">
         <div class="plan-box-main">
           <div class="plan-box-top">
-            <span class="plan-box-time">🕒 ${timeStr}</span>${durStr}${qcountStr}${badge}
+            <span class="plan-box-time">🕒 ${timeStr}</span>${durStr}${qcountStr}${attemptBadge}${delayBadge}${badge}
           </div>
           <div class="plan-box-title"><span class="plan-subj-dot" style="background:${subjCol}"></span>${escapeHtml(o.subject)}　${escapeHtml(label)}</div>
           ${itemsHtml}
@@ -17515,7 +17576,7 @@ function statsRangeDateKeys(range, daysWithData){
     }
     return out;
   }
-  const n = range === '30d' ? 30 : 7;
+  const n = range === '30d' ? 30 : (range === '14d' ? 14 : 7);
   const out = [];
   for(let i=n-1;i>=0;i--){
     out.push(statsDateKeyMinusDays(i));
@@ -17592,7 +17653,7 @@ function renderStats(){
   for(const dk in byDay){ allTotal += byDay[dk].total; allCorrect += byDay[dk].correct; }
 
   const pctStr = (n,d)=> d>0 ? Math.round(n/d*100)+'%' : '—';
-  const rangeLbl = range==='7d' ? '直近7日' : (range==='30d' ? '直近30日' : '全期間');
+  const rangeLbl = range==='7d' ? '直近7日' : (range==='14d' ? '直近14日' : (range==='30d' ? '直近30日' : '全期間'));
 
   let html = '';
 
@@ -17611,6 +17672,7 @@ function renderStats(){
     <span style="flex:1"></span>
     <span class="stats-control-label">期間</span>
     <button class="stats-range-btn ${range==='7d'?'active':''}" data-range="7d">7日</button>
+    <button class="stats-range-btn ${range==='14d'?'active':''}" data-range="14d">14日</button>
     <button class="stats-range-btn ${range==='30d'?'active':''}" data-range="30d">30日</button>
     <button class="stats-range-btn ${range==='all'?'active':''}" data-range="all">全期間</button>
   </div>`;
@@ -17694,10 +17756,9 @@ function renderStats(){
   });
   _wireStatsSubTabs(root);
 
-  // 改修57_08: 30日間/全期間の表示では、横スクロールの初期位置を「今日」(右端)中心にする。
-  //   従来は左端(=最も古い日)が表示され、今日を見るのにスクロールが必要だった。
-  //   日別グラフと日別詳細の両方のスクロール領域を右端へ寄せる。
-  if(range === '30d' || range === 'all'){
+  // 改修57_08 / 改修V02_14: 期間が広く一画面に収まらず横スクロールになる場合は、
+  //   初期表示位置を「今日」(右端)中心にする。収まる場合は scrollWidth≈clientWidth で無害。
+  if(range === '14d' || range === '30d' || range === 'all'){
     requestAnimationFrame(()=>{
       root.querySelectorAll('.stats-chart-svg-wrap').forEach(wrap=>{
         try{ wrap.scrollLeft = wrap.scrollWidth; }catch(_){}
@@ -18557,7 +18618,7 @@ function renderStudyTimeView(){
   const allKeys = Object.keys(byDay).sort();
   const targetKeys = statsRangeDateKeys(range, allKeys);
 
-  const rangeLbl = range==='7d' ? '直近7日' : (range==='30d' ? '直近30日' : '全期間');
+  const rangeLbl = range==='7d' ? '直近7日' : (range==='14d' ? '直近14日' : (range==='30d' ? '直近30日' : '全期間'));
   let html = `<div class="card stats-intro">
     <h2 class="stats-h2">📈 学習時間 <span class="stats-sub">日別トータル学習時間</span></h2>
     <p class="stats-desc">計測した学習セッションの<strong>トータル学習時間</strong>(解答A+中断/ロックオンB。休憩Rは除く)を日別に集計した棒グラフです。濃い部分が解答時間(Aモード)です。<br><span style="color:var(--ink-muted)">※「タイパ」タブの<b>✏️補正</b>で中断時間を直すと、この集計にも反映されます。</span></p>
@@ -18566,6 +18627,7 @@ function renderStudyTimeView(){
     <span style="flex:1"></span>
     <span class="stats-control-label">期間</span>
     <button class="stats-range-btn ${range==='7d'?'active':''}" data-range="7d">7日</button>
+    <button class="stats-range-btn ${range==='14d'?'active':''}" data-range="14d">14日</button>
     <button class="stats-range-btn ${range==='30d'?'active':''}" data-range="30d">30日</button>
     <button class="stats-range-btn ${range==='all'?'active':''}" data-range="all">全期間</button>
   </div>`;
@@ -18640,13 +18702,31 @@ function renderStatsChart(byDay, dateKeys){
     return `<div class="stats-chart-empty">この期間にフレーム演習の記録はまだありません。<br><span style="font-size:11px">進捗管理タブからフレームを選んで演習を始めると、ここに表示されます。</span></div>`;
   }
   // レイアウト
+  // 改修V02_14: 期間(7d/14d/30d/all)に応じてバー幅を可変にし、選んだ期間が
+  //   できるだけ一画面に収まるようにする。従来は固定48px/本だったため、30日でも
+  //   画面に約22日しか入らず、全期間も30日と見分けがつかなかった。
+  //   コンテナの実幅を基準に「全日数が収まる1本あたり幅」を算出する。
+  //   ただし視認できる下限(最小幅)を設け、それを下回る(=日数が多すぎる)場合だけ
+  //   横スクロールにフォールバックする(全期間で何百日もあるケース)。
   const isMobile = window.innerWidth < 600;
-  const W_PER_BAR = isMobile ? 38 : 48;
   const margin = {top:20, right:50, bottom:50, left:42};
-  const innerW = dateKeys.length * W_PER_BAR;
+  // 描画コンテナ(.stats-chart-svg-wrap)の利用可能幅を推定。
+  //   renderStatsChart は innerHTML 構築中に呼ばれ実DOM幅が取れないため、
+  //   ビューポート幅からカード余白等を差し引いて近似する。
+  const approxWrapW = Math.max(280, Math.min(window.innerWidth, 980) - (isMobile?56:96));
+  const availInner = approxWrapW - margin.left - margin.right;
+  const n = dateKeys.length;
+  // 1本あたりの理想幅(全日が収まる幅) と 下限/上限
+  const MIN_PER_BAR = isMobile ? 14 : 18;   // これ未満なら横スクロールに切替
+  const MAX_PER_BAR = isMobile ? 38 : 48;   // 7日など少数日で間延びしすぎない上限
+  let W_PER_BAR = Math.floor(availInner / Math.max(1, n));
+  W_PER_BAR = Math.max(MIN_PER_BAR, Math.min(MAX_PER_BAR, W_PER_BAR));
+  const innerW = n * W_PER_BAR;
   const innerH = isMobile ? 220 : 260;
   const W = innerW + margin.left + margin.right;
   const H = innerH + margin.top + margin.bottom;
+  // この期間が一画面に収まるか(収まるなら親側で横スクロール不要)
+  const fitsOneScreen = (W <= approxWrapW + 1);
 
   // Y軸スケール(解答数の最大)
   let maxTotal = 0;
@@ -18669,7 +18749,8 @@ function renderStatsChart(byDay, dateKeys){
   const segments = []; // {x, y, w, h, fill, opacity, patternId?, frame, attempt}
 
   // 各日の棒を構築
-  const barWidth = Math.min(W_PER_BAR - 10, 30);
+  // 改修V02_14: 可変 W_PER_BAR に追従。バー間の余白を確保しつつ最小2pxは確保。
+  const barWidth = Math.max(2, Math.min(W_PER_BAR - (isMobile?6:10), 30));
   dateKeys.forEach((dk, di)=>{
     const day = byDay[dk];
     const xBase = margin.left + di * W_PER_BAR;
@@ -18718,7 +18799,13 @@ function renderStatsChart(byDay, dateKeys){
   });
 
   // SVG 構築
-  let svg = `<svg class="stats-chart-svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">`;
+  // 改修V02_14: 一画面に収まる期間は width:100% でコンテナにフィットさせ、
+  //   全日数を一望できるようにする。収まらない(=日数過多)場合のみ実px幅にして
+  //   親 .stats-chart-svg-wrap の横スクロールに委ねる。
+  //   ※高さは固定pxのまま(縦は不変)。viewBox により比率は保たれる。
+  const svgWidthAttr = fitsOneScreen ? `width="100%"` : `width="${W}"`;
+  const svgStyleAttr = fitsOneScreen ? `style="max-width:${W}px"` : '';
+  let svg = `<svg class="stats-chart-svg" viewBox="0 0 ${W} ${H}" ${svgWidthAttr} height="${H}" ${svgStyleAttr} preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">`;
 
   // <defs> パターン
   svg += '<defs>';
@@ -18766,14 +18853,25 @@ function renderStatsChart(byDay, dateKeys){
   }
 
   // X軸ラベル(日付)
+  // 改修V02_14: バーが細い(=日数が多い)ときはラベルが重なるため間引く。
+  //   1ラベルに必要な最小幅 ≒ 24px を基準に、何本おきに描くかを決める。
+  //   ただし「今日」と「月初(1日)」は必ず表示して時間の見当をつけやすくする。
+  const labelEvery = Math.max(1, Math.ceil(24 / Math.max(1, W_PER_BAR)));
+  const xLabelFont = W_PER_BAR < 22 ? 9 : 10;
+  const todayKeyForLbl = statsTodayKey();
   dateKeys.forEach((dk, di)=>{
     const xCenter = margin.left + di * W_PER_BAR + W_PER_BAR/2;
     const [y,m,d] = dk.split('-').map(Number);
+    const isToday = (dk === todayKeyForLbl);
+    const isMonthStart = (d === 1);
+    // 間引き判定: 既定間隔の位置・今日・月初・両端のみ描画
+    const isEdge = (di === 0 || di === dateKeys.length-1);
+    if(!(di % labelEvery === 0 || isToday || isMonthStart || isEdge)) return;
+    // 月初は「M/D」、それ以外で月をまたいで分かりやすくするため今日も「M/D」
     const lbl = `${m}/${d}`;
-    const isToday = (dk === statsTodayKey());
     const fontWeight = isToday ? '600' : '400';
     const color = isToday ? '#B83A2E' : '#5C5852';
-    svg += `<text x="${xCenter}" y="${margin.top + innerH + 14}" text-anchor="middle" font-size="10" fill="${color}" font-weight="${fontWeight}" font-family="-apple-system,sans-serif">${lbl}</text>`;
+    svg += `<text x="${xCenter}" y="${margin.top + innerH + 14}" text-anchor="middle" font-size="${xLabelFont}" fill="${color}" font-weight="${fontWeight}" font-family="-apple-system,sans-serif">${lbl}</text>`;
   });
   // X軸線
   svg += `<line x1="${margin.left}" y1="${margin.top+innerH}" x2="${margin.left+innerW}" y2="${margin.top+innerH}" stroke="#8B867E" stroke-width="1"/>`;
