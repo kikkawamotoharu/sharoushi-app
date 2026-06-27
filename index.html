@@ -4653,18 +4653,23 @@ function questionMatchesKindMode(q, kindMode){
   return true;
 }
 
-/* ===== 予想問の15問しきい値判定 =====
-   進捗管理タブで表示するフレームを決定する。15問以上ある予想問フレームのみ表示対象。
-   過去問は問題数に関係なく常に表示対象。 */
-const FORECAST_FRAME_THRESHOLD = 15;
+/* ===== フレーム起動しきい値判定 =====
+   改修V02_15: 過去問B・予想問のフレーム起動条件を「15問以上」→「1問以上」に変更。
+     問題数が少なくてもフレーム学習を始められるようにする(過去問A同様に1問でも対象)。
+     0問(問題が1問も無い)フレームは始められないので引き続き非表示=対象外とする。
+     ※ 過去問B/予想問は問題を追加するたびに各回の登録問題数が変わり得るが、
+        各演習はスタート時点の登録問題数ベースで記録する(現行どおり)。
+   進捗管理タブで表示するフレームを決定する。1問以上ある B/予想問フレームのみ表示対象。
+   過去問A は問題数に関係なく常に表示対象(全フレーム表示)。 */
+const FORECAST_FRAME_THRESHOLD = 1;   // 改修V02_15: 15 → 1
 function isFrameInProgressManagement(subject, frameNo, kind){
-  // 改修8 Step 1: 仕様書⑤に従い、 pastB も「予想問同様に 15問以上」を進捗管理対象とする。
-  //   pastA(比較認識法問題集ベース)       → 全フレーム表示
-  //   pastB(個別追加の過去問)/forecast(予想問) → 15問以上のフレームのみ表示
+  // 改修8 Step 1 / 改修V02_15:
+  //   pastA(比較認識法問題集ベース)        → 全フレーム表示(問題数不問)
+  //   pastB(個別追加の過去問)/forecast(予想問) → 1問以上のフレームを表示対象
   let k = kind || 'pastA';
   if(k === 'past') k = 'pastA';
   if(k === 'pastA') return true; // 過去問A は閾値なし
-  // pastB と forecast は同一 kind の問題数で 15問しきい値を判定
+  // pastB と forecast は同一 kind の問題数で「1問以上」を判定
   const count = state.questions.filter(q=>
     lawToSubject(q.law)===subject &&
     q.frameNo===frameNo &&
@@ -4687,7 +4692,7 @@ function progressKindLabel(km){
   if(k === 'pastB') return '過去問B';
   return '過去問A';
 }
-/* kindMode で「15問しきい値なし=全フレーム表示」かどうか(pastA のみ true) */
+/* kindMode で「しきい値なし=全フレーム表示」かどうか(pastA のみ true) */
 function progressKindShowAll(km){
   return normalizeProgressKindMode(km) === 'pastA';
 }
@@ -4699,8 +4704,9 @@ function progressKindBadge(km){
   return ''; // pastA はバッジなし(従来動作)
 }
 
-/* 確認④c: 15問しきい値到達時、既存の解答履歴を「初回演習」として自動取り込み
-   - 対象 kind(forecast / pastB)フレームで 15問以上に達した
+/* 確認④c / 改修V02_15: フレームに問題が登録された時(1問以上)、既存の解答履歴を
+   「初回演習」として自動取り込み
+   - 対象 kind(forecast / pastB)フレームに問題が1問以上ある
    - frameAttempts[subject|N|kind] がまだない
    - 該当する問題たちに既存の解答履歴がある
    → その「最新解答」を初回演習履歴として保存(全問解答済なら history[0] に completed、部分解答なら current に進行中)
@@ -4719,7 +4725,7 @@ function ensureKindFrameAutoInit(kind){
         q.frameNo===fr.n &&
         getKind(q)===targetKind
       );
-      if(qs.length < FORECAST_FRAME_THRESHOLD) continue; // 15問未満 → スキップ
+      if(qs.length < FORECAST_FRAME_THRESHOLD) continue; // 改修V02_15: 0問(問題なし) → スキップ
 
       // しきい値達成。既存履歴を確認
       const qids = qs.map(q=>q.id);
@@ -4754,7 +4760,7 @@ function ensureKindFrameAutoInit(kind){
           answeredIds: answeredQids
         };
       }
-      // 解答ゼロでも空のframeAttemptsを作っておく(15問達成のマーカー)
+      // 解答ゼロでも空のframeAttemptsを作っておく(問題登録済みフレームのマーカー)
       initialized++;
     }
   }
@@ -15021,7 +15027,7 @@ function renderProgress(){
     renderSenbonManage(root);
     return;
   }
-  // 予想問の15問しきい値を満たすフレームの自動取り込み(動的判定)
+  // 改修V02_15: 過去問B/予想問は1問以上のフレームを自動取り込み(動的判定)
   ensureForecastFrameAutoInit();
   const kindMode = state.progressView.kindMode;
   // === データ概要(診断) ===
@@ -15044,9 +15050,9 @@ function renderProgress(){
   let summary = `<div class="diag-line">${kindLabel}の登録総数 <b>${total}問</b>`;
   if(noFrame>0) summary += ` <span class="diag-warn">⚠ フレーム番号未設定: ${noFrame}問</span>`;
   if(unknownLaws.size>0) summary += ` <span class="diag-warn">⚠ 未登録の法律: ${[...unknownLaws].join('、')}</span>`;
-  // 15問しきい値の説明: pastB / forecast の場合に表示(pastA はしきい値なし)
+  // 改修V02_15: しきい値が1問になったため「1問以上(=問題があるフレーム)を表示」と案内
   if(!progressKindShowAll(kindMode)){
-    summary += ` <span style="color:var(--ink-muted);font-size:11px;margin-left:8px">※ ${kindLabel}は1フレーム${FORECAST_FRAME_THRESHOLD}問以上のみ表示</span>`;
+    summary += ` <span style="color:var(--ink-muted);font-size:11px;margin-left:8px">※ ${kindLabel}は問題が登録されたフレーム(1問以上)を表示</span>`;
   }
   summary += `</div>`;
 
@@ -16163,7 +16169,7 @@ function _gBuildSubFrameRowData(subject, parentFr, subFrame, kindMode, snap){
     questionMatchesKindMode(q, kindMode) &&
     questionMatchesSubFrame(q.law, subFrame)
   ).length;
-  // 進捗管理の対象かどうか(過去問A/B は全フレーム対象、予想問は15問しきい値)
+  // 進捗管理の対象かどうか(過去問A は全フレーム、過去問B/予想問は1問以上)
   const eligible = (typeof isFrameInProgressManagement === 'function')
     ? isFrameInProgressManagement(subject, subFrame.key, kindMode)
     : (progressKindShowAll(kindMode) || totalQs >= FORECAST_FRAME_THRESHOLD);
@@ -16911,7 +16917,7 @@ function renderProgressSubjects(root, summary, kindMode){
         for(const sf of subs){
           const sfQs = allFrameQs.filter(q=>questionMatchesSubFrame(q.law, sf));
           const cnt = sfQs.length;
-          // 改修8 Step 3: pastA は全表示、 pastB/forecast は15問以上
+          // 改修8 Step 3 / 改修V02_15: pastA は全表示、 pastB/forecast は1問以上で表示
           const eligible = progressKindShowAll(kindMode) || (cnt >= FORECAST_FRAME_THRESHOLD);
           if(!eligible){
             qTotal += cnt;
@@ -16931,7 +16937,7 @@ function renderProgressSubjects(root, summary, kindMode){
       // 通常(サブフレームなし)フレーム
       const qs = allFrameQs;
       const cnt = qs.length;
-      // 表示対象判定: pastA は全フレーム、 pastB/forecast は15問以上
+      // 表示対象判定: pastA は全フレーム、 pastB/forecast は1問以上
       const eligible = isFrameInProgressManagement(subject, fr.n, kindMode);
       if(!eligible){
         // フレーム自体は表示対象外。問題数のみ集計
@@ -16961,7 +16967,7 @@ function renderProgressSubjects(root, summary, kindMode){
       <div class="sc-stats">
         <span class="sc-stat">${qTotal}問 / ${totalFrames}フレーム${eligibleNote}</span>
         ${qTotal===0 ? `<span class="sc-stat empty">${emptyLbl}</span>` :
-          (totalFrames===0 ? `<span class="sc-stat empty">15問以上のフレームなし</span>` :
+          (totalFrames===0 ? `<span class="sc-stat empty">対象フレームなし</span>` :
             `<span class="sc-stat">完了 ${completedFrames}/${totalFrames}</span>` +
             (inProgressFrames>0 ? `<span class="sc-stat inprog">演習中 ${inProgressFrames}</span>` : '')
           )
@@ -17157,7 +17163,7 @@ function buildParentFrameSummaryCard(subject, fr, kindMode){
   for(const sf of subs){
     const cnt = allFrameQs.filter(q=>questionMatchesSubFrame(q.law, sf)).length;
     totalQ += cnt;
-    // 改修8 Step 3: pastA は全表示、 pastB/forecast は15問以上
+    // 改修8 Step 3 / 改修V02_15: pastA は全表示、 pastB/forecast は1問以上で表示
     const eligible = progressKindShowAll(kindMode) || (cnt >= FORECAST_FRAME_THRESHOLD);
     if(!eligible) continue;
     eligibleSubs++;
@@ -17175,7 +17181,7 @@ function buildParentFrameSummaryCard(subject, fr, kindMode){
   const itemsHtml = itemsLabel ? `<div class="pf-items">（${escapeHtml(itemsLabel)}）</div>` : '';
   const progressLine = (eligibleSubs > 0)
     ? `完了 ${completedSubs}/${eligibleSubs}` + (inProgressSubs > 0 ? `　演習中 ${inProgressSubs}` : '') + `　未着手 ${eligibleSubs - completedSubs - inProgressSubs}`
-    : (!progressKindShowAll(kindMode) ? `${FORECAST_FRAME_THRESHOLD}問以上の中分類なし` : '');
+    : (!progressKindShowAll(kindMode) ? `問題のある中分類なし` : '');
   // 改修30: 中分類を持つ親フレーム自体には予定ボタンを置かない(予定は中分類側で設定)
   return `<div class="prog-frame prog-frame-summary" data-parent-frame="${fr.n}" style="cursor:pointer">
     <div class="pf-head">
@@ -17218,9 +17224,9 @@ function renderProgressFrames(root, summary, subject, kindMode){
       html += `<div class="prog-frame" style="opacity:.55">
         <div class="pf-head">
           <div class="pf-title"><span class="pf-n">F${fr.n}</span> ${escapeHtml(fr.t)} <span class="pf-q">(${total}問)</span>${frItemsHtml}</div>
-          <span class="prog-status empty" style="font-size:11px">対象外 (${FORECAST_FRAME_THRESHOLD}問未満)</span>
+          <span class="prog-status empty" style="font-size:11px">問題なし</span>
         </div>
-        <div class="pf-status" style="font-size:11px;color:var(--ink-muted)">※ 択一タブで「予想問のみ」を選べば出題されます。${FORECAST_FRAME_THRESHOLD - total}問追加されると進捗管理対象になります。</div>
+        <div class="pf-status" style="font-size:11px;color:var(--ink-muted)">※ このフレームにはまだ問題が登録されていません。択一タブで「予想問のみ」を選べば出題され、1問でも追加すると進捗管理の対象になります。</div>
       </div>`;
       continue;
     }
@@ -17270,8 +17276,8 @@ function renderProgressFrames(root, summary, subject, kindMode){
   if(shownFrames===0 && !progressKindShowAll(kindMode)){
     const lbl = progressKindLabel(kindMode);
     html += `<div class="prog-frame" style="text-align:center;color:var(--ink-muted);padding:30px">
-      この科目の${lbl}は、まだ${FORECAST_FRAME_THRESHOLD}問以上のフレームがありません。<br>
-      問題を追加すると、達成したフレームから自動的にここに表示されます。
+      この科目の${lbl}は、まだ問題が登録されたフレームがありません。<br>
+      問題を追加すると、そのフレームから自動的にここに表示されます(1問でも対象)。
     </div>`;
   }
   html += `</div></div>`;
@@ -17346,16 +17352,16 @@ function renderProgressSubFrames(root, summary, subject, parentFrameNo, kindMode
   for(const sf of subs){
     const sfQs = allFrameQs.filter(q=>questionMatchesSubFrame(q.law, sf));
     const cnt = sfQs.length;
-    // 改修8 Step 3: pastA は全表示、 pastB/forecast は15問以上
+    // 改修8 Step 3 / 改修V02_15: pastA は全表示、 pastB/forecast は1問以上で表示
     const eligible = progressKindShowAll(kindMode) || (cnt >= FORECAST_FRAME_THRESHOLD);
     if(!eligible){
       const lbl = progressKindLabel(kindMode);
       html += `<div class="prog-frame" style="opacity:.55">
         <div class="pf-head">
           <div class="pf-title"><span class="pf-n">F${parentFrameNo}_${sf.n}</span> ${escapeHtml(sf.t)} <span class="pf-q">(${cnt}問)</span></div>
-          <span class="prog-status empty" style="font-size:11px">対象外 (${FORECAST_FRAME_THRESHOLD}問未満)</span>
+          <span class="prog-status empty" style="font-size:11px">問題なし</span>
         </div>
-        <div class="pf-status" style="font-size:11px;color:var(--ink-muted)">※ 択一タブで「${lbl}」を選べば出題されます。${FORECAST_FRAME_THRESHOLD - cnt}問追加されると進捗管理対象になります。</div>
+        <div class="pf-status" style="font-size:11px;color:var(--ink-muted)">※ この中分類にはまだ問題が登録されていません。択一タブで「${lbl}」を選べば出題され、1問でも追加すると進捗管理の対象になります。</div>
       </div>`;
       continue;
     }
@@ -17375,7 +17381,7 @@ function renderProgressSubFrames(root, summary, subject, parentFrameNo, kindMode
   if(shownSubs===0 && !progressKindShowAll(kindMode)){
     const lbl = progressKindLabel(kindMode);
     html += `<div class="prog-frame" style="text-align:center;color:var(--ink-muted);padding:30px">
-      このフレームの${lbl}は、まだ${FORECAST_FRAME_THRESHOLD}問以上の中分類がありません。
+      このフレームの${lbl}は、まだ問題が登録された中分類がありません(1問でも対象)。
     </div>`;
   }
   html += `</div></div>`;
