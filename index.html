@@ -4046,6 +4046,17 @@ function isTokkunRef(frameRef){
 function getTokkunDef(frameRef){
   return TOKKUN_FRAMES.find(f=>f.key===frameRef) || null;
 }
+/* 改修V02_12: 付箋(bookmarks[id])を安全に「配列」で取得するヘルパー。
+   本来 bookmarks[id] は色(付箋種別)の配列だが、過去の不具合や旧データ由来で
+   true / 文字列 等の非配列が混入すると、(x||[]).includes(...) が
+   "includes is not a function" 例外を起こし、その科目の進捗管理タブが
+   無反応になる(集中特訓フレーム描画 getTokkunQuestions で発生)。
+   ここで「配列でなければ空配列」に正規化して、例外を根本から防ぐ。 */
+function _bmList(id){
+  const v = state.bookmarks ? state.bookmarks[id] : null;
+  return Array.isArray(v) ? v : [];
+}
+
 /* 特訓フレームの対象問題を動的抽出して返す(科目横断・過去問A限定)。
    - subject: 科目名
    - frameRef: 'T1'/'T2'/'T3'
@@ -4067,7 +4078,7 @@ function getTokkunQuestions(subject, frameRef){
     });
   }
   // 撃墜/罠問: 付箋色を持つ問題
-  return pool.filter(q=> (state.bookmarks[q.id]||[]).includes(def.bm));
+  return pool.filter(q=> _bmList(q.id).includes(def.bm));
 }
 
 /* ===== 改修: フレーム中分類項目(表示用) =====
@@ -5605,6 +5616,24 @@ function loadState(){
       s.questions ||= [];
       s.history ||= [];
       s.bookmarks ||= {};
+      // 改修V02_12: 付箋データの自己修復。
+      //   bookmarks[id] は本来「付箋色の配列」だが、過去の不具合や旧データで
+      //   true 等の非配列が混入すると、進捗管理タブ(集中特訓フレーム)で
+      //   "includes is not a function" 例外が起き、その科目が無反応になる。
+      //   ここで非配列エントリを安全に正規化する(true 等は「付箋あり」の痕跡
+      //   とは扱わず、空配列=付箋なしに片付ける。色情報が無く復元不能なため)。
+      {
+        let _bmFixed = 0;
+        for(const _id in s.bookmarks){
+          const _v = s.bookmarks[_id];
+          if(!Array.isArray(_v)){
+            // 配列でないものは付箋色を特定できないので削除(=付箋なし)に正規化
+            delete s.bookmarks[_id];
+            _bmFixed++;
+          }
+        }
+        if(_bmFixed>0) console.info('[改修V02_12] 破損していた付箋データを修復しました:', _bmFixed, '件');
+      }
       s.myNotes ||= {};
       s.vsNotes ||= {};
       s.frameAttempts ||= {};
@@ -6090,7 +6119,7 @@ function getPool(){
   }
   if(s.filterCat) pool = pool.filter(q=>q.category===s.filterCat);
   if(s.filterYear) pool = pool.filter(q=>q.year===s.filterYear);
-  if(s.filterBm) pool = pool.filter(q=>(state.bookmarks[q.id]||[]).includes(s.filterBm));
+  if(s.filterBm) pool = pool.filter(q=>_bmList(q.id).includes(s.filterBm));
   // 改修02: 自分の追記メモの有無で絞り込み
   if(s.filterMyNote==='has')  pool = pool.filter(q=>hasMyNote(q.id));
   if(s.filterMyNote==='none') pool = pool.filter(q=>!hasMyNote(q.id));
@@ -6107,7 +6136,7 @@ function getPool(){
   }else if(s.mode==='unseen'){
     pool = pool.filter(q=>!state.history.some(h=>h.qid===q.id));
   }else if(s.mode==='bm'){
-    pool = pool.filter(q=>(state.bookmarks[q.id]||[]).length>0);
+    pool = pool.filter(q=>_bmList(q.id).length>0);
   }else if(s.mode==='rand'){
     // shuffle once, but cache order so 次へ progresses
     if(!s._randOrder || s._randOrderPoolSig!==poolSignature(pool)){
@@ -6299,7 +6328,7 @@ function renderQuiz(){
   const pool = getPool();
   const idx = state.session.currentIndex;
   const qs = questionStats(q.id);
-  const bms = state.bookmarks[q.id]||[];
+  const bms = _bmList(q.id);
   const answered = state.session.answered;
   const userAns = state.session.userAnswer;
   const correct = answered && userAns===q.answer;
@@ -6810,7 +6839,8 @@ function renderBmChip(color, isActive){
 }
 
 function toggleBm(qid,color){
-  state.bookmarks[qid] ||= [];
+  // 改修V02_12: true等の非配列が入っていても配列へ正規化(indexOf例外を防ぐ)
+  if(!Array.isArray(state.bookmarks[qid])) state.bookmarks[qid] = [];
   const i = state.bookmarks[qid].indexOf(color);
   if(i>=0) state.bookmarks[qid].splice(i,1);
   else state.bookmarks[qid].push(color);
@@ -7315,7 +7345,7 @@ function collectSenbonDraftsFromFrame(questionIds, subject, frameNo, subFrameKey
   let added = 0;
   for(const qid of questionIds){
     if(seenQids.has(qid)) continue;
-    const bms = state.bookmarks[qid] || [];
+    const bms = _bmList(qid);
     if(!bms.includes('s')) continue;          // 「千本」付箋が付いていない問題は対象外
     const q = (state.questions||[]).find(x=>x && x.id===qid);
     if(!q) continue;                           // 実在しない問題はスキップ
@@ -9518,7 +9548,7 @@ function getSelectPool(){
   if(s.filterLaw) pool = pool.filter(q=>q.law===s.filterLaw);
   if(s.filterCat) pool = pool.filter(q=>q.category===s.filterCat);
   if(s.filterYear) pool = pool.filter(q=>q.year===s.filterYear);
-  if(s.filterBm) pool = pool.filter(q=>(state.bookmarks[q.id]||[]).includes(s.filterBm));
+  if(s.filterBm) pool = pool.filter(q=>_bmList(q.id).includes(s.filterBm));
 
   if(s.mode==='weak'){
     pool = pool.filter(q=>{
@@ -9529,7 +9559,7 @@ function getSelectPool(){
   }else if(s.mode==='unseen'){
     pool = pool.filter(q=>!state.selectHistory.some(h=>h.qid===q.id));
   }else if(s.mode==='bm'){
-    pool = pool.filter(q=>(state.bookmarks[q.id]||[]).length>0);
+    pool = pool.filter(q=>_bmList(q.id).length>0);
   }else if(s.mode==='rand'){
     if(!s._randOrder || s._randOrderPoolSig!==poolSignature(pool)){
       pool = shuffle(pool);
@@ -9597,7 +9627,7 @@ function renderSelectQuiz(){
   const pool = getSelectPool();
   const idx = state.selectSession.currentIndex;
   const qs = selectQuestionStats(q.id);
-  const bms = state.bookmarks[q.id]||[];
+  const bms = _bmList(q.id);
   const answered = state.selectSession.answered;
   const userChoice = state.selectSession.userChoice;
   const isCorrect = answered && userChoice===q.correctIndex;
@@ -9775,7 +9805,8 @@ function renderSelectNavRow(idx, total){
 }
 
 function toggleBmSelect(qid, color){
-  state.bookmarks[qid] ||= [];
+  // 改修V02_12: true等の非配列が入っていても配列へ正規化(indexOf例外を防ぐ)
+  if(!Array.isArray(state.bookmarks[qid])) state.bookmarks[qid] = [];
   const i = state.bookmarks[qid].indexOf(color);
   if(i>=0) state.bookmarks[qid].splice(i,1);
   else state.bookmarks[qid].push(color);
@@ -14569,7 +14600,7 @@ function _renderWeakInner(){
 
   // 問題詳細(択一と同じ形式)
   const qs = questionStats(q.id);
-  const bms = state.bookmarks[q.id]||[];
+  const bms = _bmList(q.id);
   const answered = state.weakSession.answered;
   const userAns = state.weakSession.userAnswer;
   const correct = answered && userAns===q.answer;
@@ -14772,7 +14803,8 @@ function navWeakJump(delta){
 }
 
 function toggleBmWeak(qid,color){
-  state.bookmarks[qid] ||= [];
+  // 改修V02_12: true等の非配列が入っていても配列へ正規化(indexOf例外を防ぐ)
+  if(!Array.isArray(state.bookmarks[qid])) state.bookmarks[qid] = [];
   const i = state.bookmarks[qid].indexOf(color);
   if(i>=0) state.bookmarks[qid].splice(i,1);
   else state.bookmarks[qid].push(color);
