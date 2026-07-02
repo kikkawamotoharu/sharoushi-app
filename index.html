@@ -5694,6 +5694,7 @@ function loadState(){
       s.weakSession.userAnswer ??= null;
       s.weakSession.questionType ||= 'takuitsu';
       s.weakSession.kindMode ||= 'both'; // 'past' | 'forecast' | 'both'
+      s.weakSession.frameNo ??= ''; // 改修V02_18: 科目内フレーム絞り込み(未定義=すべて)
       // 図表機能の追加 (後方互換)
       s.figures ||= [];
       s.figuresView ||= {filterSubject:'',filterFrame:''};
@@ -5979,7 +5980,7 @@ function loadState(){
     selectQuestions: SAMPLE_SELECT_QUESTIONS.slice(),
     selectHistory: [],
     selectSession: {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null,kindMode:'both'},
-    weakSession: {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'},
+    weakSession: {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',frameNo:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'},
     figures: [],
     figuresView: {filterSubject:'',filterFrame:''},
     studyPlans: {},
@@ -9323,7 +9324,7 @@ async function _applyMergeRestore(){
   state.session.kindMode ||= 'both';
   state.selectSession ||= {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null,kindMode:'both'}; state.selectSession.kindMode ||= 'both';
   state.weakSession ||= {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'};
-  state.weakSession.kindMode ||= 'both';
+  state.weakSession.kindMode ||= 'both'; state.weakSession.frameNo ??= ''; /* 改修V02_18 */
   state.figures ||= [];
   state.figuresView ||= {filterSubject:'',filterFrame:''};
   state.senbon = Array.isArray(state.senbon) ? state.senbon : [];
@@ -9452,7 +9453,7 @@ function restoreBackup(){
         state.session.kindMode ||= 'both';
         state.selectSession ||= {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null,kindMode:'both'}; state.selectSession.kindMode ||= 'both';
         state.weakSession ||= {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'};
-        state.weakSession.kindMode ||= 'both';
+        state.weakSession.kindMode ||= 'both'; state.weakSession.frameNo ??= ''; /* 改修V02_18 */
         state.figures ||= [];
         state.figuresView ||= {filterSubject:'',filterFrame:''};
         state.senbon = Array.isArray(state.senbon) ? state.senbon : [];
@@ -13125,6 +13126,14 @@ function getWeakPool(){
     if(s.lawSub && SUBJECTS_WITH_SUBLAW.includes(s.subject)){
       pool = pool.filter(q=>q.law===s.lawSub);
     }
+    // 改修V02_18: 科目内の「フレーム」でさらに絞り込む(フレーム単位の弱点抽出)。
+    //   s.frameNo は数値文字列。空("")なら科目内すべて。
+    if(s.frameNo!=null && s.frameNo!==''){
+      const wantF = parseInt(s.frameNo, 10);
+      if(!isNaN(wantF)){
+        pool = pool.filter(q=> q.frameNo===wantF);
+      }
+    }
   }
   // ソート
   const sort = s.sortBy || 'count-desc';
@@ -14582,6 +14591,30 @@ function _renderWeakInner(){
           }
           return '';
         })()}
+        ${(() => {
+          // 改修V02_18: 科目を選んでいる場合、その科目の「フレーム」プルダウンを表示。
+          //   ミスのある問題が属するフレームのみを、ミス問題数つきで列挙する。
+          //   フレーム絞り込みは択一問題のみ対応(事例モードは対象外)。
+          if(!s.subject) return '';
+          if(s.questionType === 'case') return '';
+          const frames = FRAMES[s.subject] || [];
+          // この科目のミス問題プール(フレーム絞り込み前)を作り、フレーム別にミス問題数を数える
+          const missQs = state.questions.filter(q=>
+            getMistakeCount(q.id)>0 &&
+            lawToSubject(q.law)===s.subject &&
+            questionMatchesKindMode(q, s.kindMode||'both')
+          );
+          const cntByFrame = {};
+          for(const q of missQs){ const f=(q.frameNo==null?0:q.frameNo); cntByFrame[f]=(cntByFrame[f]||0)+1; }
+          // フレーム定義順に、ミス問題が1問以上あるフレームだけ出す
+          let frameOpts = '<option value="">(科目内すべて)</option>';
+          for(const fr of frames){
+            const c = cntByFrame[fr.n] || 0;
+            if(c<=0) continue;
+            frameOpts += `<option value="${fr.n}" ${String(s.frameNo)===String(fr.n)?'selected':''}>F${fr.n} ${escapeHtml(fr.t)} (${c}問)</option>`;
+          }
+          return `<label style="margin-left:8px">フレーム</label><select id="w-frame">${frameOpts}</select>`;
+        })()}
       </div>
       <div class="weak-filter-row">
         <label>並び順</label>
@@ -14861,6 +14894,7 @@ function wireWeakFilters(){
   const el5 = document.getElementById('w-subject'); if(el5) el5.addEventListener('change', e=>{
     state.weakSession.subject = e.target.value;
     state.weakSession.lawSub = '';   // 改修04: 科目を変えたら中分類の法令選択はリセット
+    state.weakSession.frameNo = '';  // 改修V02_18: 科目を変えたらフレーム選択もリセット
     state.weakSession.currentIndex = 0;
     state.weakSession.answered = false;
     saveState();
@@ -14868,6 +14902,8 @@ function wireWeakFilters(){
   });
   // 改修04: 中分類の法令プルダウン
   const elLawSub = document.getElementById('w-lawsub'); if(elLawSub) elLawSub.addEventListener('change', onChange('lawSub'));
+  // 改修V02_18: 科目内フレームプルダウン
+  const elFrame = document.getElementById('w-frame'); if(elFrame) elFrame.addEventListener('change', onChange('frameNo'));
   const el6 = document.getElementById('w-sort'); if(el6) el6.addEventListener('change', onChange('sortBy'));
   const el7 = document.getElementById('w-qtype'); if(el7) el7.addEventListener('change', onChange('questionType'));
   const el8 = document.getElementById('w-kindmode'); if(el8) el8.addEventListener('change', onChange('kindMode'));
@@ -14879,6 +14915,7 @@ function wireWeakFilters(){
     state.weakSession.dateTo='';
     state.weakSession.subject='';
     state.weakSession.lawSub='';
+    state.weakSession.frameNo='';   // 改修V02_18
     state.weakSession.sortBy='count-desc';
     state.weakSession.currentIndex=0;
     state.weakSession.answered=false;
