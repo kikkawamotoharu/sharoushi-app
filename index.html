@@ -1489,6 +1489,9 @@
   .plan-badge.attempt.none{background:var(--line);color:var(--ink-muted)}
   .plan-badge.delay.overdue{background:#F8D7DA;color:#B02A37}
   .plan-badge.delay.warn{background:#FFF3CD;color:#8A6D00}
+  /* 改修V02_17: 予定の種別(過去問A/予想問)タグ */
+  .plan-badge.kindtag.forecast{background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7}
+  .plan-badge.kindtag.pasta{background:#EEF0F6;color:#4A5578;border:1px solid #C7CEE0}
   .plan-subj-dot{display:inline-block;width:9px;height:9px;border-radius:50%;flex-shrink:0}
   .plan-box-title{font-size:13px;font-weight:600;color:var(--ink);margin:1px 0 1px;line-height:1.35;display:flex;align-items:center;gap:6px}
   .plan-box-items{font-size:11px;color:var(--ink-muted);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -2552,6 +2555,9 @@
   .taipa-mini-badge.first{background:var(--green)}
   .taipa-mini-badge.act{background:var(--indigo)}
   .taipa-mini-badge.partial{background:#c98d00}
+  .taipa-mini-badge.forecast{background:#2E7D32}
+  .taipa-kind-mix{font-size:10px;color:var(--ink-muted);margin-left:4px;white-space:nowrap}
+  .taipa-kind-mix.forecast{color:#2E7D32;font-weight:600}
   .taipa-block.act.is-partial{border-left-style:dashed}
   .taipa-state-badge{font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;color:#fff}
   .taipa-state-badge.done{background:#2ea043}
@@ -15133,14 +15139,31 @@ function _gTodayDate(){
 // 復習タイミングの選択肢(日後)
 const PLAN_REVIEW_OPTIONS = [1,2,3,4,5,6,7,10,14,30];
 
-// 予定キー: "科目|フレーム参照"。フレーム参照は数値文字列("4")または中分類キー("2.1")。
-function planKey(subject, frameRef){ return subject + '|' + frameRef; }
+// 予定キー: "科目|フレーム参照" (過去問A・後方互換) または "科目|フレーム参照|kind"。
+//   改修V02_17: 予想問の予定に対応するため、kind を第3要素として付与できるようにした。
+//   - kind 省略 or 'pastA' … 従来どおり接尾辞なし("科目|4")。既存データと完全互換。
+//   - kind==='forecast'     … "科目|4|forecast" のように接尾辞を付ける。
+//   フレーム参照は数値文字列("4")または中分類キー("2.1")。
+function planKey(subject, frameRef, kind){
+  const base = subject + '|' + frameRef;
+  return (kind && kind==='forecast') ? (base + '|forecast') : base;
+}
 
-// 予定キーを {subject, frameRef} に分解
+// 予定キーを {subject, frameRef, kind} に分解
+//   改修V02_17: 末尾が "|forecast" のときは kind='forecast'、それ以外は 'pastA'。
+//   科目名・フレーム参照自体に "|" は含まれない前提(科目=先頭、frameRef=中間)。
 function splitPlanKey(key){
-  const sep = key.indexOf('|');
-  if(sep<0) return null;
-  return {subject: key.slice(0,sep), frameRef: key.slice(sep+1)};
+  const parts = String(key).split('|');
+  if(parts.length < 2) return null;
+  let kind = 'pastA';
+  let frameRef;
+  if(parts.length >= 3 && parts[parts.length-1]==='forecast'){
+    kind = 'forecast';
+    frameRef = parts.slice(1, parts.length-1).join('|'); // 中間(通常は1要素だが念のため結合)
+  }else{
+    frameRef = parts.slice(1).join('|');
+  }
+  return {subject: parts[0], frameRef, kind};
 }
 
 // 並び順用: 親フレーム番号と中分類番号(なければ0)を返す
@@ -15193,16 +15216,19 @@ function planLearningContent(subject, frameRef){
   return fr ? fr.t : '';
 }
 
-/* 改修57_04: 予定タブ表示用 — 指定の科目・フレームに属する「過去問A」の問題数を返す。
+/* 改修57_04: 予定タブ表示用 — 指定の科目・フレームに属する問題数を返す。
    進捗管理「予定」タブで、各フレームの解答すべき問題数(=学習ボリュームの目安)を
-   表示するために使う。kind は予定タブの標準基準である 'pastA' に固定。
+   表示するために使う。
+   改修V02_17: kind を受け取り、過去問A('pastA')・予想問('forecast')を切り替える。
+     省略時は従来どおり 'pastA'。
    サブフレーム指定がある場合はサブフレームでも絞り込む。 */
-function planFrameQuestionCount(subject, frameRef){
+function planFrameQuestionCount(subject, frameRef, kind){
+  const k = (kind==='forecast') ? 'forecast' : 'pastA';
   try{
     const r = resolveFrameRef(subject, frameRef);
     if(r.frameNo == null) return 0;
     let qs = state.questions.filter(q=>
-      lawToSubject(q.law)===subject && q.frameNo===r.frameNo && getKind(q)==='pastA');
+      lawToSubject(q.law)===subject && q.frameNo===r.frameNo && getKind(q)===k);
     if(r.isSubFrame && r.subFrame){
       qs = qs.filter(q=>questionMatchesSubFrame(q.law, r.subFrame));
     }
@@ -15221,11 +15247,12 @@ function planFrameQuestionCount(subject, frameRef){
      status,           // 'ok' | 'warn' | 'overdue' (最終完了回の復習遅延。未完了/演習中は 'ok')
      hasAttempt        // frameAttempts に記録があるか
    } */
-function _planFrameStatus(subject, frameRef){
+function _planFrameStatus(subject, frameRef, kind){
+  const kd = (kind==='forecast') ? 'forecast' : 'pastA';
   try{
     const r = resolveFrameRef(subject, frameRef);
     if(r.frameNo == null) return {attemptNo:1, completedCount:0, inProgress:false, status:'ok', hasAttempt:false};
-    const k = frameKey(subject, r.frameNo, 'pastA');
+    const k = frameKey(subject, r.frameNo, kd);
     const fa = state.frameAttempts ? state.frameAttempts[k] : null;
     if(!fa) return {attemptNo:1, completedCount:0, inProgress:false, status:'ok', hasAttempt:false};
     const completedCount = Array.isArray(fa.history) ? fa.history.length : 0;
@@ -15260,11 +15287,11 @@ function getPlanOccurrencesForDate(dateKey){
     for(const occ of enumeratePlanOccurrences(plan)){
       if(occ.dateKey !== dateKey) continue;
       list.push({
-        key, subject: sp.subject, frameRef: sp.frameRef,
+        key, subject: sp.subject, frameRef: sp.frameRef, kind: sp.kind,
         startTime: plan.startTime || '',
         endTime: plan.endTime || '',
         durationMin: (plan.durationMin!=null ? plan.durationMin : null),
-        kind: occ.kind,
+        kindOcc: occ.kind,
         offset: occ.offset,
         done: !!(plan.done && plan.done[dateKey])
       });
@@ -15298,7 +15325,7 @@ function getOverduePlanOccurrences(beforeDateKey){
       if(occ.dateKey >= beforeDateKey) continue; // 当日以降は遅れではない
       const done = !!(plan.done && plan.done[occ.dateKey]);
       if(done) continue;
-      out.push({key, subject: sp.subject, frameRef: sp.frameRef, dateKey:occ.dateKey, kind:occ.kind, offset:occ.offset, startTime: plan.startTime||''});
+      out.push({key, subject: sp.subject, frameRef: sp.frameRef, kind: sp.kind, dateKey:occ.dateKey, kindOcc:occ.kind, offset:occ.offset, startTime: plan.startTime||''});
     }
   }
   out.sort((a,b)=> a.dateKey < b.dateKey ? 1 : (a.dateKey > b.dateKey ? -1 : 0));
@@ -15509,11 +15536,14 @@ function sessionHasRestAnswers(sess){
 }
 
 // 新規セッション開始(予定ボックスから)。既存の進行中があれば自動で終了確定。
-// 改修: 「▶開始」一発で、計測セッション開始と同時に「択一」タブの該当フレーム演習(過去問A)を自動起動する。
+// 改修: 「▶開始」一発で、計測セッション開始と同時に「択一」タブの該当フレーム演習を自動起動する。
 //   タブ移動や「演習開始」ボタンの二度押しを不要にする。
 //   (択一画面側にも計測バーが出るため、中断・休憩・完了はそのまま操作できる)
-function startStudySession(subject, frameRef, dateKey){
-  // ① まず、この予定フレームに過去問A が登録されているかを事前確認する。
+// 改修V02_17: kind('pastA'|'forecast')に対応。予想問の予定からも演習を開始できる。
+function startStudySession(subject, frameRef, dateKey, kind){
+  const kd = (kind==='forecast') ? 'forecast' : 'pastA';
+  const kindLabel = (kd==='forecast') ? '予想問' : '過去問A';
+  // ① まず、この予定フレームに対象kindの問題が登録されているかを事前確認する。
   //    0問なら計測セッションを開始せずに中止する(計測だけ始まる空振りを防ぐ)。
   const fref0 = resolveFrameRef(subject, frameRef);
   // 改修V02_05: 特訓フレームは付箋・弱点から動的抽出。対象0問なら開始しない。
@@ -15527,12 +15557,12 @@ function startStudySession(subject, frameRef, dateKey){
     }
   }else{
     if(fref0.frameNo == null){ alert('フレーム参照が不正です: ' + frameRef); return; }
-    let qPre = state.questions.filter(q=>lawToSubject(q.law)===subject && q.frameNo===fref0.frameNo && getKind(q)==='pastA');
+    let qPre = state.questions.filter(q=>lawToSubject(q.law)===subject && q.frameNo===fref0.frameNo && getKind(q)===kd);
     if(fref0.isSubFrame && fref0.subFrame){
       qPre = qPre.filter(q=>questionMatchesSubFrame(q.law, fref0.subFrame));
     }
     if(qPre.length === 0){
-      alert('このフレームには過去問Aが登録されていないため、演習を開始できません。\n(「過去問A」タブで問題を追加してください)');
+      alert(`このフレームには${kindLabel}が登録されていないため、演習を開始できません。\n(「${kindLabel}」タブで問題を追加してください)`);
       return;
     }
   }
@@ -15546,8 +15576,9 @@ function startStudySession(subject, frameRef, dateKey){
   const now = Date.now();
   const sess = {
     id: 'ss_' + now + '_' + Math.random().toString(36).slice(2,7),
-    planKey: planKey(subject, frameRef),
+    planKey: planKey(subject, frameRef, kd),
     subject, frameRef, dateKey,
+    kind: kd,                       // 改修V02_17: セッションの kind(実績集計・完了フラグで使用)
     startTs: now,
     endTs: null,
     segments: [{start: now, end: null, mode:'A'}],
@@ -15559,15 +15590,12 @@ function startStudySession(subject, frameRef, dateKey){
   state.activeSessionId = sess.id;
   saveState();
 
-  // ③ そのまま「択一」タブの該当フレーム演習(過去問A)を起動する。
+  // ③ そのまま「択一」タブの該当フレーム演習(該当kind)を起動する。
   //    startFrameAttempt 内部で enterFrameMode → switchTab('quiz') まで実行され、
   //    予定していた科目・フレームの問題演習がすぐ始まる。
-  //    既に同フレームの進行中演習がある場合は「継続/新規」の確認が出る(従来挙動)。
-  // 改修V02_09: startFrameAttempt が演習を開始できなかった場合(上限超過の確認を
-  //    キャンセルした等で fa.current が用意されなかった場合)、②で先に作った計測
-  //    セッションだけが宙に浮き「タイマーは出るが実績は付かない」不整合になる。
-  //    開始失敗時は、いま作ったセッションを破棄して状態を元に戻す。
-  const started = startFrameAttempt(subject, frameRef, 'pastA');
+  // 改修V02_09: startFrameAttempt が演習を開始できなかった場合、②で先に作った計測
+  //    セッションだけが宙に浮くため、開始失敗時はセッションを破棄して状態を戻す。
+  const started = startFrameAttempt(subject, frameRef, kd);
   if(started === false){
     const arr = state.studySessions || [];
     const idx = arr.findIndex(x=>x.id===sess.id);
@@ -15697,14 +15725,17 @@ function getSessionsForDate(dateKey){
 
 /* ===== 予定編集モーダル ===== */
 let _planEditKey = null;
-function openPlanEditModal(subject, frameRef){
+// 改修V02_17: kind('pastA'|'forecast')を受けて、過去問A/予想問それぞれの予定を編集できる。
+function openPlanEditModal(subject, frameRef, kind){
   // frameRef は数値・数字文字列("4")または中分類キー("2.1")
-  _planEditKey = planKey(subject, frameRef);
+  const kd = (kind==='forecast') ? 'forecast' : 'pastA';
+  _planEditKey = planKey(subject, frameRef, kd);
   const plan = (state.studyPlans && state.studyPlans[_planEditKey]) || {};
   const titleEl = document.getElementById('plan-edit-title');
   const descEl = document.getElementById('plan-edit-desc');
-  if(titleEl) titleEl.textContent = '学習予定の設定';
-  if(descEl) descEl.textContent = `${subject}　${frameOrSubFrameLabel(subject, frameRef)}`;
+  const kindLabel = (kd==='forecast') ? '🎯 予想問' : '過去問A';
+  if(titleEl) titleEl.textContent = `学習予定の設定（${kindLabel}）`;
+  if(descEl) descEl.textContent = `${subject}　${frameOrSubFrameLabel(subject, frameRef)}（${kindLabel}）`;
   // 既存値を流し込み(なければ初期値: 開始日=明日)
   const def = _gDateKey(_gAddDays(_gTodayDate(), 1));
   document.getElementById('plan-input-startdate').value = plan.startDate || def;
@@ -15751,10 +15782,13 @@ function savePlanEdit(){
     .map(c=>parseInt(c.dataset.off,10)).filter(n=>!isNaN(n)).sort((a,b)=>a-b);
   // 既存の done(完了履歴)は保持する
   const prev = (state.studyPlans && state.studyPlans[_planEditKey]) || {};
+  // 改修V02_17: キーから kind を復元して plan にも保存(冗長だが参照時に安全)
+  const spEdit = splitPlanKey(_planEditKey);
   state.studyPlans ||= {};
   state.studyPlans[_planEditKey] = {
     startDate, startTime, endTime, durationMin,
     reviewOffsets: offsets,
+    kind: (spEdit ? spEdit.kind : 'pastA'),
     done: prev.done || {}
   };
   saveState();
@@ -15814,13 +15848,14 @@ function renderProgressPlan(root){
     html += `<div class="plan-overdue-summary">
       <div class="pos-title">⚠ 遅れている予定: ${overdue.length}件(今日より前で未完了)</div>`;
     for(const o of shown){
-      const lbl = o.kind==='review' ? `復習(${o.offset}日後)` : '初回';
+      const lbl = o.kindOcc==='review' ? `復習(${o.offset}日後)` : '初回';
       const col = statsSubjectColor(o.subject);
+      const kindTag = o.kind==='forecast' ? `<span class="plan-badge kindtag forecast">予想問</span>` : '';
       html += `<div class="plan-overdue-item">
         <span style="color:var(--accent);font-weight:600">${planDateLabel(o.dateKey)}</span>
         <span class="plan-subj-dot" style="background:${col}"></span>
-        ${escapeHtml(o.subject)}　${escapeHtml(frameOrSubFrameLabel(o.subject, o.frameRef))}
-        <span class="plan-badge ${o.kind==='review'?'review':'first'}">${lbl}</span>
+        ${escapeHtml(o.subject)}　${escapeHtml(frameOrSubFrameLabel(o.subject, o.frameRef))}${kindTag}
+        <span class="plan-badge ${o.kindOcc==='review'?'review':'first'}">${lbl}</span>
       </div>`;
     }
     if(overdue.length>shown.length){
@@ -15843,14 +15878,18 @@ function renderProgressPlan(root){
       const subjCol = statsSubjectColor(o.subject);  // 改修30b: 科目カラー
       const timeStr = o.startTime ? (o.endTime ? `${o.startTime}〜${o.endTime}` : `${o.startTime}〜`) : '時刻未設定';
       const durStr = (o.durationMin!=null && o.durationMin>0) ? `<span class="plan-box-dur">(見込み ${o.durationMin}分)</span>` : '';
-      // 改修57_04: 解答すべき問題数(過去問A基準)を表示。学習ボリュームの見立てに使う。
-      const qCount = planFrameQuestionCount(o.subject, o.frameRef);
+      // 改修57_04 / 改修V02_17: 解答すべき問題数を表示。予定の kind(過去問A/予想問)基準。
+      const qCount = planFrameQuestionCount(o.subject, o.frameRef, o.kind);
       const qcountStr = qCount>0 ? `<span class="plan-box-qcount">📝 ${qCount}問</span>` : '';
-      const badge = o.kind==='review'
+      const badge = o.kindOcc==='review'
         ? `<span class="plan-badge review">復習 ${o.offset}日後</span>`
         : `<span class="plan-badge first">初回</span>`;
-      // 改修V02_13: ガントと同基準の「演習回数」「遅延(赤/黄)」バッジを予定ボックスにも表示。
-      const pst = _planFrameStatus(o.subject, o.frameRef);
+      // 改修V02_17: 予想問の予定であることを示すタグ(過去問Aと同じ表に並ぶため区別する)
+      const kindTag = o.kind==='forecast'
+        ? `<span class="plan-badge kindtag forecast" title="予想問の予定">🎯 予想問</span>`
+        : `<span class="plan-badge kindtag pasta" title="過去問Aの予定">過去問A</span>`;
+      // 改修V02_13 / 改修V02_17: ガントと同基準の「演習回数」「遅延」バッジ。予定の kind 基準。
+      const pst = _planFrameStatus(o.subject, o.frameRef, o.kind);
       let attemptBadge = '';
       if(pst.inProgress){
         attemptBadge = `<span class="plan-badge attempt prog" title="現在 ${pst.attemptNo}回目を演習中">${pst.attemptNo}回目 演習中</span>`;
@@ -15909,14 +15948,14 @@ function renderProgressPlan(root){
           ? 'このフレームは「一旦終了(途中)」の記録があります。続きを計測できます'
           : '学習を始めるときに押すと、時間と解答数を自動で計測します';
         timerHtml = `<div class="plan-timer is-idle">
-          <button class="plan-timer-btn start" data-sessstart-subj="${escapeHtml(o.subject)}" data-sessstart-fref="${escapeHtml(String(o.frameRef))}" data-sessstart-date="${dateKey}">${startLabel}</button>
+          <button class="plan-timer-btn start" data-sessstart-subj="${escapeHtml(o.subject)}" data-sessstart-fref="${escapeHtml(String(o.frameRef))}" data-sessstart-date="${dateKey}" data-sessstart-kind="${escapeHtml(o.kind||'pastA')}">${startLabel}</button>
           <span class="plan-timer-hint">${hint}</span>
         </div>`;
       }
       html += `<div class="plan-box ${o.done?'done':''}" style="border-left-color:${subjCol}">
         <div class="plan-box-main">
           <div class="plan-box-top">
-            <span class="plan-box-time">🕒 ${timeStr}</span>${durStr}${qcountStr}${attemptBadge}${delayBadge}${badge}
+            <span class="plan-box-time">🕒 ${timeStr}</span>${durStr}${qcountStr}${kindTag}${attemptBadge}${delayBadge}${badge}
           </div>
           <div class="plan-box-title"><span class="plan-subj-dot" style="background:${subjCol}"></span>${escapeHtml(o.subject)}　${escapeHtml(label)}</div>
           ${itemsHtml}
@@ -15924,7 +15963,7 @@ function renderProgressPlan(root){
         </div>
         <div class="plan-box-action">
           ${o.done?'<span class="plan-done-mark">✓ 完了</span>':''}
-          <button class="plan-edit-inline" data-planedit="1" data-subj="${escapeHtml(o.subject)}" data-fref="${escapeHtml(String(o.frameRef))}">編集</button>
+          <button class="plan-edit-inline" data-planedit="1" data-subj="${escapeHtml(o.subject)}" data-fref="${escapeHtml(String(o.frameRef))}" data-kind="${escapeHtml(o.kind||'pastA')}">編集</button>
           <button class="plan-done-btn ${o.done?'is-done':''}" data-plankey="${escapeHtml(o.key)}" data-date="${dateKey}">${o.done?'完了を取消':'完了にする'}</button>
         </div>
       </div>`;
@@ -15944,12 +15983,13 @@ function renderProgressPlan(root){
       e.stopPropagation();
       const subj = b.dataset.subj;
       const ref = b.dataset.fref;
-      if(subj && ref) openPlanEditModal(subj, ref);
+      const kind = b.dataset.kind || 'pastA'; // 改修V02_17
+      if(subj && ref) openPlanEditModal(subj, ref, kind);
     });
   });
-  // 改修31: 計測ボタンの配線
+  // 改修31 / 改修V02_17: 計測ボタンの配線(kind を渡す)
   root.querySelectorAll('button[data-sessstart-subj]').forEach(b=>{
-    b.addEventListener('click', ()=> startStudySession(b.dataset.sessstartSubj, b.dataset.sessstartFref, b.dataset.sessstartDate));
+    b.addEventListener('click', ()=> startStudySession(b.dataset.sessstartSubj, b.dataset.sessstartFref, b.dataset.sessstartDate, b.dataset.sessstartKind || 'pastA'));
   });
   root.querySelectorAll('button[data-sesspause]').forEach(b=>{
     b.addEventListener('click', ()=> pauseStudySession(b.dataset.sesspause));
@@ -17195,13 +17235,14 @@ function buildProgressFrameRow(opts){
   const kindIcon = progressKindBadge(kindModeVal);
   // 改修: フレーム中分類項目の併記
   const itemsHtml = itemsLabel ? `<div class="pf-items">（${escapeHtml(itemsLabel)}）</div>` : '';
-  // 改修30: 過去問A のフレーム/中分類には「予定_編集」ボタンを表示
+  // 改修30 / 改修V02_17: 過去問A・予想問のフレーム/中分類には「予定_編集」ボタンを表示
   let planBtn = '';
   if(opts.planTarget){
     const ref = opts.planTarget.frameRef;
-    const pk = planKey(opts.planTarget.subject, ref);
+    const pkKind = opts.planTarget.kind || 'pastA';
+    const pk = planKey(opts.planTarget.subject, ref, pkKind);
     const hasPlan = !!(state.studyPlans && state.studyPlans[pk]);
-    planBtn = `<button class="plan-edit-btn ${hasPlan?'has-plan':''}" data-planedit="1" data-subj="${escapeHtml(opts.planTarget.subject)}" data-fref="${escapeHtml(String(ref))}">📅 予定${hasPlan?'✓':'_編集'}</button>`;
+    planBtn = `<button class="plan-edit-btn ${hasPlan?'has-plan':''}" data-planedit="1" data-subj="${escapeHtml(opts.planTarget.subject)}" data-fref="${escapeHtml(String(ref))}" data-kind="${escapeHtml(pkKind)}">📅 予定${hasPlan?'✓':'_編集'}</button>`;
   }
   return `<div class="prog-frame">
     <div class="pf-head">
@@ -17303,7 +17344,7 @@ function renderProgressFrames(root, summary, subject, kindMode){
       lawBreakdown: lawBreakdown,
       dataFno: fr.n,
       itemsLabel: frItemsLabel,  // 改修
-      planTarget: (kindMode==='pastA') ? {subject:subject, frameRef:fr.n} : null  // 改修30: 過去問A のみ予定ボタン
+      planTarget: (kindMode==='pastA' || kindMode==='forecast') ? {subject:subject, frameRef:fr.n, kind:kindMode} : null  // 改修30/V02_17: 過去問A・予想問に予定ボタン
     });
   }
   // 改修V02_05: 集中特訓フレーム(F_T1/T2/T3)を、通常フレームの後ろに追加表示。
@@ -17326,7 +17367,7 @@ function renderProgressFrames(root, summary, subject, kindMode){
         lawBreakdown: '',
         dataFno: def.key,                // 演習開始ボタンの data-fno に特訓キーを渡す
         itemsLabel: itemsLabel,
-        planTarget: {subject:subject, frameRef:def.key},
+        planTarget: {subject:subject, frameRef:def.key, kind:'pastA'},
         isTokkun: true
       });
     }
@@ -17373,13 +17414,14 @@ function renderProgressFrames(root, summary, subject, kindMode){
       startFrameAttempt(subj, fno, km);
     });
   });
-  // 改修30: 「予定_編集」ボタンクリック(サマリーカードのドリルダウンは抑止)
+  // 改修30 / 改修V02_17: 「予定_編集」ボタンクリック(kind を渡す。サマリーカードのドリルダウンは抑止)
   root.querySelectorAll('button[data-planedit]').forEach(b=>{
     b.addEventListener('click', (e)=>{
       e.stopPropagation();
       const subj = b.dataset.subj;
       const ref = b.dataset.fref;  // "4" または "2.1"
-      if(subj && ref) openPlanEditModal(subj, ref);
+      const kind = b.dataset.kind || 'pastA';
+      if(subj && ref) openPlanEditModal(subj, ref, kind);
     });
   });
 }
@@ -17434,7 +17476,7 @@ function renderProgressSubFrames(root, summary, subject, parentFrameNo, kindMode
       kindModeVal: kindMode,
       lawBreakdown: '',
       dataFno: sf.key,
-      planTarget: (kindMode==='pastA') ? {subject:subject, frameRef:sf.key} : null  // 改修30: 中分類単位で予定設定(過去問Aのみ)
+      planTarget: (kindMode==='pastA' || kindMode==='forecast') ? {subject:subject, frameRef:sf.key, kind:kindMode} : null  // 改修30/V02_17: 中分類単位で予定設定(過去問A・予想問)
     });
   }
   if(shownSubs===0 && !progressKindShowAll(kindMode)){
@@ -17464,13 +17506,14 @@ function renderProgressSubFrames(root, summary, subject, parentFrameNo, kindMode
       startFrameAttempt(subj, fno, km);
     });
   });
-  // 改修30: 中分類の「予定_編集」ボタン
+  // 改修30 / 改修V02_17: 中分類の「予定_編集」ボタン(kind を渡す)
   root.querySelectorAll('button[data-planedit]').forEach(b=>{
     b.addEventListener('click', (e)=>{
       e.stopPropagation();
       const subj = b.dataset.subj;
       const ref = b.dataset.fref;
-      if(subj && ref) openPlanEditModal(subj, ref);
+      const kind = b.dataset.kind || 'pastA';
+      if(subj && ref) openPlanEditModal(subj, ref, kind);
     });
   });
 }
@@ -18035,14 +18078,16 @@ function renderTaipaTimetable(dateKey, plans, sessions, set){
     const h = Math.max(TAIPA_ROW_PX, ((e-s)/TAIPA_SLOT_MIN) * TAIPA_ROW_PX);
     const col = statsSubjectColor(p.subject);
     const lbl = frameOrSubFrameLabel(p.subject, p.frameRef);
-    const kindB = p.kind==='review' ? `<span class="taipa-mini-badge">復${p.offset}</span>` : `<span class="taipa-mini-badge first">初</span>`;
+    const kindB = p.kindOcc==='review' ? `<span class="taipa-mini-badge">復${p.offset}</span>` : `<span class="taipa-mini-badge first">初</span>`;
+    // 改修V02_17: 予想問の予定は小タグで区別
+    const kindTag = p.kind==='forecast' ? `<span class="taipa-mini-badge forecast">予</span>` : '';
     // 改修57_01②-3: 完了済みの予定には右端に【済】(黒・太字)を表示。
     //   従来の「薄く表示(.done)」は維持しつつ、完了を明確に分かるようにする。
     const doneB = p.done ? `<span class="taipa-done-badge">【済】</span>` : '';
     planBlocks += `<div class="taipa-block plan ${p.done?'done':''}" data-plan-key="${escapeHtml(p.key)}" data-plan-start="${escapeHtml(p.startTime)}" data-plan-dur="${e-s}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.10)}" title="ドラッグで時間帯を移動(左右のタイムテーブル間でも移動可) / 上下の端で長さ変更">
       <div class="taipa-resize top"></div>
       ${doneB}
-      <div class="taipa-block-sub">${escapeHtml(shortSubject(p.subject))}${kindB}</div>
+      <div class="taipa-block-sub">${escapeHtml(shortSubject(p.subject))}${kindB}${kindTag}</div>
       <div class="taipa-block-frame">${escapeHtml(_taipaFrameFull(p.subject,p.frameRef))}</div>
       <div class="taipa-resize bottom"></div>
     </div>`;
@@ -18156,11 +18201,14 @@ function renderTaipaSummary(dateKey, sessions){
     bySubject[subj].ans += s.answered; bySubject[subj].correct += s.correct;
     bySubject[subj].frames.add(String(s.frameRef));
     const fk = s.subject+'|'+s.frameRef;
-    byFrame[fk] ||= {subject:s.subject, frameRef:s.frameRef, totalMs:0, activeMs:0, pauseMs:0, ans:0, correct:0, anyDone:false, partialCnt:0, sessCnt:0, sessIds:[], hasLongGap:false, hasRestAnswers:false};
+    byFrame[fk] ||= {subject:s.subject, frameRef:s.frameRef, totalMs:0, activeMs:0, pauseMs:0, ans:0, correct:0, anyDone:false, partialCnt:0, sessCnt:0, sessIds:[], hasLongGap:false, hasRestAnswers:false, kindAns:{pastA:0, forecast:0}};
     byFrame[fk].totalMs += tMs; byFrame[fk].activeMs += aMs; byFrame[fk].pauseMs += bMs;
     byFrame[fk].ans += s.answered; byFrame[fk].correct += s.correct;
     byFrame[fk].sessCnt++;
     byFrame[fk].sessIds.push(s.id);
+    // 改修V02_17: 過去問A/予想問の内訳(解答数)を保持。合算は維持しつつ内訳をバッジ表示する。
+    const sKind = (s.kind==='forecast') ? 'forecast' : 'pastA';
+    byFrame[fk].kindAns[sKind] += (s.answered||0);
     if(sessionLongGaps(s).length>0) byFrame[fk].hasLongGap = true;
     // 改修V02_16: 休憩(R)中に解答したのに未計上の区間があれば警告フラグを立てる。
     if(sessionHasRestAnswers(s)) byFrame[fk].hasRestAnswers = true;
@@ -18243,12 +18291,17 @@ function renderTaipaSummary(dateKey, sessions){
     // 補正ボタン(このフレームの該当セッション群を開く)
     const needFix = d.hasLongGap || d.hasRestAnswers;
     const fixBtn = `<button class="taipa-fix-btn${needFix?' need':''}" data-taipafix="${escapeHtml(fk)}" data-taipafix-date="${escapeHtml(dateKey)}" title="このフレームの学習時間を補正する">✏️補正</button>`;
+    // 改修V02_17: 過去問A・予想問の両方を解いたフレームは、解答数の内訳を小さく併記する。
+    const ka = d.kindAns || {pastA:0, forecast:0};
+    const mixNote = (ka.pastA>0 && ka.forecast>0)
+      ? `<span class="taipa-kind-mix" title="内訳: 過去問A ${ka.pastA}問 / 予想問 ${ka.forecast}問">（過去A ${ka.pastA}・予想 ${ka.forecast}）</span>`
+      : (ka.forecast>0 ? `<span class="taipa-kind-mix forecast" title="予想問">🎯予想</span>` : '');
     html += `<tr>
       <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(shortSubject(d.subject))} ${escapeHtml(frameOrSubFrameLabel(d.subject,d.frameRef))}${restMark}</td>
       <td>${stateBadge}${cntNote}</td>
       <td>${warnMark}${fmtDurationMs(d.totalMs)}</td>
       <td class="taipa-col-answ">${fmtDurationMs(d.activeMs)}</td>
-      <td>${d.ans} / ${d.correct}</td>
+      <td>${d.ans} / ${d.correct}${mixNote}</td>
       <td>${pct(d.correct,d.ans)}</td>
       <td>${fmtPerQ(perQ(d.activeMs,d.ans))}</td>
       <td>${fixBtn}</td>
