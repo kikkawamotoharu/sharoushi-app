@@ -2595,6 +2595,16 @@
   .taipa-fix-suggest:hover,.taipa-fix-reset:hover{background:var(--card)}
   .taipa-fix-reset{border-color:#c98d00;color:#9a6c00}
   .taipa-fix-none{font-size:11px;color:var(--ink-muted);padding:4px 2px}
+  /* 改修V02_16: 休憩中の解答計上(解答漏れ救済) */
+  .taipa-rest-mark{display:inline-block;margin-left:6px;font-size:10px;font-weight:700;color:#fff;background:#c0392b;border-radius:8px;padding:1px 7px;vertical-align:middle}
+  .taipa-fix-restnote{margin-top:8px;padding:8px 10px;border:1px solid #e2a3a0;background:#fdf1f0;border-radius:8px;font-size:12px;color:#8a2a24;line-height:1.6}
+  .taipa-fix-seg.has-restans{border-color:#d06a5f;background:#fdf3f2}
+  .taipa-fix-restrow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:6px 8px;margin:2px 0 4px;border-radius:6px;background:#fbeceb;border:1px dashed #d9a29c}
+  .taipa-fix-restrow.on{background:#eaf5ec;border-color:#8fbf9a}
+  .taipa-fix-restlabel{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink);cursor:pointer}
+  .taipa-fix-restlabel input{width:16px;height:16px;cursor:pointer}
+  .taipa-fix-restcnt{font-size:11px;color:var(--ink-muted);font-feature-settings:"tnum"}
+  .taipa-fix-restwarn{color:#c0392b;font-weight:700;margin-left:2px}
   /* 改修V02_05: 集中特訓フレーム */
   .prog-tokkun-divider{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:18px 2px 10px;padding-top:14px;border-top:2px dashed var(--line)}
   .prog-tokkun-divider>span:first-child{font-weight:700;font-size:14px;color:#c0392b}
@@ -15382,13 +15392,22 @@ function sessionLongGaps(sess){
   return out;
 }
 
+// 改修V02_16: 「学習(解答)として計上する休憩区間」かどうか。
+//   休憩(R)中に実際は問題演習していた場合、補正モーダルで countAsStudy=true に
+//   すると、その区間を A(解答)と同等に「解答時間・学習時間・解答数」へ計上する。
+//   本来 R は学習離脱だが、「休憩ボタンを押したまま解答してしまった」ケースの救済。
+function segCountsAsAnswer(sg){
+  // A 区間は常に解答時間。R でも countAsStudy が立っていれば解答時間として扱う。
+  return sg.mode==='A' || (sg.mode==='R' && sg.countAsStudy===true);
+}
 // セッションの「Aモード(通常演習)実時間」をミリ秒で返す(タイパ計算用 = 解答時間)
 //   改修V02_04: 補正値(capMs)を反映する(segDurationMs 経由)。
+//   改修V02_16: countAsStudy=true の休憩(R)区間も解答時間に含める。
 function sessionActiveMs(sess, nowTs){
   let ms = 0;
   const segs = Array.isArray(sess.segments) ? sess.segments : [];
   for(const sg of segs){
-    if(sg.mode!=='A') continue;
+    if(!segCountsAsAnswer(sg)) continue;
     ms += segDurationMs(sg, nowTs);
   }
   return ms;
@@ -15406,22 +15425,26 @@ function sessionPauseMs(sess, nowTs){
 // セッションの「トータル学習時間」をミリ秒で返す
 //   改修31b: A(演習)+B(中断/ロックオン)を計上。R(休憩)は学習から離脱しているため計上しない。
 //   改修V02_04: 補正値(capMs)を反映する(segDurationMs 経由)。
-//   = 解答時間(A) + 中断時間(B)。
+//   改修V02_16: countAsStudy=true の休憩(R)区間は「解答していた休憩」として学習時間に計上する。
+//   = 解答時間(A + 計上する休憩R) + 中断時間(B)。
 function sessionTotalMs(sess, nowTs){
   let ms = 0;
   const segs = Array.isArray(sess.segments) ? sess.segments : [];
   for(const sg of segs){
-    if(sg.mode==='R') continue; // 休憩は学習時間に含めない
+    // 通常の休憩(R)は学習時間に含めない。ただし countAsStudy の R は含める。
+    if(sg.mode==='R' && sg.countAsStudy!==true) continue;
     ms += segDurationMs(sg, nowTs);
   }
   return ms;
 }
 // 改修31b: R(休憩)の合計ミリ秒(参考表示用)。改修V02_04: 補正反映。
+//   改修V02_16: countAsStudy=true の R は「学習として計上済み」なので純粋な休憩には数えない。
 function sessionRestMs(sess, nowTs){
   let ms = 0;
   const segs = Array.isArray(sess.segments) ? sess.segments : [];
   for(const sg of segs){
     if(sg.mode!=='R') continue;
+    if(sg.countAsStudy===true) continue; // 学習計上した休憩は除外
     ms += segDurationMs(sg, nowTs);
   }
   return ms;
@@ -15429,14 +15452,17 @@ function sessionRestMs(sess, nowTs){
 
 // セッション中に解答した問題数を集計して {answered, correct} を返す。
 //   改修31b: R(休憩)区間は学習から離脱しているため、その時間帯の解答は除外する。
+//   改修V02_16: ただし countAsStudy=true の休憩(R)区間は「解答していた休憩」として
+//     集計対象に含める(休憩ボタンを押したまま演習した実績の救済)。
 //   endTs が未確定(進行中)の場合は現在時刻まで。
 function sessionAnswerStats(sess, nowTs){
   const now = (nowTs!=null ? nowTs : Date.now());
   const segs = Array.isArray(sess.segments) ? sess.segments : [];
-  // 休憩以外(A/B)の時間区間を作る。改修V02_04: 補正(capMs)で短縮された分は実効endまで。
+  // 集計対象の時間区間を作る。A/B は従来どおり、R は countAsStudy のものだけ。
+  //   改修V02_04: 補正(capMs)で短縮された分は実効endまで。
   const intervals = [];
   for(const sg of segs){
-    if(sg.mode==='R') continue;
+    if(sg.mode==='R' && sg.countAsStudy!==true) continue; // 通常の休憩のみ除外
     const end = segEffectiveEnd(sg, now);
     if(end>sg.start) intervals.push([sg.start, end]);
   }
@@ -15452,6 +15478,34 @@ function sessionAnswerStats(sess, nowTs){
     if(inAny){ answered++; if(h.correct) correct++; }
   }
   return {answered, correct};
+}
+
+/* 改修V02_16: セッションの休憩(R)区間のうち「その時間帯に解答履歴があるのに
+   まだ学習計上されていない(countAsStudy でない)」ものを検出する。
+   → タイパ画面・補正モーダルで「休憩中に解答があります」と注意喚起するために使う。
+   返り値: [{index, seg, rawMs, answered}] (該当が無ければ空配列)。 */
+function sessionRestWithAnswers(sess){
+  const segs = Array.isArray(sess.segments) ? sess.segments : [];
+  const hist = state.history || [];
+  const out = [];
+  for(let i=0;i<segs.length;i++){
+    const sg = segs[i];
+    if(sg.mode!=='R') continue;
+    if(sg.countAsStudy===true) continue; // 既に学習計上済みは対象外
+    if(sg.end==null) continue;
+    if(!(sg.end>sg.start)) continue;
+    let cnt = 0;
+    for(const h of hist){ if(h.ts>=sg.start && h.ts<=sg.end) cnt++; }
+    if(cnt>0){
+      const raw = sg.end - sg.start;
+      out.push({index:i, seg:sg, rawMs:raw, answered:cnt});
+    }
+  }
+  return out;
+}
+// セッションに「解答があるのに休憩扱いの区間」が1つでもあるか。
+function sessionHasRestAnswers(sess){
+  return sessionRestWithAnswers(sess).length>0;
 }
 
 // 新規セッション開始(予定ボックスから)。既存の進行中があれば自動で終了確定。
@@ -17911,6 +17965,11 @@ function sessionDisplayBands(sess){
     const effEnd = segEffectiveEnd(sg);
     if(effEnd<=sg.start) continue;
     if(sg.mode==='R'){
+      // 改修V02_16: 「解答していた休憩(countAsStudy)」は学習帯として連続させる。
+      if(sg.countAsStudy===true){
+        if(cur){ cur.endMs = effEnd; } else { cur = {startMs: sg.start, endMs: effEnd}; }
+        continue;
+      }
       const restMs = effEnd - sg.start;
       if(restMs > REST_HIDE_MS){
         if(cur){ bands.push(cur); cur=null; }
@@ -18097,12 +18156,14 @@ function renderTaipaSummary(dateKey, sessions){
     bySubject[subj].ans += s.answered; bySubject[subj].correct += s.correct;
     bySubject[subj].frames.add(String(s.frameRef));
     const fk = s.subject+'|'+s.frameRef;
-    byFrame[fk] ||= {subject:s.subject, frameRef:s.frameRef, totalMs:0, activeMs:0, pauseMs:0, ans:0, correct:0, anyDone:false, partialCnt:0, sessCnt:0, sessIds:[], hasLongGap:false};
+    byFrame[fk] ||= {subject:s.subject, frameRef:s.frameRef, totalMs:0, activeMs:0, pauseMs:0, ans:0, correct:0, anyDone:false, partialCnt:0, sessCnt:0, sessIds:[], hasLongGap:false, hasRestAnswers:false};
     byFrame[fk].totalMs += tMs; byFrame[fk].activeMs += aMs; byFrame[fk].pauseMs += bMs;
     byFrame[fk].ans += s.answered; byFrame[fk].correct += s.correct;
     byFrame[fk].sessCnt++;
     byFrame[fk].sessIds.push(s.id);
     if(sessionLongGaps(s).length>0) byFrame[fk].hasLongGap = true;
+    // 改修V02_16: 休憩(R)中に解答したのに未計上の区間があれば警告フラグを立てる。
+    if(sessionHasRestAnswers(s)) byFrame[fk].hasRestAnswers = true;
     if(s.outcome==='partial') byFrame[fk].partialCnt++; else byFrame[fk].anyDone = true; // 旧データ(outcome無し)は完了扱い
   }
 
@@ -18177,10 +18238,13 @@ function renderTaipaSummary(dateKey, sessions){
     const cntNote = d.sessCnt>1 ? `<span class="taipa-state-cnt">${d.sessCnt}回</span>` : '';
     // 改修V02_04_01: 長時間の中断/休憩が含まれるフレームには補正を促す警告マーク
     const warnMark = d.hasLongGap ? `<span class="taipa-warn-mark" title="長時間の中断/休憩が含まれています。学習時間が実態より長い可能性があります。「補正」で調整できます。">⚠</span>` : '';
+    // 改修V02_16: 休憩中に解答した実績が未計上のフレームには「計上漏れ」警告を出す
+    const restMark = d.hasRestAnswers ? `<span class="taipa-rest-mark" title="「休憩中」に解答した記録があります。この解答時間・問題数は集計に含まれていません。「補正」から『休憩中の解答を学習に計上』できます。">🔴解答漏れ</span>` : '';
     // 補正ボタン(このフレームの該当セッション群を開く)
-    const fixBtn = `<button class="taipa-fix-btn${d.hasLongGap?' need':''}" data-taipafix="${escapeHtml(fk)}" data-taipafix-date="${escapeHtml(dateKey)}" title="このフレームの学習時間を補正する">✏️補正</button>`;
+    const needFix = d.hasLongGap || d.hasRestAnswers;
+    const fixBtn = `<button class="taipa-fix-btn${needFix?' need':''}" data-taipafix="${escapeHtml(fk)}" data-taipafix-date="${escapeHtml(dateKey)}" title="このフレームの学習時間を補正する">✏️補正</button>`;
     html += `<tr>
-      <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(shortSubject(d.subject))} ${escapeHtml(frameOrSubFrameLabel(d.subject,d.frameRef))}</td>
+      <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(shortSubject(d.subject))} ${escapeHtml(frameOrSubFrameLabel(d.subject,d.frameRef))}${restMark}</td>
       <td>${stateBadge}${cntNote}</td>
       <td>${warnMark}${fmtDurationMs(d.totalMs)}</td>
       <td class="taipa-col-answ">${fmtDurationMs(d.activeMs)}</td>
@@ -18191,7 +18255,7 @@ function renderTaipaSummary(dateKey, sessions){
     </tr>`;
   }
   html += `</tbody></table></div>`;
-  html += `<div class="taipa-tbl-note">「学習時間」=解答時間(A)+中断/ロックオン時間(B)。「解答時間」=実際に問題を解いていた時間(A)。<br>⚠ が付くフレームは長時間の中断/休憩が含まれています。<b>✏️補正</b>で実態に合わせて調整できます。</div>`;
+  html += `<div class="taipa-tbl-note">「学習時間」=解答時間(A)+中断/ロックオン時間(B)。「解答時間」=実際に問題を解いていた時間(A)。<br>⚠ が付くフレームは長時間の中断/休憩が含まれています。<b>✏️補正</b>で実態に合わせて調整できます。<br>🔴解答漏れ が付くフレームは<b>「休憩中」に解答した記録があるのに集計に含まれていません</b>。<b>✏️補正</b>から「休憩中の解答を学習に計上」できます。</div>`;
   html += `</div>`;
   return html;
 }
@@ -18216,9 +18280,16 @@ function openTaipaFixModal(fk, dateKey){
   _taipaFixCtx = {fk, dateKey, subject, frameRef};
   const desc = document.getElementById('taipa-fix-desc');
   if(desc){
+    // 改修V02_16: このフレームに「休憩中の解答(未計上)」があるか事前確認
+    const restAnsSessions = sessions.filter(s=> sessionHasRestAnswers(s));
+    let restNote = '';
+    if(restAnsSessions.length){
+      restNote = `<div class="taipa-fix-restnote">🔴 <b>「休憩中」に解答した記録があります。</b>下の「休憩」区間で <b>「この休憩を学習(解答)に計上する」</b> をオンにすると、その時間・解答数が実績に反映されます。</div>`;
+    }
     desc.innerHTML = `<b>${escapeHtml(shortSubject(subject))} ${escapeHtml(frameOrSubFrameLabel(subject, frameRef))}</b>(${escapeHtml(planDateLabel(dateKey))})<br>
       各「中断」「休憩」の時間を実際に合わせて補正できます。長時間放置してしまった区間は、ここで実際の分数に直してください。<br>
-      <span style="color:var(--ink-muted)">※「休憩/一旦停止のし忘れ」などで「解答」区間が異常に長くなった場合(2時間超)も補正できます。補正すると、その実態時間外に紛れ込んだ解答は集計から除外されます。</span>`;
+      <span style="color:var(--ink-muted)">※「休憩/一旦停止のし忘れ」などで「解答」区間が異常に長くなった場合(2時間超)も補正できます。補正すると、その実態時間外に紛れ込んだ解答は集計から除外されます。</span>
+      ${restNote}`;
   }
   _renderTaipaFixBody();
   const m = document.getElementById('taipa-fix-modal');
@@ -18259,19 +18330,44 @@ function _renderTaipaFixBody(){
       const isAnswer = (sg.mode==='A');
       const isLongA = isAnswer && rawMs > LONG_A_MS;
       const cappedSeg = (sg.capMs!=null);
-      if(isAnswer && !isLongA && !cappedSeg) continue; // 通常の解答区間は従来どおりスキップ
+      const isRest = (sg.mode==='R');
+      // 改修V02_16: 休憩(R)区間に解答履歴があるか(未計上・計上済とも表示対象にする)
+      let restAnsCnt = 0;
+      if(isRest){
+        for(const h of (state.history||[])){ if(h.ts>=sg.start && h.ts<=sg.end) restAnsCnt++; }
+      }
+      const restHasAns = isRest && restAnsCnt>0;
+      const restCounted = isRest && sg.countAsStudy===true;
+      // 表示するかどうかの判定:
+      //   ・解答(A)区間 … 従来どおり(長時間 or 補正済のみ)
+      //   ・休憩(R)区間 … 従来は「30分超 or 補正済」のみだが、改修V02_16 で
+      //     「解答履歴がある or 既に学習計上している」休憩も必ず表示する。
+      if(isAnswer && !isLongA && !cappedSeg) continue; // 通常の解答区間はスキップ
+      if(isRest && !(rawMs > LONG_GAP_MS) && !cappedSeg && !restHasAns && !restCounted) continue; // 短い&解答なしの休憩はスキップ
       hasEditable = true;
       const isLong = isAnswer ? isLongA : (rawMs > LONG_GAP_MS);
       const curMs = (sg.capMs!=null) ? sg.capMs : rawMs;
-      const label = isAnswer ? '解答(長時間)' : (sg.mode==='B' ? '中断(ロックオン)' : '休憩');
-      const badgeCls = isAnswer ? 'a' : (sg.mode==='B' ? 'b' : 'r');
+      const label = isAnswer ? '解答(長時間)' : (sg.mode==='B' ? '中断(ロックオン)' : (restCounted ? '休憩→解答に計上中' : '休憩'));
+      const badgeCls = isAnswer ? 'a' : (sg.mode==='B' ? 'b' : (restCounted ? 'a' : 'r'));
       const capped = cappedSeg;
-      html += `<div class="taipa-fix-seg ${isLong?'is-long':''}" data-seg-index="${i}">
+      // 改修V02_16: 休憩区間に解答がある場合の「学習計上」トグル行
+      let restToggleHtml = '';
+      if(restHasAns || restCounted){
+        restToggleHtml = `<div class="taipa-fix-restrow ${restCounted?'on':''}">
+          <label class="taipa-fix-restlabel">
+            <input type="checkbox" class="taipa-fix-countas" data-seg-index="${i}" ${restCounted?'checked':''}>
+            この休憩を<b>解答(学習)に計上する</b>
+          </label>
+          <span class="taipa-fix-restcnt">この時間帯に解答 ${restAnsCnt}問${restCounted?'(計上中)':'(現在は未計上)'}</span>
+        </div>`;
+      }
+      html += `<div class="taipa-fix-seg ${isLong?'is-long':''} ${restHasAns&&!restCounted?'has-restans':''}" data-seg-index="${i}">
         <div class="taipa-fix-seg-info">
           <span class="taipa-fix-seg-badge ${badgeCls}">${label}</span>
           <span class="taipa-fix-seg-time">${fmtHM(sg.start)}〜${fmtHM(sg.end)}</span>
-          <span class="taipa-fix-seg-raw">実測 ${fmtDurationMs(rawMs)}${isLong?' <span class=\"taipa-fix-long\">⚠長時間</span>':''}</span>
+          <span class="taipa-fix-seg-raw">実測 ${fmtDurationMs(rawMs)}${isLong?' <span class=\"taipa-fix-long\">⚠長時間</span>':''}${restHasAns&&!restCounted?' <span class=\"taipa-fix-restwarn\">🔴解答あり</span>':''}</span>
         </div>
+        ${restToggleHtml}
         <div class="taipa-fix-seg-edit">
           <label>実際の時間：<input type="number" class="taipa-fix-input" min="0" step="1" value="${_fmtGapInput(curMs)}" data-seg-index="${i}"> 分</label>
           ${capped?`<button class="taipa-fix-reset" data-seg-index="${i}">補正解除</button>`:''}
@@ -18307,6 +18403,27 @@ function _renderTaipaFixBody(){
         saveState();
         _renderTaipaFixBody();
       }
+    });
+  });
+  // 改修V02_16: 「この休憩を解答(学習)に計上する」トグル。
+  //   即座に countAsStudy を反映し、解答数・正答数を再集計してから再描画する。
+  body.querySelectorAll('.taipa-fix-countas').forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      const sessEl = cb.closest('[data-fix-sess]');
+      const sessId = sessEl.dataset.fixSess;
+      const idx = parseInt(cb.dataset.segIndex,10);
+      const sess = (state.studySessions||[]).find(x=>x.id===sessId);
+      if(!sess || !Array.isArray(sess.segments) || !sess.segments[idx]) return;
+      if(cb.checked){ sess.segments[idx].countAsStudy = true; }
+      else { delete sess.segments[idx].countAsStudy; }
+      // 解答数・正答数を再集計(計上区間が増減するため)
+      try{
+        const st = sessionAnswerStats(sess);
+        sess.answered = st.answered;
+        sess.correct = st.correct;
+      }catch(_){}
+      saveState();
+      _renderTaipaFixBody();
     });
   });
 }
