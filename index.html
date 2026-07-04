@@ -1386,6 +1386,19 @@
   .q-item .kind-badge{font-size:9px;padding:2px 7px;margin-left:6px}
   .q-item .kind-source{font-size:10px;padding:1px 6px;margin-left:4px}
 
+  /* ===== 改修V02_19: 選択式タブの出典バッジ ===== */
+  .select-source{
+    font-size:11px;font-weight:600;padding:2px 9px;border-radius:99px;
+    display:inline-flex;align-items:center;gap:4px;flex-shrink:0;line-height:1.4;
+  }
+  .select-source::before{content:'出典';font-size:9px;font-weight:700;opacity:.7;letter-spacing:.05em}
+  .select-source.src-pasta{color:#8A5A00;background:#FFF3DC;border:1px solid #F0D9A8}
+  .select-source.src-forecast{color:#2E7D32;background:#EAF1EC;border:1px solid #C8DFD0}
+  .select-source.src-pastb{color:#5B4B8A;background:#EFEAF7;border:1px solid #D6CBEC}
+  /* 結果パネル(解説の下)内の出典行 */
+  .select-source-line{font-size:12px;color:var(--ink-muted);line-height:1.6}
+  .select-source-line strong{color:var(--ink)}
+
   /* 種類モード(過去/予想/両方)選択UI */
   .kind-mode-group{display:flex;flex-direction:column;gap:4px}
   .kind-mode-btn{
@@ -3358,6 +3371,15 @@
           <option value="forecast">予想問</option>
         </select>
       </div>
+      <!-- 改修V02_20: 科目・フレーム単位の絞り込み -->
+      <div class="field-group">
+        <label class="field">科目</label>
+        <select id="select-filter-subject"><option value="">すべて</option></select>
+      </div>
+      <div class="field-group">
+        <label class="field">フレーム</label>
+        <select id="select-filter-frame"><option value="">科目全体(全フレーム)</option></select>
+      </div>
       <div class="field-group">
         <label class="field">法律</label>
         <select id="select-filter-law"><option value="">すべて</option></select>
@@ -4657,6 +4679,102 @@ function isPastB(q){    return getKind(q) === 'pastB' }
 function isForecast(q){ return getKind(q) === 'forecast' }
 function isPastAny(q){  const k = getKind(q); return k === 'pastA' || k === 'pastB' }
 
+/* ===== 改修V02_19: 選択式問題の出典ラベル =====
+   「選択式」タブの出典明示。過去問A(TAC「比較認証法」由来)と予想問で表示を分ける。
+   - 過去問A(kind 未設定 or 'pastA'): year(例 "R7")から「R7-選択」を生成して表示。
+       ・q.source が明示されていればそれを優先(将来の柔軟性のため)。
+       ・year が無ければラベルは出さない(誤表示防止)。
+   - 予想問(kind:'forecast'): 取込時に必須の q.source(参考書等の出典)をそのまま表示。
+   - 過去問B(kind:'pastB'): q.source があれば表示(選択式では通常未使用)。
+   返り値 { label, cls } … label が空文字なら表示しない。cls はバッジ配色用。 */
+function selectSourceLabel(q){
+  if(!q) return {label:'', cls:''};
+  const k = getKind(q);
+  if(k === 'forecast'){
+    // 予想問: 出典(source)を明示。source が無い場合のみ「予想問」とだけ表示。
+    const s = (q.source||'').trim();
+    return {label: s ? s : '予想問', cls: 'src-forecast'};
+  }
+  if(k === 'pastB'){
+    const s = (q.source||'').trim();
+    return {label: s ? s : '', cls: 'src-pastb'};
+  }
+  // 過去問A: source 明示があれば優先、無ければ year から「◯-選択」を生成。
+  const s = (q.source||'').trim();
+  if(s) return {label: s, cls: 'src-pasta'};
+  const y = (q.year||'').trim();
+  if(y) return {label: y + '-選択', cls: 'src-pasta'};
+  return {label:'', cls:'src-pasta'};
+}
+
+/* ===== 改修V02_20: 選択式の「科目」「フレーム」単位検索 =====
+   選択式問題は q.law(法律名)を持つが、択一と違い q.frameNo を持たない。
+   そこで q.law から択一のフレーム体系(FRAMES / SUB_FRAMES / LAW_TO_SUBJECT)を
+   逆引きして「科目」「フレーム番号」を導出し、科目単位・フレーム単位の絞り込みを実現する。
+
+   例(社一): 船員保険法=F2 / 児童手当法=F2 / 介護保険法=F2 / 確定拠出年金法=F3 /
+             社会保険労務士法=F1。
+     ・科目「社会保険に関する一般常識」で検索 → 上記すべて(A〜E)が対象。
+     ・フレーム「F2」で検索 → F2 配下(国保・船員・高確・介護・児手 等)のみが対象。 */
+
+/* 科目内で q.law が属するフレーム番号を返す(見つからなければ null)。
+   1) SUB_FRAMES を走査し、laws[](表記揺れ含む) or law に一致する親フレーム番号。
+   2) SUB_FRAMES に無い場合、その科目 FRAMES のフレーム名(t)と law の一致で判定。
+   3) さらに、テーマ系(統計/白書/社会保障制度 等)は既知の対応表で補完。 */
+const SELECT_FRAME_THEME_MAP = {
+  // law(またはテーマ名) → { subject: frameNo } を明示補完(SUB_FRAMES に無いもの)
+  "社会保険労務士法": {"社会保険に関する一般常識": 1},
+  "社会保険法規等":   {"社会保険に関する一般常識": 2},
+  "社会保険統計":     {"社会保険に関する一般常識": 4},
+  "統計":             {"社会保険に関する一般常識": 4},
+  "社会保障白書":     {"社会保険に関する一般常識": 5},
+  "白書":             {"社会保険に関する一般常識": 5},
+  "社会保障制度":     {"社会保険に関する一般常識": 6},
+  "社会保障の沿革":   {"社会保険に関する一般常識": 6},
+  "社会保険制度の沿革":{"社会保険に関する一般常識": 6},
+  // 労一のテーマ系
+  "労働経済":         {"労務管理その他の労働に関する一般常識": 5},
+  "労働経済白書":     {"労務管理その他の労働に関する一般常識": 6},
+  "厚生労働白書":     {"労務管理その他の労働に関する一般常識": 6}
+};
+function selectFrameNoForLaw(law){
+  if(!law) return null;
+  const subject = lawToSubject(law);
+  if(!subject) return null;
+  // 1) SUB_FRAMES 逆引き(表記揺れ対応)
+  const subMap = SUB_FRAMES[subject];
+  if(subMap){
+    for(const frameNo of Object.keys(subMap)){
+      const subs = subMap[frameNo] || [];
+      for(const sf of subs){
+        if(questionMatchesSubFrame(law, sf)) return parseInt(frameNo, 10);
+      }
+    }
+  }
+  // 2) FRAMES のフレーム名(t)と law が一致(単一法律=1フレームの科目: 労基・安衛・労災・雇用・徴収・健保・国年・厚年)
+  //    これらの科目は law=科目名 なので通常フレーム逆引きは効かないが、
+  //    将来 law にフレーム名が入るケースへの保険として残す。
+  const frames = FRAMES[subject] || [];
+  for(const fr of frames){
+    if(fr.t === law) return fr.n;
+  }
+  // 3) テーマ系の明示補完
+  const themed = SELECT_FRAME_THEME_MAP[law];
+  if(themed && themed[subject] != null) return themed[subject];
+  return null;
+}
+
+/* 選択式問題 q が、指定の科目/フレーム絞り込みにマッチするか。
+   selFrame は state.selectSession.frameFilter … {subject, frameNo|null} を想定。
+   ・frameNo が null(=科目単位) → 科目一致だけで対象(A〜E 全部)。
+   ・frameNo 指定(=フレーム単位) → 科目一致 かつ そのフレームに属する law のみ対象。 */
+function selectMatchesFrameFilter(q, selFrame){
+  if(!selFrame || !selFrame.subject) return true; // 未指定は全通過
+  if(lawToSubject(q.law) !== selFrame.subject) return false;
+  if(selFrame.frameNo == null) return true;       // 科目単位
+  return selectFrameNoForLaw(q.law) === selFrame.frameNo; // フレーム単位
+}
+
 /* kindMode の値の正規化(後方互換).
    既存 'past' (UI) → 'pastA' or 'past_only' のどちらにマッピングするか?
    Step 1 では既存 'past' は「過去問A+B両方を見せる」=後方互換として「past」キーは「pastAny」相当に解釈する.
@@ -5688,6 +5806,9 @@ function loadState(){
       s.selectSession.userChoice ??= null;
       s.selectSession.filterCat ??= '';
       s.selectSession.kindMode ||= 'both';
+      // 改修V02_20: 選択式の科目/フレーム絞り込み(ビュー状態)。
+      //   {subject:'', frameNo:null} … subject 空=絞り込みなし / frameNo null=科目単位。
+      s.selectSession.frameFilter ??= {subject:'', frameNo:null};
       // 弱点問題の追加 (後方互換)
       s.weakSession ||= {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu'};
       s.weakSession.answered ||= false;
@@ -5979,7 +6100,7 @@ function loadState(){
     session: {mode:'seq',currentIndex:0,filterLaw:'',filterYear:'',filterBm:'',filterMyNote:'',filterCat:'',filterFrame:'',frameMode:null,answered:false,userAnswer:null,kindMode:'both'},
     selectQuestions: SAMPLE_SELECT_QUESTIONS.slice(),
     selectHistory: [],
-    selectSession: {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null,kindMode:'both'},
+    selectSession: {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null,kindMode:'both',frameFilter:{subject:'',frameNo:null}},
     weakSession: {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',frameNo:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'},
     figures: [],
     figuresView: {filterSubject:'',filterFrame:''},
@@ -7942,6 +8063,12 @@ function doImport(){
       q.type = 'select';
       q.id = q.id || ('s'+Date.now()+'_'+Math.random().toString(36).slice(2,7));
       if(state.selectQuestions.some(x=>x.id===q.id)){skipped++;continue}
+      // 改修V02_19: 選択式の kind 正規化(出典表示・種類絞り込みの堅牢化)。
+      //   'past'(旧)→'pastA'、未設定/不明 →'pastA'(過去問A=TAC「比較認証法」由来)。
+      //   予想問(forecast)は source を保持したまま(出典明示に使用)。
+      if(q.kind === 'forecast'){ q.kind = 'forecast'; }
+      else if(q.kind === 'pastB'){ q.kind = 'pastB'; }
+      else { q.kind = 'pastA'; if(q.kind==='pastA' && !q.source){ /* 過去問Aは year から R7-選択 を自動表示 */ } }
       state.selectQuestions.push(q);
       addedSelect++;
     }else{
@@ -9579,6 +9706,12 @@ function getSelectPool(){
   // 改修: 選択式にも種類モード(過去問A/B/予想問)フィルタを適用
   const kindMode = s.kindMode || 'both';
   pool = pool.filter(q => questionMatchesKindMode(q, kindMode));
+  // 改修V02_20: 科目/フレーム単位の絞り込み(law から科目・フレームを逆引き)。
+  //   frameFilter.subject 指定 → その科目のみ(frameNo null=科目単位で A〜E 全部、
+  //   frameNo 指定=そのフレーム配下の law のみ)。法律プルダウンとは独立に併用可。
+  if(s.frameFilter && s.frameFilter.subject){
+    pool = pool.filter(q => selectMatchesFrameFilter(q, s.frameFilter));
+  }
   if(s.filterLaw) pool = pool.filter(q=>q.law===s.filterLaw);
   if(s.filterCat) pool = pool.filter(q=>q.category===s.filterCat);
   if(s.filterYear) pool = pool.filter(q=>q.year===s.filterYear);
@@ -9672,6 +9805,7 @@ function renderSelectQuiz(){
     <div class="meta-row">
       <span class="pill accent">${escapeHtml(q.year)} ${escapeHtml(q.law)}</span>
       <span class="pill">${escapeHtml(q.qno||'')}</span>
+      ${(()=>{ const _sl=selectSourceLabel(q); return _sl.label?`<span class="select-source ${_sl.cls}">${escapeHtml(_sl.label)}</span>`:''; })()}
       ${q.category?`<span class="pill">${escapeHtml(q.category)}</span>`:''}
       <span class="pill" style="background:var(--accent);color:#fff;font-weight:700">空欄 ${escapeHtml(q.blankKey||'')}</span>
       <span style="font-size:11px">[${idx+1}/${pool.length}]</span>
@@ -9761,6 +9895,7 @@ function renderSelectResult(q, isCorrect){
       <div class="section-body dim">
         ${escapeHtml(q.legalBasis||'—')}${q.pageRef?'　／　'+escapeHtml(q.pageRef):''}　／　レベル ${escapeHtml(q.difficulty||'—')}
       </div>
+      ${(()=>{ const _sl=selectSourceLabel(q); const _kl=(getKind(q)==='forecast')?'予想問':(getKind(q)==='pastB')?'過去問B':'過去問A'; return _sl.label?`<div class="section-body select-source-line"><strong>${_kl}</strong>　出典: ${escapeHtml(_sl.label)}</div>`:''; })()}
     </div>
   `;
 }
@@ -9892,10 +10027,66 @@ function renderSelectSidebar(){
   const cats = [...new Set(catSource.map(q=>q.category).filter(Boolean))].sort();
   const kindSel = document.getElementById('select-filter-kind');
   if(kindSel) kindSel.value = selKindMode;
+
+  // 改修V02_20: 科目・フレームのセレクトを構築(種類モードで絞った母集団から)。
+  renderSelectFrameFilterUI(kmSelQs);
+
   fillSelect('select-filter-law',laws,state.selectSession.filterLaw);
   fillSelect('select-filter-cat',cats,state.selectSession.filterCat);
   fillSelect('select-filter-year',years,state.selectSession.filterYear);
   document.getElementById('select-filter-bm').value = state.selectSession.filterBm;
+}
+
+/* 改修V02_20: 選択式の「科目」「フレーム」プルダウンを構築する。
+   - 科目: 選択式問題に実際に出現する law から解決した科目のみを SUBJECTS_ORDER 順で列挙。
+   - フレーム: 科目選択時のみ、その科目で実際に問題が存在するフレーム番号を列挙(問題数付き)。
+     未選択(科目全体)なら「科目全体(全フレーム)」のみ。
+   kmSelQs は種類モードで絞った母集団(候補の一貫性のため)。 */
+function renderSelectFrameFilterUI(kmSelQs){
+  const ff = state.selectSession.frameFilter || (state.selectSession.frameFilter = {subject:'', frameNo:null});
+  const subjSel  = document.getElementById('select-filter-subject');
+  const frameSel = document.getElementById('select-filter-frame');
+  if(!subjSel || !frameSel) return;
+
+  // --- 科目セレクト ---
+  const subjSet = new Set();
+  for(const q of kmSelQs){ const sj = lawToSubject(q.law); if(sj) subjSet.add(sj); }
+  const subjects = SUBJECTS_ORDER.filter(s=>subjSet.has(s));
+  // SUBJECTS_ORDER に無い科目(表記揺れ等)も末尾に拾う
+  for(const s of subjSet){ if(!subjects.includes(s)) subjects.push(s); }
+  subjSel.innerHTML = '<option value="">すべて</option>' +
+    subjects.map(s=>`<option value="${escapeHtml(s)}" ${s===ff.subject?'selected':''}>${escapeHtml(s)}</option>`).join('');
+
+  // --- フレームセレクト(科目選択時のみ有効) ---
+  if(!ff.subject){
+    frameSel.innerHTML = '<option value="">科目全体(全フレーム)</option>';
+    frameSel.disabled = true;
+    return;
+  }
+  frameSel.disabled = false;
+  // その科目に属する問題を、フレーム番号ごとに集計
+  const inSubject = kmSelQs.filter(q=>lawToSubject(q.law)===ff.subject);
+  const frameCount = {};       // frameNo → 問題数
+  let unresolved = 0;          // フレーム解決できなかった問題数(科目全体には含まれるが特定フレーム無し)
+  for(const q of inSubject){
+    const fn = selectFrameNoForLaw(q.law);
+    if(fn == null){ unresolved++; continue; }
+    frameCount[fn] = (frameCount[fn]||0) + 1;
+  }
+  const framesDef = FRAMES[ff.subject] || [];
+  let opts = `<option value="">科目全体(全フレーム) (${inSubject.length}問)</option>`;
+  for(const fr of framesDef){
+    const c = frameCount[fr.n] || 0;
+    if(c === 0) continue; // 問題が無いフレームは出さない
+    const sel = (ff.frameNo === fr.n) ? 'selected' : '';
+    opts += `<option value="${fr.n}" ${sel}>F${fr.n} ${escapeHtml(fr.t)} (${c}問)</option>`;
+  }
+  frameSel.innerHTML = opts;
+  // 現在の frameNo が候補に無くなった場合は科目全体へフォールバック
+  if(ff.frameNo != null && !(frameCount[ff.frameNo] > 0)){
+    ff.frameNo = null;
+    frameSel.value = '';
+  }
 }
 
 /* ===== Figures (図表) ===== */
@@ -13008,6 +13199,10 @@ function findWhyBlockByCtx(ctx){
 
 /* ===== Tabs ===== */
 function switchTab(name){
+  // 改修V02_21: 切替「前」のアクティブタブを取得(前回位置の復元判定に使う)。
+  //   別タブから条解/5whyへ「戻る」ときは前回学習位置を復元し、
+  //   既に同じタブにいる状態でタブボタンを再クリックしたときだけ目次へリセットする。
+  const _prevTab = document.querySelector('.tab-btn.active')?.dataset.tab || null;
   // 【改修42】択一タブを離れるときはセッションタイマーの毎秒更新を止める
   if(name!=='quiz' && _quizClockTimer){ clearInterval(_quizClockTimer); _quizClockTimer = null; }
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
@@ -13035,22 +13230,30 @@ function switchTab(name){
     renderCase();
   }
   if(name==='articles'){
-    // タブクリック時は法律一覧画面から開始(modeをsubjectsにリセット)
-    state.articleView = state.articleView || {mode:'subjects', subject:null, frameNo:null, indexId:null};
-    state.articleView.mode = 'subjects';
-    state.articleView.subject = null;
-    state.articleView.frameNo = null;
-    state.articleView.indexId = null;
+    // 改修V02_21: 前回学習位置の復元。
+    //   ・別タブから条解へ戻ったとき(_prevTab!=='articles') → 前回の articleView を保持したまま復元描画。
+    //   ・既に条解にいてタブを再クリック(_prevTab==='articles') → 従来どおり目次(subjects)へリセット。
+    state.articleView = state.articleView || {mode:'subjects', subject:null, frameNo:null, indexId:null, subFrameKey:null};
+    if(_prevTab === 'articles'){
+      state.articleView.mode = 'subjects';
+      state.articleView.subject = null;
+      state.articleView.frameNo = null;
+      state.articleView.indexId = null;
+      state.articleView.subFrameKey = null;
+    }
     renderArticles();
   }
   if(name==='whys'){
     // 改修11: 5why タブ — 「条文・解説」と同じ3段階ナビ
+    // 改修V02_21: 条解と同様に、別タブから戻ったときは前回位置を復元。再クリック時のみ目次へリセット。
     state.whyView = state.whyView || {mode:'subjects', subject:null, frameNo:null, indexId:null, subFrameKey:null};
-    state.whyView.mode = 'subjects';
-    state.whyView.subject = null;
-    state.whyView.frameNo = null;
-    state.whyView.indexId = null;
-    state.whyView.subFrameKey = null;
+    if(_prevTab === 'whys'){
+      state.whyView.mode = 'subjects';
+      state.whyView.subject = null;
+      state.whyView.frameNo = null;
+      state.whyView.indexId = null;
+      state.whyView.subFrameKey = null;
+    }
     renderWhys();
   }
   if(name==='weak') renderWeakTab();
@@ -19494,6 +19697,27 @@ async function init(){  // 改修V2_02: IndexedDB 読み込みを await する�
     if(state.selectSession.filterLaw && !newQs.some(q=>q.law===state.selectSession.filterLaw)) state.selectSession.filterLaw='';
     if(state.selectSession.filterYear && !newQs.some(q=>q.year===state.selectSession.filterYear)) state.selectSession.filterYear='';
     if(state.selectSession.filterCat && !newQs.some(q=>q.category===state.selectSession.filterCat)) state.selectSession.filterCat='';
+    state.selectSession.currentIndex=0;state.selectSession.answered=false;saveState();renderSelectQuiz();renderSelectSidebar();
+  });
+  // 改修V02_20: 科目セレクト。科目を変えるとフレームは「科目全体」にリセット。
+  //   併用中の法律プルダウンが新科目に属さなくなる場合はクリアする。
+  const selSubjEl = document.getElementById('select-filter-subject');
+  if(selSubjEl) selSubjEl.addEventListener('change',e=>{
+    const ff = state.selectSession.frameFilter || (state.selectSession.frameFilter={subject:'',frameNo:null});
+    ff.subject = e.target.value;
+    ff.frameNo = null; // 科目切替時はフレームリセット
+    // 法律プルダウンが新科目に属さないならクリア(整合性維持)
+    if(ff.subject && state.selectSession.filterLaw && lawToSubject(state.selectSession.filterLaw)!==ff.subject){
+      state.selectSession.filterLaw='';
+    }
+    state.selectSession.currentIndex=0;state.selectSession.answered=false;saveState();renderSelectQuiz();renderSelectSidebar();
+  });
+  // 改修V02_20: フレームセレクト。空=科目全体、数値=そのフレーム配下のみ。
+  const selFrameEl = document.getElementById('select-filter-frame');
+  if(selFrameEl) selFrameEl.addEventListener('change',e=>{
+    const ff = state.selectSession.frameFilter || (state.selectSession.frameFilter={subject:'',frameNo:null});
+    const v = e.target.value;
+    ff.frameNo = v==='' ? null : parseInt(v,10);
     state.selectSession.currentIndex=0;state.selectSession.answered=false;saveState();renderSelectQuiz();renderSelectSidebar();
   });
   document.getElementById('select-filter-law').addEventListener('change',e=>{
