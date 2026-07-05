@@ -12511,10 +12511,17 @@ function renderArticlesContent(root, subject, key){
   // タブ切替
   root.querySelectorAll('.art-index-tab').forEach(t=>{
     t.addEventListener('click', ()=>{
+      // 改修V02_22: 項目タブ切替時に、横スクロール位置(scrollLeft)が先頭へ戻る不具合を修正。
+      //   renderArticles() は帯ごと innerHTML を作り直すため scrollLeft が 0 にリセットされる。
+      //   そこで、クリック直前の scrollLeft を退避し、再描画後に同じ位置へ復元する。
+      const tabsBar = root.querySelector('.art-index-tabs');
+      const prevScrollLeft = tabsBar ? tabsBar.scrollLeft : 0;
       state.articleView.indexId = t.dataset.idxid;
       saveState();
       renderArticles();
-      // タブ切替時はスクロール上に戻さない(同じ画面の中での移動)
+      // 再描画後の新しい帯に対して横スクロール位置を復元(同じ画面内の移動なので縦スクロールは動かさない)。
+      const newBar = root.querySelector('.art-index-tabs');
+      if(newBar) newBar.scrollLeft = prevScrollLeft;
     });
   });
 }
@@ -12853,9 +12860,14 @@ function renderWhysContent(root, subject, key){
   // タブ切替
   root.querySelectorAll('.art-index-tab').forEach(t=>{
     t.addEventListener('click', ()=>{
+      // 改修V02_22: 条解タブと同様、項目切替時に横スクロール位置が先頭へ戻る不具合を修正。
+      const tabsBar = root.querySelector('.art-index-tabs');
+      const prevScrollLeft = tabsBar ? tabsBar.scrollLeft : 0;
       state.whyView.indexId = t.dataset.idxid;
       saveState();
       renderWhys();
+      const newBar = root.querySelector('.art-index-tabs');
+      if(newBar) newBar.scrollLeft = prevScrollLeft;
     });
   });
   // 改修11 第3弾: 編集ボタン群のイベント
