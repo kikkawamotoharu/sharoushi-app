@@ -5452,6 +5452,8 @@ const EXT_SECTION_KEYS = [
   'caseHistory',      // 事例履歴
   'senbonHistory',    // 千本ノック履歴
   'frameAttempts',    // フレーム演習履歴
+  'selectSetAttempts',// 改修V02_23: 選択式(科目×年度)一括演習の進捗
+  'selectSetHistory', // 改修V02_23: 選択式一括判定の実施記録
   'whys',             // 5why
   'articles',         // 条文・解説
   'studySessions'     // タイパ(実績タイムテーブル)
@@ -5809,6 +5811,20 @@ function loadState(){
       // 改修V02_20: 選択式の科目/フレーム絞り込み(ビュー状態)。
       //   {subject:'', frameNo:null} … subject 空=絞り込みなし / frameNo null=科目単位。
       s.selectSession.frameFilter ??= {subject:'', frameNo:null};
+      // 改修V02_23: 選択式タブの表示モード。'landmode'=過去問ランド方式(科目×年度A〜E一括,新既定)
+      //   / 'solo'=従来の1問ずつ演習。
+      s.selectSession.viewMode ||= 'landmode';
+      // 改修V02_23: 選択式「過去問ランド方式」(科目×年度=A〜E一括判定)の後方互換ガード。
+      //   留意点(依頼)により、旧 selectHistory(1問ずつ演習の履歴)は残すが、
+      //   進捗・実績は新方式(selectSetAttempts / selectSetHistory)以後のデータで把握する。
+      s.selectSetAttempts = (s.selectSetAttempts && typeof s.selectSetAttempts==='object') ? s.selectSetAttempts : {};
+      s.selectSetHistory  = Array.isArray(s.selectSetHistory) ? s.selectSetHistory : [];
+      s.selectSetSession  = (s.selectSetSession && typeof s.selectSetSession==='object') ? s.selectSetSession : null;
+      s.selectProgressView = (s.selectProgressView && typeof s.selectProgressView==='object')
+        ? s.selectProgressView : {mode:'subjects', subject:null, kindMode:'pastA'};
+      s.selectProgressView.mode ||= 'subjects';
+      s.selectProgressView.kindMode ||= 'pastA';
+      if(!('subject' in s.selectProgressView)) s.selectProgressView.subject = null;
       // 弱点問題の追加 (後方互換)
       s.weakSession ||= {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu'};
       s.weakSession.answered ||= false;
@@ -6100,7 +6116,14 @@ function loadState(){
     session: {mode:'seq',currentIndex:0,filterLaw:'',filterYear:'',filterBm:'',filterMyNote:'',filterCat:'',filterFrame:'',frameMode:null,answered:false,userAnswer:null,kindMode:'both'},
     selectQuestions: SAMPLE_SELECT_QUESTIONS.slice(),
     selectHistory: [],
-    selectSession: {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null,kindMode:'both',frameFilter:{subject:'',frameNo:null}},
+    selectSession: {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null,kindMode:'both',frameFilter:{subject:'',frameNo:null},viewMode:'landmode'},
+    /* ===== 改修V02_23: 選択式「過去問ランド方式」演習 =====
+       科目×年度=1セット(A〜E最大5問)を一画面で解き、全問回答後に一括正誤判定する。
+       択一の frameAttempts と同型の進捗構造を持ち、進捗管理・予定・実績に接続する。 */
+    selectSetAttempts: {},   // { "科目|年度|kind": {history:[...], current:{...}|null} }
+    selectSetHistory: [],    // 5問一括判定の実施記録(過去問ランドの履歴に相当)
+    selectSetSession: null,  // 進行中の一括演習セッション(演習画面の状態)
+    selectProgressView: {mode:'subjects', subject:null, kindMode:'pastA'},
     weakSession: {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',frameNo:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'},
     figures: [],
     figuresView: {filterSubject:'',filterFrame:''},
@@ -9699,6 +9722,551 @@ function escapeHtml(s){
   return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+/* ============================================================
+   改修V02_23: 選択式「過去問ランド方式」演習エンジン
+   ------------------------------------------------------------
+   ・セット単位 = 科目 × 年度(例: 「雇用保険法 R7」)。1回の演習で
+     その科目・その年度の A〜E(最大5問)を一画面に並べ、全問回答後に
+     まとめて正誤判定する。過去問ランドの選択式演習方式に準拠。
+   ・進捗キー = selectSetKey(subject, year, kind) = "科目|年度|kind"。
+     択一の frameAttempts と同型の {history:[], current:null} を
+     state.selectSetAttempts に持ち、進捗管理・予定・実績に接続する。
+   ・kind は 'pastA'|'pastB'|'forecast'(択一と共通の getKind() で判定)。
+   ============================================================ */
+
+// セット進捗キー
+function selectSetKey(subject, year, kind){
+  let k = kind || 'pastA';
+  if(k === 'past' || k === 'both') k = 'pastA';
+  return `${subject}|${year}|${k}`;
+}
+// selectSetKey を分解
+function parseSelectSetKey(key){
+  const parts = String(key||'').split('|');
+  return {subject: parts[0]||'', year: parts[1]||'', kind: parts[2]||'pastA'};
+}
+
+// 選択式問題を「科目×年度×kind」で束ね、A〜E順に並べて返す。
+//   戻り値: そのセットに属する問題配列(blankKey 昇順、無ければ登録順)。
+function getSelectSetQuestions(subject, year, kind){
+  let k = kind || 'pastA'; if(k==='past'||k==='both') k='pastA';
+  let pool = (state.selectQuestions||[]).filter(q=>
+    lawToSubject(q.law)===subject &&
+    String(q.year)===String(year) &&
+    getKind(q)===k
+  );
+  // A〜E(blankKey)順。problemSetId が異なっても年度内は blankKey で通し並べ。
+  pool = pool.slice().sort((a,b)=>{
+    const ak = (a.blankKey||''), bk = (b.blankKey||'');
+    if(ak!==bk) return ak.localeCompare(bk);
+    const as = (a.problemSetId||a.id||''), bs = (b.problemSetId||b.id||'');
+    return as.localeCompare(bs);
+  });
+  return pool;
+}
+
+// ある科目×kind で、演習可能な年度の一覧を返す(問題が1問以上ある年度)。
+//   戻り値: [{year, count}] を年度降順(新しい年度が上)で。
+function getSelectSetYears(subject, kind){
+  let k = kind || 'pastA'; if(k==='past'||k==='both') k='pastA';
+  const map = new Map();
+  for(const q of (state.selectQuestions||[])){
+    if(lawToSubject(q.law)!==subject) continue;
+    if(getKind(q)!==k) continue;
+    const y = String(q.year||'');
+    if(!y) continue;
+    map.set(y, (map.get(y)||0)+1);
+  }
+  const arr = [...map.entries()].map(([year,count])=>({year, count}));
+  // 年度は "R7"/"H29" 等。年号を数値化して降順(新しい順)。
+  arr.sort((a,b)=> _selectYearOrd(b.year) - _selectYearOrd(a.year));
+  return arr;
+}
+// 年度文字列を並べ替え用の数値へ(令和=2018+n, 平成=1988+n を西暦近似)。
+function _selectYearOrd(y){
+  y = String(y||'');
+  let m = y.match(/^R(\d+)/i); if(m) return 2018 + parseInt(m[1],10);
+  m = y.match(/^H(\d+)/i);     if(m) return 1988 + parseInt(m[1],10);
+  m = y.match(/(\d{4})/);      if(m) return parseInt(m[1],10);
+  m = y.match(/(\d+)/);        if(m) return parseInt(m[1],10);
+  return 0;
+}
+
+// セットの現在状態を要約する。
+//   {questions, total, attempts(完了回数), lastScore(直近正答数)|null, inProgress(bool)}
+function selectSetStatus(subject, year, kind){
+  const qs = getSelectSetQuestions(subject, year, kind);
+  const key = selectSetKey(subject, year, kind);
+  const fa = state.selectSetAttempts[key];
+  const attempts = fa ? (fa.history||[]).length : 0;
+  const inProgress = !!(fa && fa.current);
+  let lastScore = null, lastTotal = null;
+  if(fa && (fa.history||[]).length){
+    const last = fa.history[fa.history.length-1];
+    lastScore = last.correct; lastTotal = last.total;
+  }
+  return {questions: qs, total: qs.length, attempts, lastScore, lastTotal, inProgress};
+}
+
+// 一括演習を開始する。進行中があれば再開/やり直しを確認。
+function startSelectSet(subject, year, kind){
+  let k = kind || 'pastA'; if(k==='past'||k==='both') k='pastA';
+  const qs = getSelectSetQuestions(subject, year, k);
+  if(!qs.length){
+    const kl = (k==='forecast')?'予想問':(k==='pastB')?'過去問B':'過去問A';
+    alert(`「${subject} ${year}」の${kl}(選択式)が登録されていません。`);
+    return false;
+  }
+  const key = selectSetKey(subject, year, k);
+  state.selectSetAttempts[key] ||= {history:[], current:null};
+  const fa = state.selectSetAttempts[key];
+  if(fa.current){
+    const done = Object.keys(fa.current.answers||{}).length;
+    if(!confirm(`「${subject} ${year}」には進行中の演習(${done}/${fa.current.questionIds.length}問回答済)があります。\n中止して新しく解き直しますか?\n(OKで最初から、キャンセルで続きから)`)){
+      // 続きから再開
+      enterSelectSetMode(subject, year, k);
+      return true;
+    }
+    fa.current = null;
+  }
+  fa.current = {
+    attemptNo: (fa.history||[]).length + 1,
+    startedAt: Date.now(),
+    questionIds: qs.map(q=>q.id),
+    answers: {},      // { qid: choiceIndex } … 回答中(未判定)
+    judged: false     // 一括判定済みフラグ
+  };
+  saveState();
+  enterSelectSetMode(subject, year, k);
+  return true;
+}
+
+// 一括演習モードに入る(演習画面の状態をセット)。
+function enterSelectSetMode(subject, year, kind){
+  state.selectSetSession = {
+    subject, year, kind: kind || 'pastA',
+    // ローカル回答状態は selectSetAttempts[key].current.answers を正とする。
+  };
+  saveState();
+  switchTab('select');
+  renderSelectView();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+// 一括演習を抜ける(進行状態は selectSetAttempts.current に温存)。
+function exitSelectSetMode(){
+  state.selectSetSession = null;
+  saveState();
+  renderSelectView();
+}
+
+// 進行中の一括演習を破棄する。
+function abandonSelectSet(){
+  const s = state.selectSetSession;
+  if(!s) return;
+  if(!confirm('現在の選択式演習を破棄しますか?\n(この回の記録は残りません)')) return;
+  const key = selectSetKey(s.subject, s.year, s.kind);
+  const fa = state.selectSetAttempts[key];
+  if(fa) fa.current = null;
+  state.selectSetSession = null;
+  saveState();
+  renderSelectView();
+}
+
+// 一括演習中の1問に回答(選択)。判定前なので付け替え可能。
+function selectSetChoose(qid, choiceIdx){
+  const s = state.selectSetSession; if(!s) return;
+  const key = selectSetKey(s.subject, s.year, s.kind);
+  const fa = state.selectSetAttempts[key];
+  if(!fa || !fa.current || fa.current.judged) return;
+  fa.current.answers[qid] = choiceIdx;
+  saveState();
+  renderSelectView();
+}
+
+// 全問回答後の一括正誤判定。過去問ランドの「決定」に相当。
+function judgeSelectSet(){
+  const s = state.selectSetSession; if(!s) return;
+  const key = selectSetKey(s.subject, s.year, s.kind);
+  const fa = state.selectSetAttempts[key];
+  if(!fa || !fa.current || fa.current.judged) return;
+  const qs = getSelectSetQuestions(s.subject, s.year, s.kind);
+  const cur = fa.current;
+  const unanswered = qs.filter(q=>!(q.id in cur.answers));
+  if(unanswered.length){
+    if(!confirm(`未回答が${unanswered.length}問あります。このまま判定しますか?\n(未回答は不正解として扱われます)`)) return;
+  }
+  const ts = Date.now();
+  let correctCount = 0;
+  const details = [];
+  for(const q of qs){
+    const uc = (q.id in cur.answers) ? cur.answers[q.id] : null;
+    const isC = (uc!=null && uc===q.correctIndex);
+    if(isC) correctCount++;
+    details.push({qid:q.id, blankKey:q.blankKey||'', userChoice:uc, correct:isC});
+    // 個別履歴(既存 selectHistory)にも積み、通算成績・正答率に反映する。
+    state.selectHistory.push({
+      qid:q.id, ts, userChoice:uc, correct:isC,
+      setKey:key, attemptNo:cur.attemptNo   // 改修V02_23: 由来を記録
+    });
+  }
+  cur.judged = true;
+  cur.judgedAt = ts;
+  cur.correct = correctCount;
+  cur.total = qs.length;
+  cur.details = details;
+  // セット実施記録(過去問ランドの履歴)
+  const rec = {
+    id: 'ss_'+ts+'_'+Math.random().toString(36).slice(2,7),
+    setKey: key, subject: s.subject, year: s.year, kind: s.kind,
+    ts, total: qs.length, correct: correctCount,
+    attemptNo: cur.attemptNo, details
+  };
+  state.selectSetHistory.push(rec);
+  // 進捗の history へ push、current は判定済みのまま残す(結果画面表示のため)。
+  // 「次へ」or 抜けるタイミングで history へ確定移動する。
+  saveState();
+  renderSelectView();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+// 判定結果を確定し、current を history へ移して演習を終える。
+function finalizeSelectSet(){
+  const s = state.selectSetSession; if(!s) return;
+  const key = selectSetKey(s.subject, s.year, s.kind);
+  const fa = state.selectSetAttempts[key];
+  if(fa && fa.current && fa.current.judged){
+    fa.history.push(fa.current);
+    if(fa.history.length > (typeof MAX_FRAME_ATTEMPTS!=='undefined'?MAX_FRAME_ATTEMPTS:20)){
+      fa.history.shift();
+    }
+    fa.current = null;
+  }
+  state.selectSetSession = null;
+  saveState();
+  renderSelectView();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+/* ============================================================
+   改修V02_23: 選択式タブの描画ディスパッチャ
+   ・selectSetSession あり → 過去問ランド演習画面
+   ・viewMode==='landmode' → セット選択メニュー
+   ・viewMode==='solo'     → 従来の1問ずつ演習(renderSelectQuiz)
+   ============================================================ */
+function renderSelectView(){
+  const card = document.getElementById('select-card');
+  if(!card) return;
+  if(state.selectSetSession){
+    renderSelectSetExercise();
+    return;
+  }
+  if((state.selectSession.viewMode||'landmode') === 'solo'){
+    // 従来モード:サイドバー(絞り込み等)を表示して1問ずつ演習
+    _setSelectSoloAsideVisible(true);
+    renderSelectQuiz();
+    return;
+  }
+  // 過去問ランド方式:セット選択メニュー
+  _setSelectSoloAsideVisible(false);
+  renderSelectSetMenu();
+}
+
+// 従来モード用サイドバー(#aside-select)の表示切替。
+//   過去問ランド方式ではサイドバーの絞り込みは使わないので隠す。
+function _setSelectSoloAsideVisible(show){
+  const aside = document.getElementById('aside-select');
+  if(aside) aside.style.display = show ? '' : 'none';
+}
+
+// モード切替トグルのHTML(メニュー・演習画面の上部に置く)
+function selectModeToggleHtml(){
+  const vm = state.selectSession.viewMode || 'landmode';
+  return `<div class="select-mode-toggle" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <button class="btn ${vm==='landmode'?'':'ghost'}" data-selvm="landmode">📋 本試験形式(科目ごと5問)</button>
+    <button class="btn ${vm==='solo'?'':'ghost'}" data-selvm="solo">🔁 1問ずつ演習</button>
+  </div>`;
+}
+
+// 種類区分(過去問A/B/予想問)トグルのHTML
+function selectKindToggleHtml(){
+  const cur = normalizeProgressKindMode(state.selectProgressView.kindMode || 'pastA');
+  const cA = (state.selectQuestions||[]).filter(isPastA).length;
+  const cB = (state.selectQuestions||[]).filter(isPastB).length;
+  const cF = (state.selectQuestions||[]).filter(isForecast).length;
+  const btn = (k,lbl,c)=>`<button class="prog-subtab ${cur===k?'active':''}" data-selkind="${k}">${lbl} <span class="pst-count">${c}問</span></button>`;
+  return `<div class="prog-subtabs" style="margin-bottom:14px">
+    ${btn('pastA','📚 過去問A',cA)}
+    ${btn('pastB','📖 過去問B',cB)}
+    ${btn('forecast','🎯 予想問',cF)}
+  </div>`;
+}
+
+// セット選択メニュー(科目→年度セット一覧)
+function renderSelectSetMenu(){
+  const card = document.getElementById('select-card');
+  const kind = normalizeProgressKindMode(state.selectProgressView.kindMode || 'pastA');
+  const kindLbl = progressKindLabel(kind);
+  let html = selectModeToggleHtml();
+  html += `<h2 class="prog-h2" style="margin:4px 0 10px">選択式 <span class="prog-sub">本試験形式(科目ごとに A〜E の5問を一括判定)</span></h2>`;
+  html += selectKindToggleHtml();
+  html += `<p class="prog-desc" style="margin-bottom:14px">科目を選ぶと、登録されている年度ごとに「A〜E の5問セット」が表示されます。1セットを選ぶと本試験と同じように5問続けて解答し、最後にまとめて正誤判定します。</p>`;
+
+  html += `<div class="subjects-grid">`;
+  let anySubject = false;
+  for(const subject of SUBJECTS_ORDER){
+    const years = getSelectSetYears(subject, kind);
+    if(!years.length) continue;
+    anySubject = true;
+    // 科目全体の達成状況(演習済みセット数/全セット数)
+    let doneSets = 0, inprogSets = 0;
+    for(const y of years){
+      const st = selectSetStatus(subject, y.year, kind);
+      if(st.attempts>0) doneSets++;
+      if(st.inProgress) inprogSets++;
+    }
+    const status = doneSets===years.length ? 'done' : (doneSets>0||inprogSets>0 ? 'partial' : 'fresh');
+    html += `<div class="subject-card ${status}" data-selsubject="${escapeHtml(subject)}">
+      <div class="sc-name">${escapeHtml(subject)}</div>
+      <div class="sc-stats">
+        <span class="sc-stat">${years.length}年度 / ${doneSets}演習済</span>
+        ${inprogSets>0?`<span class="sc-stat" style="color:var(--accent)">${inprogSets}進行中</span>`:''}
+      </div>
+    </div>`;
+  }
+  html += `</div>`;
+
+  if(!anySubject){
+    html += `<div class="empty"><div class="ico">―</div>${escapeHtml(kindLbl)}の選択式問題がまだ登録されていません。<br>「データ」タブからJSONを取り込むか、種類区分を切り替えてください。</div>`;
+  }
+
+  card.innerHTML = html;
+  _wireSelectMenuCommon(card);
+  // 科目カードクリック → 年度一覧へ
+  card.querySelectorAll('[data-selsubject]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      state.selectProgressView.subject = el.dataset.selsubject;
+      state.selectProgressView.mode = 'years';
+      saveState();
+      renderSelectSetYearList();
+      window.scrollTo({top:0,behavior:'smooth'});
+    });
+  });
+  // mode==='years' の場合は年度一覧を表示
+  if(state.selectProgressView.mode === 'years' && state.selectProgressView.subject){
+    renderSelectSetYearList();
+  }
+}
+
+// 年度セット一覧(ある科目の中で、年度ごとのセットを並べる)
+function renderSelectSetYearList(){
+  const card = document.getElementById('select-card');
+  const subject = state.selectProgressView.subject;
+  const kind = normalizeProgressKindMode(state.selectProgressView.kindMode || 'pastA');
+  const years = getSelectSetYears(subject, kind);
+  let html = selectModeToggleHtml();
+  html += `<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+    <button class="btn ghost" data-selback="1">← 科目一覧へ</button>
+    <h2 class="prog-h2" style="margin:0">${escapeHtml(subject)} <span class="prog-sub">${escapeHtml(progressKindLabel(kind))}・年度別セット</span></h2>
+  </div>`;
+  html += selectKindToggleHtml();
+
+  if(!years.length){
+    html += `<div class="empty"><div class="ico">―</div>この科目の${escapeHtml(progressKindLabel(kind))}(選択式)は登録されていません。</div>`;
+    card.innerHTML = html;
+    _wireSelectMenuCommon(card);
+    card.querySelectorAll('[data-selback]').forEach(el=>el.addEventListener('click',_selectMenuBack));
+    return;
+  }
+
+  html += `<div class="subjects-grid">`;
+  for(const y of years){
+    const st = selectSetStatus(subject, y.year, kind);
+    const status = st.inProgress ? 'partial' : (st.attempts>0 ? 'done' : 'fresh');
+    let scoreLine = '';
+    if(st.lastScore!=null){
+      const pct = st.lastTotal ? Math.round(st.lastScore/st.lastTotal*100) : 0;
+      scoreLine = `<span class="sc-stat">前回 ${st.lastScore}/${st.lastTotal} (${pct}%)</span>`;
+    }
+    html += `<div class="subject-card ${status}" data-selyear="${escapeHtml(y.year)}">
+      <div class="sc-name">${escapeHtml(y.year)}</div>
+      <div class="sc-stats">
+        <span class="sc-stat">${y.count}問 (A〜E)</span>
+        ${st.attempts>0?`<span class="sc-stat">${st.attempts}回演習</span>`:''}
+        ${st.inProgress?`<span class="sc-stat" style="color:var(--accent)">進行中</span>`:''}
+        ${scoreLine}
+      </div>
+    </div>`;
+  }
+  html += `</div>`;
+
+  card.innerHTML = html;
+  _wireSelectMenuCommon(card);
+  card.querySelectorAll('[data-selback]').forEach(el=>el.addEventListener('click',_selectMenuBack));
+  card.querySelectorAll('[data-selyear]').forEach(el=>{
+    el.addEventListener('click', ()=> startSelectSet(subject, el.dataset.selyear, kind));
+  });
+}
+
+function _selectMenuBack(){
+  state.selectProgressView.mode = 'subjects';
+  state.selectProgressView.subject = null;
+  saveState();
+  renderSelectSetMenu();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+// メニュー共通の配線(モード切替・種類区分)
+function _wireSelectMenuCommon(card){
+  card.querySelectorAll('[data-selvm]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      state.selectSession.viewMode = b.dataset.selvm;
+      // モードを切り替えたら一覧の階層はトップへ
+      state.selectProgressView.mode = 'subjects';
+      state.selectProgressView.subject = null;
+      saveState();
+      renderSelectView();
+      window.scrollTo({top:0,behavior:'smooth'});
+    });
+  });
+  card.querySelectorAll('[data-selkind]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      state.selectProgressView.kindMode = b.dataset.selkind;
+      saveState();
+      renderSelectView();
+      window.scrollTo({top:0,behavior:'smooth'});
+    });
+  });
+}
+
+// 過去問ランド演習画面(A〜Eの5問を一画面で。回答後に一括判定)
+function renderSelectSetExercise(){
+  const card = document.getElementById('select-card');
+  const s = state.selectSetSession;
+  const qs = getSelectSetQuestions(s.subject, s.year, s.kind);
+  const key = selectSetKey(s.subject, s.year, s.kind);
+  const fa = state.selectSetAttempts[key];
+  const cur = fa && fa.current;
+  if(!cur){
+    // 進行データが無い(異常) → メニューへ戻す
+    state.selectSetSession = null;
+    saveState();
+    renderSelectView();
+    return;
+  }
+  const judged = !!cur.judged;
+  const answers = cur.answers || {};
+  const answeredCount = Object.keys(answers).length;
+
+  let html = '';
+  // ヘッダ(科目・年度・種類・進捗)
+  html += `<div class="meta-row" style="margin-bottom:14px">
+    <span class="pill accent">${escapeHtml(s.subject)}</span>
+    <span class="pill">${escapeHtml(s.year)}</span>
+    <span class="select-source ${s.kind==='forecast'?'src-forecast':'src-pasta'}">${escapeHtml(progressKindLabel(normalizeProgressKindMode(s.kind)))}</span>
+    <span style="font-size:12px;margin-left:auto">${judged?'判定完了':`回答 ${answeredCount}/${qs.length}`}</span>
+  </div>`;
+
+  // 判定後の総合結果バナー
+  if(judged){
+    const pct = cur.total ? Math.round(cur.correct/cur.total*100) : 0;
+    html += `<div class="result" style="margin-bottom:16px">
+      <div class="verdict ${cur.correct===cur.total?'correct':(cur.correct===0?'wrong':'')}" style="${cur.correct>0&&cur.correct<cur.total?'background:#fff7e6;color:#b7791f':''}">
+        <span class="mark">${cur.correct}/${cur.total}</span>
+        正答率 ${pct}%(${escapeHtml(s.subject)} ${escapeHtml(s.year)})
+      </div>
+    </div>`;
+  }
+
+  // 各問(A〜E)を縦に並べる
+  qs.forEach((q, idx)=>{
+    const uc = (q.id in answers) ? answers[q.id] : null;
+    const isC = judged && uc!=null && uc===q.correctIndex;
+    const isW = judged && (uc==null || uc!==q.correctIndex);
+    const choicesCount = (q.choices||[]).length;
+    const singleCol = choicesCount<=4;
+    html += `<div class="select-set-item" style="border:1px solid var(--line,#e5e5e5);border-radius:12px;padding:14px;margin-bottom:16px">
+      <div class="meta-row" style="margin-bottom:8px">
+        <span class="pill" style="background:var(--accent);color:#fff;font-weight:700">空欄 ${escapeHtml(q.blankKey||String(idx+1))}</span>
+        ${q.category?`<span class="pill">${escapeHtml(q.category)}</span>`:''}
+        ${q.qno?`<span class="pill">${escapeHtml(q.qno)}</span>`:''}
+        ${judged?`<span class="pill ${isC?'':'accent'}" style="${isC?'background:#e6f7ec;color:#1a7f37':'background:#fdeaea;color:#c0392b'};font-weight:700;margin-left:auto">${isC?'○ 正解':'× 不正解'}</span>`:''}
+      </div>
+      ${q.problemIntro && idx===0 ?`<div class="problem-intro">${escapeHtml(q.problemIntro)}</div>`:''}
+      <div class="problem-text">${renderProblemText(q.problemText||'', q.blankKey)}</div>
+      <div class="choices-section">
+        <div class="choices-label">空欄 <strong style="color:var(--accent)">${escapeHtml(q.blankKey||'')}</strong> に当てはまる語句を選んでください</div>
+        <div class="choices-grid ${singleCol?'single-col':''}">
+          ${(q.choices||[]).map((c,i)=>{
+            let cls='choice-btn';
+            if(judged){
+              if(i===q.correctIndex && i===uc) cls+=' picked-correct';
+              else if(i===uc) cls+=' picked-wrong';
+              else if(i===q.correctIndex) cls+=' show-correct';
+              else cls+=' dim';
+            }else if(i===uc){ cls+=' picked'; }
+            return `<button class="${cls}" data-setqid="${escapeHtml(q.id)}" data-setidx="${i}" ${judged?'disabled':''}>
+              <span class="num">${i+1}</span><span>${escapeHtml(c)}</span>
+            </button>`;
+          }).join('')}
+        </div>
+      </div>
+      ${judged ? renderSelectSetItemResult(q) : ''}
+    </div>`;
+  });
+
+  // フッター操作
+  if(!judged){
+    html += `<div class="nav-row" style="gap:10px">
+      <button class="btn ghost" data-setexit="1">中断して戻る</button>
+      <button class="btn ghost" data-setabandon="1">破棄</button>
+      <button class="btn" data-setjudge="1" style="margin-left:auto">✓ 5問まとめて判定する</button>
+    </div>`;
+  }else{
+    html += `<div class="nav-row" style="gap:10px">
+      <button class="btn ghost" data-setretry="1">もう一度解く</button>
+      <button class="btn" data-setfinish="1" style="margin-left:auto">完了して一覧へ →</button>
+    </div>`;
+  }
+
+  card.innerHTML = html;
+
+  // 配線
+  if(!judged){
+    card.querySelectorAll('.choice-btn').forEach(b=>{
+      if(!b.disabled) b.addEventListener('click', ()=> selectSetChoose(b.dataset.setqid, parseInt(b.dataset.setidx,10)));
+    });
+    const jb = card.querySelector('[data-setjudge]');
+    if(jb) jb.addEventListener('click', judgeSelectSet);
+    const eb = card.querySelector('[data-setexit]');
+    if(eb) eb.addEventListener('click', exitSelectSetMode);
+    const ab = card.querySelector('[data-setabandon]');
+    if(ab) ab.addEventListener('click', abandonSelectSet);
+  }else{
+    const rb = card.querySelector('[data-setretry]');
+    if(rb) rb.addEventListener('click', ()=>{
+      // current を history へ確定してから、同じセットを再スタート
+      const sub=s.subject, yr=s.year, kd=s.kind;
+      finalizeSelectSet();
+      startSelectSet(sub, yr, kd);
+    });
+    const fb = card.querySelector('[data-setfinish]');
+    if(fb) fb.addEventListener('click', finalizeSelectSet);
+  }
+}
+
+// 判定後の1問分の解説ブロック
+function renderSelectSetItemResult(q){
+  const correctText = (q.choices && q.choices[q.correctIndex]) || '';
+  return `<div class="result" style="margin-top:10px">
+    <div class="section-h">正解</div>
+    <div class="section-body"><strong>(${q.correctIndex+1})</strong>　${escapeHtml(correctText)}</div>
+    ${q.point?`<div class="section-h">解き方のポイント</div><div class="section-body">${escapeHtml(q.point).replace(/\n/g,'<br>')}</div>`:''}
+    ${q.explanation?`<div class="section-h">解説</div><div class="section-body">${escapeHtml(q.explanation).replace(/\n/g,'<br>')}</div>`:''}
+    <div class="section-body dim">${escapeHtml(q.legalBasis||'—')}${q.pageRef?'　／　'+escapeHtml(q.pageRef):''}</div>
+  </div>`;
+}
+
 /* ===== Select question functions (選択式) ===== */
 function getSelectPool(){
   let pool = state.selectQuestions.slice();
@@ -13233,7 +13801,7 @@ function switchTab(name){
   document.getElementById('view-data').style.display = name==='data'?'block':'none';
   if(name==='manage') renderManage();
   if(name==='quiz') renderQuiz();
-  if(name==='select') renderSelectQuiz();
+  if(name==='select') renderSelectView();
   if(name==='case'){
     // タブクリック時は一覧画面から開始
     if(!state.caseView || state.caseView.mode==='detail'){
