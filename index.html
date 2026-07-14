@@ -10355,6 +10355,7 @@ function renderSelectQuiz(){
 
   if(!q){
     card.innerHTML = `<div class="empty"><div class="ico">―</div>条件に合う選択式問題がありません。<br>モードや絞り込みを変えてください。</div>`;
+    _prependSelectSoloToggle(card);
     renderSelectSidebar();
     return;
   }
@@ -10444,7 +10445,26 @@ function renderSelectQuiz(){
   }
   card.querySelectorAll('.bm').forEach(b=>b.addEventListener('click',()=>toggleBmSelect(q.id,b.dataset.bm)));
 
+  _prependSelectSoloToggle(card);
   renderSelectSidebar();
+}
+
+/* 改修V02_23: 従来(1問ずつ)演習の画面上部に、モード切替トグルを差し込む。
+   これが無いと solo に入った後で本試験形式(メニュー)へ戻れなくなるため必須。 */
+function _prependSelectSoloToggle(card){
+  if(!card) return;
+  if(card.querySelector('[data-selvm]')) return; // 二重挿入防止
+  card.insertAdjacentHTML('afterbegin', selectModeToggleHtml());
+  card.querySelectorAll('[data-selvm]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      state.selectSession.viewMode = b.dataset.selvm;
+      state.selectProgressView.mode = 'subjects';
+      state.selectProgressView.subject = null;
+      saveState();
+      renderSelectView();
+      window.scrollTo({top:0,behavior:'smooth'});
+    });
+  });
 }
 
 function renderSelectResult(q, isCorrect){
