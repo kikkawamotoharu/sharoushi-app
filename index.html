@@ -4441,6 +4441,12 @@ function frameOrSubFrameLabel(subject, key){
     const def = getTokkunDef(key);
     return def ? `F_${def.key} ${def.t}` : String(key);
   }
+  // 改修V02_23: 選択式の年度キー(R7/H29 等)は「選 R7」と表示する。
+  //   選択式セッション(qtype:'select')の frameRef は年度文字列であり、
+  //   FRAMES には該当しないため、年号パターンなら選択式ラベルを返す。
+  if(/^[RH]\d+$/i.test(String(key)) || /^\d{4}$/.test(String(key))){
+    return `選 ${String(key)}`;
+  }
   if(typeof key === 'number' || /^\d+$/.test(String(key))){
     const n = parseInt(key,10);
     return `F${n} ${(FRAMES[subject]||[]).find(f=>f.n===n)?.t || ''}`.trim();
@@ -5883,6 +5889,8 @@ function loadState(){
       s.progressView.ganttMode ||= 'all'; // 'all' | 'subject'
       s.progressView.ganttSubject ||= '労働基準法';
       s.progressView.ganttKindMode ||= 'pastA';
+      // 改修V02_23: 進捗管理の大区分(択一/選択式)。既定は択一(従来動作)。
+      s.progressView.axis ||= 'takuitsu'; // 'takuitsu' | 'select'
       // 改修12: 実績タブ用ビュー状態(後方互換)
       s.statsView ||= {range:'7d', kindMode:'pastA', openDates:{}};
       s.statsView.range ||= '7d';
@@ -6136,7 +6144,7 @@ function loadState(){
     caseHistory: [],
     caseView: {mode:'list', selectedCaseId:null, filterSubject:'', filterFrame:''},
     caseSession: {currentSubIdx:0, answered:{}, userAnswers:{}},
-    progressView: {mode:'subjects', subject:null, kindMode:'pastA', tab:'kind', ganttMode:'all', ganttSubject:'労働基準法', ganttKindMode:'pastA'},
+    progressView: {mode:'subjects', subject:null, kindMode:'pastA', tab:'kind', axis:'takuitsu', ganttMode:'all', ganttSubject:'労働基準法', ganttKindMode:'pastA'},
     // 改修12: 実績タブ用ビュー状態
     statsView: {range:'7d', kindMode:'pastA', openDates:{}, subTab:'lego', taipaDate:null},
     articles: {},
@@ -9032,6 +9040,44 @@ function _mergeBackupsCore(oldD, newD){
   }
   stats.frameAttempts.afterKeys = Object.keys(result.frameAttempts).length;
 
+  // 改修V02_23: 選択式の一括演習データを差分マージ対象に加える。
+  //   ・selectSetHistory(配列) … setKey+ts+attemptNo で重複判定して追加。
+  //   ・selectSetAttempts(frameAttempts 同型) … キー別に history をマージ。
+  result.selectSetHistory = Array.isArray(result.selectSetHistory) ? result.selectSetHistory : [];
+  {
+    const oldSSH = Array.isArray(oldD.selectSetHistory) ? oldD.selectSetHistory : [];
+    const seen = new Set(result.selectSetHistory.map(h=>`${h&&h.setKey||''}|${h&&h.ts||''}|${h&&h.attemptNo||''}`));
+    let added = 0;
+    for(const h of oldSSH){
+      const key = `${h&&h.setKey||''}|${h&&h.ts||''}|${h&&h.attemptNo||''}`;
+      if(!seen.has(key)){ result.selectSetHistory.push(h); seen.add(key); added++; }
+    }
+    result.selectSetHistory.sort((a,b)=>(a&&a.ts||0)-(b&&b.ts||0));
+    stats.selectSetHistory = {added};
+  }
+  result.selectSetAttempts = (result.selectSetAttempts && typeof result.selectSetAttempts==='object') ? result.selectSetAttempts : {};
+  {
+    const oldSSA = (oldD.selectSetAttempts && typeof oldD.selectSetAttempts==='object') ? oldD.selectSetAttempts : {};
+    for(const k of Object.keys(oldSSA)){
+      if(!(k in result.selectSetAttempts)){
+        try{ result.selectSetAttempts[k] = JSON.parse(JSON.stringify(oldSSA[k])); }catch(_){ result.selectSetAttempts[k] = oldSSA[k]; }
+      }else{
+        const oldH = Array.isArray(oldSSA[k].history) ? oldSSA[k].history : [];
+        const newH = Array.isArray(result.selectSetAttempts[k].history) ? result.selectSetAttempts[k].history : [];
+        const seen = new Set(newH.map(h=>`${h&&h.attemptNo||''}|${h&&h.startedAt||''}`));
+        for(const h of oldH){
+          const key = `${h&&h.attemptNo||''}|${h&&h.startedAt||''}`;
+          if(!seen.has(key)){ newH.push(h); seen.add(key); }
+        }
+        newH.sort((a,b)=>(a&&a.startedAt||0)-(b&&b.startedAt||0));
+        result.selectSetAttempts[k].history = newH;
+        if(!result.selectSetAttempts[k].current && oldSSA[k].current){
+          result.selectSetAttempts[k].current = oldSSA[k].current;
+        }
+      }
+    }
+  }
+
   // 5. bookmarks (論理和)
   result.bookmarks = (result.bookmarks && typeof result.bookmarks==='object') ? result.bookmarks : {};
   stats.bookmarks.before = Object.keys(result.bookmarks).filter(k=>result.bookmarks[k]).length;
@@ -9470,6 +9516,9 @@ async function _applyMergeRestore(){
   state.frameAttempts ||= {};
   state.selectQuestions ||= [];
   state.selectHistory ||= [];
+  state.selectSetAttempts = (state.selectSetAttempts && typeof state.selectSetAttempts==='object') ? state.selectSetAttempts : {};
+  state.selectSetHistory = Array.isArray(state.selectSetHistory) ? state.selectSetHistory : [];
+  state.selectSetSession = (state.selectSetSession && typeof state.selectSetSession==='object') ? state.selectSetSession : null;
   state.session ||= {mode:'seq',currentIndex:0,filterLaw:'',filterYear:'',filterBm:'',filterCat:'',filterFrame:'',frameMode:null,answered:false,userAnswer:null,kindMode:'both'};
   state.session.kindMode ||= 'both';
   state.selectSession ||= {mode:'seq',currentIndex:0,filterLaw:'',filterCat:'',filterYear:'',filterBm:'',answered:false,userChoice:null,kindMode:'both'}; state.selectSession.kindMode ||= 'both';
@@ -9836,9 +9885,51 @@ function startSelectSet(subject, year, kind){
     answers: {},      // { qid: choiceIndex } … 回答中(未判定)
     judged: false     // 一括判定済みフラグ
   };
+  // 改修V02_23(手順4): 実績タイムテーブルへ計上するための計測セッションを開始する。
+  //   択一の studySessions と同じ配列に qtype:'select' で記録する。
+  _startSelectStudySession(subject, year, k);
   saveState();
   enterSelectSetMode(subject, year, k);
   return true;
+}
+
+/* 改修V02_23(手順4): 選択式一括演習の計測セッションを開始する。
+   択一の startStudySession を踏襲しつつ、選択式専用に qtype:'select' を付ける。
+   既に進行中の(択一含む)セッションがあれば確定してから開始。 */
+function _startSelectStudySession(subject, year, kind){
+  const kd = (kind==='forecast') ? 'forecast' : (kind==='pastB' ? 'pastB' : 'pastA');
+  const prev = (typeof getActiveSession==='function') ? getActiveSession() : null;
+  if(prev){
+    // 進行中があれば黙って確定(選択式演習の開始を妨げない)
+    try{ finishStudySession(prev.id, {silent:true}); }catch(_){}
+  }
+  const now = Date.now();
+  const dateKey = (typeof _gDateKey==='function') ? _gDateKey(new Date()) : new Date().toISOString().slice(0,10);
+  const sess = {
+    id: 'ss_' + now + '_' + Math.random().toString(36).slice(2,7),
+    planKey: selectPlanKey(subject, year, kd),  // 選択式予定との突き合わせ用
+    qtype: 'select',                            // 改修V02_23: 選択式セッションの目印
+    subject, frameRef: year, year, dateKey,
+    kind: kd,
+    startTs: now, endTs: null,
+    segments: [{start: now, end: null, mode:'A'}],
+    status: 'running',
+    answered: 0, correct: 0
+  };
+  state.studySessions ||= [];
+  state.studySessions.push(sess);
+  state.activeSessionId = sess.id;
+  // saveState は呼び出し元(startSelectSet)でまとめて行う
+}
+
+/* 改修V02_23(手順4): 進行中の選択式計測セッションを終了確定する。
+   outcome: 'done'(判定完了) / 'partial'(中断) */
+function _finishSelectStudySession(outcome){
+  const sess = (state.studySessions||[]).find(x=>
+    x.qtype==='select' && (x.status==='running'||x.status==='paused'||x.status==='resting'));
+  if(!sess) return;
+  try{ finishStudySession(sess.id, {outcome: outcome||'done', silent:true}); }
+  catch(e){ console.warn('finish select session failed', e); }
 }
 
 // 一括演習モードに入る(演習画面の状態をセット)。
@@ -9855,6 +9946,8 @@ function enterSelectSetMode(subject, year, kind){
 
 // 一括演習を抜ける(進行状態は selectSetAttempts.current に温存)。
 function exitSelectSetMode(){
+  // 改修V02_23: 中断=計測は一旦終了(partial)。時間は記録されるが予定は未完のまま。
+  _finishSelectStudySession('partial');
   state.selectSetSession = null;
   saveState();
   renderSelectView();
@@ -9865,6 +9958,14 @@ function abandonSelectSet(){
   const s = state.selectSetSession;
   if(!s) return;
   if(!confirm('現在の選択式演習を破棄しますか?\n(この回の記録は残りません)')) return;
+  // 改修V02_23: 破棄=計測セッションもキャンセル(記録に残さない)。
+  const sess = (state.studySessions||[]).find(x=>
+    x.qtype==='select' && (x.status==='running'||x.status==='paused'||x.status==='resting'));
+  if(sess){
+    const idx = state.studySessions.findIndex(x=>x.id===sess.id);
+    if(idx>=0) state.studySessions.splice(idx,1);
+    if(state.activeSessionId===sess.id) state.activeSessionId = null;
+  }
   const key = selectSetKey(s.subject, s.year, s.kind);
   const fa = state.selectSetAttempts[key];
   if(fa) fa.current = null;
@@ -9923,6 +10024,9 @@ function judgeSelectSet(){
     attemptNo: cur.attemptNo, details
   };
   state.selectSetHistory.push(rec);
+  // 改修V02_23(手順4): 判定＝演習完了。計測セッションを終了し、実績タイムテーブルに計上する。
+  //   selectHistory を積んだ後に終了することで、判定時刻の解答が計測区間内に収まる。
+  _finishSelectStudySession('done');
   // 進捗の history へ push、current は判定済みのまま残す(結果画面表示のため)。
   // 「次へ」or 抜けるタイミングで history へ確定移動する。
   saveState();
@@ -15867,8 +15971,16 @@ function renderProgress(){
   // 改修8 Step 3: kindMode のデフォルトを 'pastA' に変更
   state.progressView ||= {mode:'subjects', subject:null, parentFrameNo:null, kindMode:'pastA'};
   state.progressView.kindMode ||= 'pastA';
+  state.progressView.axis ||= 'takuitsu';
   // 旧 'past' は 'pastA' に正規化(loadState で migrate されているが念のため)
   if(state.progressView.kindMode === 'past') state.progressView.kindMode = 'pastA';
+  // 改修V02_23: 選択式軸が選ばれていれば選択式専用の進捗ビューへ委譲。
+  //   (予定/ガント/千本ノックのサブタブは択一と共通のため、それらの時は従来描画を続行)
+  const _tab = state.progressView.tab || 'kind';
+  if(state.progressView.axis === 'select' && _tab === 'kind'){
+    renderSelectProgress(root);
+    return;
+  }
   // 改修28: tab(='gantt'|'kind')の初期化。既定は kind(従来動作)
   // 改修30: 'plan'(勉強の予定)を追加
   state.progressView.tab ||= 'kind';
@@ -15989,10 +16101,30 @@ function planKey(subject, frameRef, kind){
   return (kind && kind==='forecast') ? (base + '|forecast') : base;
 }
 
+/* 改修V02_23(手順4): 選択式の予定/計測キー。
+   択一の planKey と名前空間が衝突しないよう接頭辞 "SEL::" を付ける。
+   形式: "SEL::科目|年度|kind"(kind は pastA/pastB/forecast)。 */
+function selectPlanKey(subject, year, kind){
+  let k = kind || 'pastA';
+  if(k==='past'||k==='both') k='pastA';
+  return 'SEL::' + subject + '|' + year + '|' + k;
+}
+function isSelectPlanKey(key){ return typeof key==='string' && key.indexOf('SEL::')===0; }
+function parseSelectPlanKey(key){
+  const body = String(key||'').replace(/^SEL::/, '');
+  const parts = body.split('|');
+  return {subject:parts[0]||'', year:parts[1]||'', kind:parts[2]||'pastA'};
+}
+
 // 予定キーを {subject, frameRef, kind} に分解
 //   改修V02_17: 末尾が "|forecast" のときは kind='forecast'、それ以外は 'pastA'。
 //   科目名・フレーム参照自体に "|" は含まれない前提(科目=先頭、frameRef=中間)。
 function splitPlanKey(key){
+  // 改修V02_23: 選択式の予定キー("SEL::科目|年度|kind")に対応。
+  if(typeof key==='string' && key.indexOf('SEL::')===0){
+    const p = parseSelectPlanKey(key);
+    return {subject: p.subject, frameRef: p.year, kind: p.kind, isSelect: true};
+  }
   const parts = String(key).split('|');
   if(parts.length < 2) return null;
   let kind = 'pastA';
@@ -16003,7 +16135,7 @@ function splitPlanKey(key){
   }else{
     frameRef = parts.slice(1).join('|');
   }
-  return {subject: parts[0], frameRef, kind};
+  return {subject: parts[0], frameRef, kind, isSelect: false};
 }
 
 // 並び順用: 親フレーム番号と中分類番号(なければ0)を返す
@@ -16128,6 +16260,7 @@ function getPlanOccurrencesForDate(dateKey){
       if(occ.dateKey !== dateKey) continue;
       list.push({
         key, subject: sp.subject, frameRef: sp.frameRef, kind: sp.kind,
+        isSelect: !!sp.isSelect,
         startTime: plan.startTime || '',
         endTime: plan.endTime || '',
         durationMin: (plan.durationMin!=null ? plan.durationMin : null),
@@ -16165,7 +16298,7 @@ function getOverduePlanOccurrences(beforeDateKey){
       if(occ.dateKey >= beforeDateKey) continue; // 当日以降は遅れではない
       const done = !!(plan.done && plan.done[occ.dateKey]);
       if(done) continue;
-      out.push({key, subject: sp.subject, frameRef: sp.frameRef, kind: sp.kind, dateKey:occ.dateKey, kindOcc:occ.kind, offset:occ.offset, startTime: plan.startTime||''});
+      out.push({key, subject: sp.subject, frameRef: sp.frameRef, kind: sp.kind, isSelect: !!sp.isSelect, dateKey:occ.dateKey, kindOcc:occ.kind, offset:occ.offset, startTime: plan.startTime||''});
     }
   }
   out.sort((a,b)=> a.dateKey < b.dateKey ? 1 : (a.dateKey > b.dateKey ? -1 : 0));
@@ -16340,7 +16473,12 @@ function sessionAnswerStats(sess, nowTs){
     intervals.push([start, end]);
   }
   let answered=0, correct=0;
-  for(const h of (state.history||[])){
+  // 改修V02_23: 選択式セッション(qtype==='select')は selectHistory を集計。
+  //   それ以外(択一・従来)は state.history を集計(従来動作を厳密維持)。
+  const srcHist = (sess.qtype === 'select')
+    ? (state.selectHistory || [])
+    : (state.history || []);
+  for(const h of srcHist){
     const inAny = intervals.some(iv=> h.ts>=iv[0] && h.ts<=iv[1]);
     if(inAny){ answered++; if(h.correct) correct++; }
   }
@@ -16566,16 +16704,29 @@ function getSessionsForDate(dateKey){
 /* ===== 予定編集モーダル ===== */
 let _planEditKey = null;
 // 改修V02_17: kind('pastA'|'forecast')を受けて、過去問A/予想問それぞれの予定を編集できる。
-function openPlanEditModal(subject, frameRef, kind){
-  // frameRef は数値・数字文字列("4")または中分類キー("2.1")
-  const kd = (kind==='forecast') ? 'forecast' : 'pastA';
-  _planEditKey = planKey(subject, frameRef, kd);
+// 改修V02_23: isSelect=true で選択式の予定(科目×年度)を編集できる。
+function openPlanEditModal(subject, frameRef, kind, isSelect){
+  // frameRef は数値・数字文字列("4")または中分類キー("2.1")、選択式では年度("R7")
+  let kd;
+  if(isSelect){
+    kd = (kind==='forecast') ? 'forecast' : (kind==='pastB' ? 'pastB' : 'pastA');
+    _planEditKey = selectPlanKey(subject, frameRef, kd);
+  }else{
+    kd = (kind==='forecast') ? 'forecast' : 'pastA';
+    _planEditKey = planKey(subject, frameRef, kd);
+  }
   const plan = (state.studyPlans && state.studyPlans[_planEditKey]) || {};
   const titleEl = document.getElementById('plan-edit-title');
   const descEl = document.getElementById('plan-edit-desc');
-  const kindLabel = (kd==='forecast') ? '🎯 予想問' : '過去問A';
+  const kindLabel = isSelect
+    ? ('選択式・' + ((kd==='forecast')?'🎯 予想問':(kd==='pastB'?'📖 過去問B':'📚 過去問A')))
+    : ((kd==='forecast') ? '🎯 予想問' : '過去問A');
   if(titleEl) titleEl.textContent = `学習予定の設定（${kindLabel}）`;
-  if(descEl) descEl.textContent = `${subject}　${frameOrSubFrameLabel(subject, frameRef)}（${kindLabel}）`;
+  if(descEl){
+    descEl.textContent = isSelect
+      ? `${subject}　${frameRef}（${kindLabel}／A〜E一括）`
+      : `${subject}　${frameOrSubFrameLabel(subject, frameRef)}（${kindLabel}）`;
+  }
   // 既存値を流し込み(なければ初期値: 開始日=明日)
   const def = _gDateKey(_gAddDays(_gTodayDate(), 1));
   document.getElementById('plan-input-startdate').value = plan.startDate || def;
@@ -16629,6 +16780,7 @@ function savePlanEdit(){
     startDate, startTime, endTime, durationMin,
     reviewOffsets: offsets,
     kind: (spEdit ? spEdit.kind : 'pastA'),
+    isSelect: !!(spEdit && spEdit.isSelect),   // 改修V02_23: 選択式予定の目印
     done: prev.done || {}
   };
   saveState();
@@ -16656,9 +16808,9 @@ function renderProgressPlan(root){
   const planCount = Object.keys(state.studyPlans||{}).length;
 
   let html = `<div class="card progress-intro">
-    <h2 class="prog-h2">勉強の予定 <span class="prog-sub">過去問A・翌日の学習を着実に</span></h2>
+    <h2 class="prog-h2">勉強の予定 <span class="prog-sub">翌日の学習を着実に</span></h2>
     ${progressSubTabsHtml(state.progressView.kindMode)}
-    <p class="prog-desc">「過去問A」タブで各フレームの <b>予定_編集</b> ボタンから開始日・時間帯・復習サイクルを設定すると、その日に学習すべきフレームが開始時刻順にボックスで並びます。各ボックスの「完了」を押すと色が変わります。</p>
+    <p class="prog-desc">「過去問A」タブで各フレームの <b>予定_編集</b> ボタン、または「選択式」軸の年度カードの <b>📅 予定</b> ボタンから、開始日・時間帯・復習サイクルを設定すると、その日に学習すべきフレーム／選択式セットが開始時刻順にボックスで並びます。各ボックスの「完了」を押すと色が変わります。</p>
   </div>`;
 
   // 日付ナビ
@@ -16788,7 +16940,7 @@ function renderProgressPlan(root){
           ? 'このフレームは「一旦終了(途中)」の記録があります。続きを計測できます'
           : '学習を始めるときに押すと、時間と解答数を自動で計測します';
         timerHtml = `<div class="plan-timer is-idle">
-          <button class="plan-timer-btn start" data-sessstart-subj="${escapeHtml(o.subject)}" data-sessstart-fref="${escapeHtml(String(o.frameRef))}" data-sessstart-date="${dateKey}" data-sessstart-kind="${escapeHtml(o.kind||'pastA')}">${startLabel}</button>
+          <button class="plan-timer-btn start" data-sessstart-subj="${escapeHtml(o.subject)}" data-sessstart-fref="${escapeHtml(String(o.frameRef))}" data-sessstart-date="${dateKey}" data-sessstart-kind="${escapeHtml(o.kind||'pastA')}" data-sessstart-select="${o.isSelect?'1':'0'}">${startLabel}</button>
           <span class="plan-timer-hint">${hint}</span>
         </div>`;
       }
@@ -16797,13 +16949,13 @@ function renderProgressPlan(root){
           <div class="plan-box-top">
             <span class="plan-box-time">🕒 ${timeStr}</span>${durStr}${qcountStr}${kindTag}${attemptBadge}${delayBadge}${badge}
           </div>
-          <div class="plan-box-title"><span class="plan-subj-dot" style="background:${subjCol}"></span>${escapeHtml(o.subject)}　${escapeHtml(label)}</div>
+          <div class="plan-box-title"><span class="plan-subj-dot" style="background:${subjCol}"></span>${escapeHtml(o.subject)}　${escapeHtml(o.isSelect?('選択式 '+o.frameRef):label)}</div>
           ${itemsHtml}
           ${timerHtml}
         </div>
         <div class="plan-box-action">
           ${o.done?'<span class="plan-done-mark">✓ 完了</span>':''}
-          <button class="plan-edit-inline" data-planedit="1" data-subj="${escapeHtml(o.subject)}" data-fref="${escapeHtml(String(o.frameRef))}" data-kind="${escapeHtml(o.kind||'pastA')}">編集</button>
+          <button class="plan-edit-inline" data-planedit="1" data-subj="${escapeHtml(o.subject)}" data-fref="${escapeHtml(String(o.frameRef))}" data-kind="${escapeHtml(o.kind||'pastA')}" data-select="${o.isSelect?'1':'0'}">編集</button>
           <button class="plan-done-btn ${o.done?'is-done':''}" data-plankey="${escapeHtml(o.key)}" data-date="${dateKey}">${o.done?'完了を取消':'完了にする'}</button>
         </div>
       </div>`;
@@ -16824,12 +16976,20 @@ function renderProgressPlan(root){
       const subj = b.dataset.subj;
       const ref = b.dataset.fref;
       const kind = b.dataset.kind || 'pastA'; // 改修V02_17
-      if(subj && ref) openPlanEditModal(subj, ref, kind);
+      const isSel = b.dataset.select === '1';  // 改修V02_23
+      if(subj && ref) openPlanEditModal(subj, ref, kind, isSel);
     });
   });
   // 改修31 / 改修V02_17: 計測ボタンの配線(kind を渡す)
+  //   改修V02_23: 選択式予定は選択式演習(startSelectSet)を起動する。
   root.querySelectorAll('button[data-sessstart-subj]').forEach(b=>{
-    b.addEventListener('click', ()=> startStudySession(b.dataset.sessstartSubj, b.dataset.sessstartFref, b.dataset.sessstartDate, b.dataset.sessstartKind || 'pastA'));
+    b.addEventListener('click', ()=>{
+      if(b.dataset.sessstartSelect === '1'){
+        startSelectSet(b.dataset.sessstartSubj, b.dataset.sessstartFref, b.dataset.sessstartKind || 'pastA');
+      }else{
+        startStudySession(b.dataset.sessstartSubj, b.dataset.sessstartFref, b.dataset.sessstartDate, b.dataset.sessstartKind || 'pastA');
+      }
+    });
   });
   root.querySelectorAll('button[data-sesspause]').forEach(b=>{
     b.addEventListener('click', ()=> pauseStudySession(b.dataset.sesspause));
@@ -17806,7 +17966,13 @@ function progressSubTabsHtml(currentKind){
   const forecastCount = state.questions.filter(isForecast).length;
   const ganttActive = currentTab === 'gantt';
   const planActive = currentTab === 'plan';
-  return `<div class="prog-subtabs">
+  const axis = (state.progressView && state.progressView.axis) || 'takuitsu';
+  // 改修V02_23: 択一/選択式の大区分トグル(全サブタブ共通で最上部に表示)
+  const axisToggle = `<div class="prog-axis-toggle" style="display:flex;gap:8px;margin-bottom:10px">
+    <button class="prog-subtab ${axis==='takuitsu'?'active':''}" data-progaxis="takuitsu" style="font-weight:700">🅐 択一式</button>
+    <button class="prog-subtab ${axis==='select'?'active':''}" data-progaxis="select" style="font-weight:700">🅑 選択式</button>
+  </div>`;
+  return axisToggle + `<div class="prog-subtabs">
     <button class="prog-subtab ${ganttActive?'active':''}" data-tab="gantt">📊 進捗管理</button>
     <button class="prog-subtab ${planActive?'active':''}" data-tab="plan">📅 予定</button>
     <button class="prog-subtab ${!ganttActive&&!planActive&&cur==='pastA'?'active':''}" data-tab="kind" data-kindmode="pastA">📚 過去問A <span class="pst-count">${pastACount}問</span></button>
@@ -17816,10 +17982,195 @@ function progressSubTabsHtml(currentKind){
   </div>`;
 }
 
+/* 改修V02_23: 進捗サブタブUIの配線(_wireProgSubTabs 内)から呼ぶ、択一/選択式トグルのハンドラ */
+function _handleProgAxisClick(t){
+  const axis = t.dataset.progaxis;
+  if(axis !== 'takuitsu' && axis !== 'select') return;
+  state.progressView.axis = axis;
+  // 択一/選択式を切り替えたら kind タブへ戻す(gantt/plan は択一専用のため)
+  if(axis === 'select'){
+    state.progressView.tab = 'kind';
+    // 選択式ビューの階層をトップへ
+    state.selectProgressView ||= {mode:'subjects', subject:null, kindMode:'pastA'};
+    state.selectProgressView.mode = 'subjects';
+    state.selectProgressView.subject = null;
+  }
+  saveState();
+  renderProgress();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+/* ============================================================
+   改修V02_23: 選択式の進捗管理ビュー(科目×年度=A〜Eセット単位)
+   進捗管理タブで axis==='select' のときに表示。
+   ・科目一覧 → 年度セット一覧 の2階層。
+   ・各セットマスに演習回数・直近スコアを表示し、クリックで一括演習を開始。
+   ・種類区分(過去問A/B/予想問)は kindMode で切替。
+   ============================================================ */
+function renderSelectProgress(root){
+  const kindMode = normalizeProgressKindMode(state.progressView.kindMode || 'pastA');
+  state.selectProgressView ||= {mode:'subjects', subject:null, kindMode:'pastA'};
+  // 進捗タブの kindMode と選択式ビューの kindMode を同期(進捗の種類トグルを流用)
+  state.selectProgressView.kindMode = kindMode;
+  const kindLbl = progressKindLabel(kindMode);
+
+  // 概況(選択式の登録セット数)
+  let totalSets = 0, doneSets = 0, inprogSets = 0;
+  for(const subject of SUBJECTS_ORDER){
+    const years = getSelectSetYears(subject, kindMode);
+    for(const y of years){
+      totalSets++;
+      const st = selectSetStatus(subject, y.year, kindMode);
+      if(st.attempts>0) doneSets++;
+      if(st.inProgress) inprogSets++;
+    }
+  }
+  const summary = `<div class="diag-line">${escapeHtml(kindLbl)}(選択式)の登録セット <b>${totalSets}件</b>(科目×年度)　演習済 <b>${doneSets}</b>${inprogSets>0?`　進行中 <b>${inprogSets}</b>`:''}</div>`;
+
+  let html = `<div class="card progress-intro">
+    <h2 class="prog-h2">進捗管理 <span class="prog-sub">選択式・科目×年度(A〜E)セット別</span></h2>
+    ${progressSubTabsHtml(kindMode)}
+    ${summary}
+    <p class="prog-desc">選択式は<strong>科目ごと・年度ごとに A〜E の5問</strong>を1セットとして演習します。セットを選ぶと本試験形式(5問一括判定)で解答でき、その実績がここに積み上がります。<br><span style="color:var(--ink-muted)">※「選択式」タブの「1問ずつ演習」で解いた分はこの進捗には反映されません(一括判定の演習のみ対象)。</span></p>
+  </div>`;
+
+  if(state.selectProgressView.mode === 'years' && state.selectProgressView.subject){
+    html += _renderSelectProgressYearCards(state.selectProgressView.subject, kindMode);
+  }else{
+    html += _renderSelectProgressSubjectCards(kindMode);
+  }
+
+  root.innerHTML = html;
+  _wireSelectProgress(root);
+}
+
+function _renderSelectProgressSubjectCards(kindMode){
+  let html = `<div class="card subjects-card"><div class="subjects-grid">`;
+  let any = false;
+  for(const subject of SUBJECTS_ORDER){
+    const years = getSelectSetYears(subject, kindMode);
+    if(!years.length) continue;
+    any = true;
+    let done=0, inprog=0;
+    for(const y of years){
+      const st = selectSetStatus(subject, y.year, kindMode);
+      if(st.attempts>0) done++;
+      if(st.inProgress) inprog++;
+    }
+    const status = years.length>0 && done===years.length ? 'done' : (done>0||inprog>0 ? 'partial' : 'fresh');
+    html += `<div class="subject-card ${status}" data-selprogsubject="${escapeHtml(subject)}">
+      <div class="sc-name">${escapeHtml(subject)}</div>
+      <div class="sc-stats">
+        <span class="sc-stat">${years.length}年度 / ${done}演習済</span>
+        ${inprog>0?`<span class="sc-stat" style="color:var(--accent)">${inprog}進行中</span>`:''}
+      </div>
+    </div>`;
+  }
+  html += `</div>`;
+  if(!any){
+    html += `<div class="empty" style="padding:24px"><div class="ico">―</div>${escapeHtml(progressKindLabel(kindMode))}の選択式問題がまだ登録されていません。</div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function _renderSelectProgressYearCards(subject, kindMode){
+  const years = getSelectSetYears(subject, kindMode);
+  let html = `<div class="card subjects-card">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <button class="btn ghost" data-selprogback="1">← 科目一覧へ</button>
+      <div style="font-weight:700">${escapeHtml(subject)}<span style="color:var(--ink-muted);font-weight:400;font-size:12px">　${escapeHtml(progressKindLabel(kindMode))}・年度別</span></div>
+    </div>`;
+  if(!years.length){
+    html += `<div class="empty" style="padding:24px"><div class="ico">―</div>この科目の${escapeHtml(progressKindLabel(kindMode))}(選択式)は登録されていません。</div></div>`;
+    return html;
+  }
+  html += `<div class="subjects-grid">`;
+  for(const y of years){
+    const st = selectSetStatus(subject, y.year, kindMode);
+    const status = st.inProgress ? 'partial' : (st.attempts>0 ? 'done' : 'fresh');
+    let scoreLine = '';
+    if(st.lastScore!=null){
+      const pct = st.lastTotal ? Math.round(st.lastScore/st.lastTotal*100) : 0;
+      scoreLine = `<span class="sc-stat">前回 ${st.lastScore}/${st.lastTotal}(${pct}%)</span>`;
+    }
+    html += `<div class="subject-card ${status}" data-selprogyear="${escapeHtml(y.year)}">
+      <div class="sc-name">${escapeHtml(y.year)}</div>
+      <div class="sc-stats">
+        <span class="sc-stat">${y.count}問(A〜E)</span>
+        ${st.attempts>0?`<span class="sc-stat">${st.attempts}回演習</span>`:''}
+        ${st.inProgress?`<span class="sc-stat" style="color:var(--accent)">進行中</span>`:''}
+        ${scoreLine}
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button class="btn" data-selprogstart="${escapeHtml(y.year)}" style="flex:1">${st.inProgress?'続きから':'▶ 演習開始'}</button>
+        <button class="btn ghost" data-selprogplan="${escapeHtml(y.year)}" style="white-space:nowrap">📅 予定</button>
+      </div>
+    </div>`;
+  }
+  html += `</div></div>`;
+  return html;
+}
+
+function _wireSelectProgress(root){
+  // サブタブ(択一/選択式・種類区分・予定/ガント等)は共通ハンドラ
+  root.querySelectorAll('.prog-subtab').forEach(t=>{
+    t.addEventListener('click', ()=>_handleProgSubTabClick(t));
+  });
+  // 科目カード → 年度一覧
+  root.querySelectorAll('[data-selprogsubject]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      state.selectProgressView.subject = el.dataset.selprogsubject;
+      state.selectProgressView.mode = 'years';
+      saveState();
+      renderProgress();
+      window.scrollTo({top:0,behavior:'smooth'});
+    });
+  });
+  // 戻る
+  root.querySelectorAll('[data-selprogback]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      state.selectProgressView.mode = 'subjects';
+      state.selectProgressView.subject = null;
+      saveState();
+      renderProgress();
+      window.scrollTo({top:0,behavior:'smooth'});
+    });
+  });
+  // 年度カード(カード自体クリック)→ 演習開始
+  root.querySelectorAll('[data-selprogyear]').forEach(el=>{
+    el.addEventListener('click', (ev)=>{
+      if(ev.target.closest('[data-selprogstart]')) return; // ボタンは個別処理
+      if(ev.target.closest('[data-selprogplan]')) return;  // 予定ボタンは個別処理
+      const kind = normalizeProgressKindMode(state.progressView.kindMode||'pastA');
+      startSelectSet(state.selectProgressView.subject, el.dataset.selprogyear, kind);
+    });
+  });
+  // ▶演習開始ボタン
+  root.querySelectorAll('[data-selprogstart]').forEach(el=>{
+    el.addEventListener('click', (ev)=>{
+      ev.stopPropagation();
+      const kind = normalizeProgressKindMode(state.progressView.kindMode||'pastA');
+      startSelectSet(state.selectProgressView.subject, el.dataset.selprogstart, kind);
+    });
+  });
+  // 📅予定編集ボタン
+  root.querySelectorAll('[data-selprogplan]').forEach(el=>{
+    el.addEventListener('click', (ev)=>{
+      ev.stopPropagation();
+      const kind = normalizeProgressKindMode(state.progressView.kindMode||'pastA');
+      openPlanEditModal(state.selectProgressView.subject, el.dataset.selprogplan, kind, true);
+    });
+  });
+}
+
+
 /* 改修28: 進捗管理サブタブのクリック共通ハンドラ
    - data-tab="gantt" → ガントチャートタブへ
    - data-tab="kind"  → 既存の kind モード(過去問A/B/予想問)へ */
 function _handleProgSubTabClick(t){
+  // 改修V02_23: 択一/選択式の大区分トグル(prog-subtab クラスを共有するため先頭で処理)
+  if(t.dataset.progaxis){ _handleProgAxisClick(t); return; }
   if(t.dataset.tab === 'gantt'){
     state.progressView.tab = 'gantt';
   }else if(t.dataset.tab === 'plan'){
