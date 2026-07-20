@@ -1505,6 +1505,9 @@
   /* 改修V02_17: 予定の種別(過去問A/予想問)タグ */
   .plan-badge.kindtag.forecast{background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7}
   .plan-badge.kindtag.pasta{background:#EEF0F6;color:#4A5578;border:1px solid #C7CEE0}
+  /* 改修V02_24: 過去問B の予定タグ(青系) */
+  .plan-badge.kindtag.pastb{background:#E3F2FD;color:#1565C0;border:1px solid #90CAF9}
+  .taipa-mini-badge.pastb{background:#1565C0;color:#fff}
   .plan-subj-dot{display:inline-block;width:9px;height:9px;border-radius:50%;flex-shrink:0}
   .plan-box-title{font-size:13px;font-weight:600;color:var(--ink);margin:1px 0 1px;line-height:1.35;display:flex;align-items:center;gap:6px}
   .plan-box-items{font-size:11px;color:var(--ink-muted);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -2571,6 +2574,7 @@
   .taipa-mini-badge.forecast{background:#2E7D32}
   .taipa-kind-mix{font-size:10px;color:var(--ink-muted);margin-left:4px;white-space:nowrap}
   .taipa-kind-mix.forecast{color:#2E7D32;font-weight:600}
+  .taipa-kind-mix.pastb{color:#1565C0;font-weight:600}
   .taipa-block.act.is-partial{border-left-style:dashed}
   .taipa-state-badge{font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;color:#fff}
   .taipa-state-badge.done{background:#2ea043}
@@ -16097,8 +16101,14 @@ const PLAN_REVIEW_OPTIONS = [1,2,3,4,5,6,7,10,14,30];
 //   - kind==='forecast'     … "科目|4|forecast" のように接尾辞を付ける。
 //   フレーム参照は数値文字列("4")または中分類キー("2.1")。
 function planKey(subject, frameRef, kind){
+  // 改修V02_24: 過去問B(pastB)の予定を過去問A(pastA)と別名前空間で管理する。
+  //   pastA … "科目|フレーム"(従来互換・接尾辞なし)
+  //   pastB … "科目|フレーム|pastB"
+  //   forecast … "科目|フレーム|forecast"
   const base = subject + '|' + frameRef;
-  return (kind && kind==='forecast') ? (base + '|forecast') : base;
+  if(kind === 'forecast') return base + '|forecast';
+  if(kind === 'pastB')    return base + '|pastB';
+  return base; // pastA(既定)
 }
 
 /* 改修V02_23(手順4): 選択式の予定/計測キー。
@@ -16129,8 +16139,10 @@ function splitPlanKey(key){
   if(parts.length < 2) return null;
   let kind = 'pastA';
   let frameRef;
-  if(parts.length >= 3 && parts[parts.length-1]==='forecast'){
-    kind = 'forecast';
+  // 改修V02_24: 末尾が "|pastB" のときは kind='pastB' を追加。
+  const last = parts[parts.length-1];
+  if(parts.length >= 3 && (last==='forecast' || last==='pastB')){
+    kind = last;
     frameRef = parts.slice(1, parts.length-1).join('|'); // 中間(通常は1要素だが念のため結合)
   }else{
     frameRef = parts.slice(1).join('|');
@@ -16195,7 +16207,7 @@ function planLearningContent(subject, frameRef){
      省略時は従来どおり 'pastA'。
    サブフレーム指定がある場合はサブフレームでも絞り込む。 */
 function planFrameQuestionCount(subject, frameRef, kind){
-  const k = (kind==='forecast') ? 'forecast' : 'pastA';
+  const k = (kind==='forecast') ? 'forecast' : (kind==='pastB') ? 'pastB' : 'pastA'; // 改修V02_24
   try{
     const r = resolveFrameRef(subject, frameRef);
     if(r.frameNo == null) return 0;
@@ -16220,7 +16232,7 @@ function planFrameQuestionCount(subject, frameRef, kind){
      hasAttempt        // frameAttempts に記録があるか
    } */
 function _planFrameStatus(subject, frameRef, kind){
-  const kd = (kind==='forecast') ? 'forecast' : 'pastA';
+  const kd = (kind==='forecast') ? 'forecast' : (kind==='pastB') ? 'pastB' : 'pastA'; // 改修V02_24
   try{
     const r = resolveFrameRef(subject, frameRef);
     if(r.frameNo == null) return {attemptNo:1, completedCount:0, inProgress:false, status:'ok', hasAttempt:false};
@@ -16519,8 +16531,9 @@ function sessionHasRestAnswers(sess){
 //   (択一画面側にも計測バーが出るため、中断・休憩・完了はそのまま操作できる)
 // 改修V02_17: kind('pastA'|'forecast')に対応。予想問の予定からも演習を開始できる。
 function startStudySession(subject, frameRef, dateKey, kind){
-  const kd = (kind==='forecast') ? 'forecast' : 'pastA';
-  const kindLabel = (kd==='forecast') ? '予想問' : '過去問A';
+  // 改修V02_24: kind='pastB'(過去問B)にも対応。過去問Bの予定からも演習を開始できる。
+  const kd = (kind==='forecast') ? 'forecast' : (kind==='pastB') ? 'pastB' : 'pastA';
+  const kindLabel = (kd==='forecast') ? '予想問' : (kd==='pastB') ? '過去問B' : '過去問A';
   // ① まず、この予定フレームに対象kindの問題が登録されているかを事前確認する。
   //    0問なら計測セッションを開始せずに中止する(計測だけ始まる空振りを防ぐ)。
   const fref0 = resolveFrameRef(subject, frameRef);
@@ -16712,7 +16725,8 @@ function openPlanEditModal(subject, frameRef, kind, isSelect){
     kd = (kind==='forecast') ? 'forecast' : (kind==='pastB' ? 'pastB' : 'pastA');
     _planEditKey = selectPlanKey(subject, frameRef, kd);
   }else{
-    kd = (kind==='forecast') ? 'forecast' : 'pastA';
+    // 改修V02_24: kind='pastB'(過去問B)にも対応。過去問Bの予定を独立して編集できる。
+    kd = (kind==='forecast') ? 'forecast' : (kind==='pastB') ? 'pastB' : 'pastA';
     _planEditKey = planKey(subject, frameRef, kd);
   }
   const plan = (state.studyPlans && state.studyPlans[_planEditKey]) || {};
@@ -16720,7 +16734,7 @@ function openPlanEditModal(subject, frameRef, kind, isSelect){
   const descEl = document.getElementById('plan-edit-desc');
   const kindLabel = isSelect
     ? ('選択式・' + ((kd==='forecast')?'🎯 予想問':(kd==='pastB'?'📖 過去問B':'📚 過去問A')))
-    : ((kd==='forecast') ? '🎯 予想問' : '過去問A');
+    : ((kd==='forecast') ? '🎯 予想問' : (kd==='pastB') ? '過去問B' : '過去問A');
   if(titleEl) titleEl.textContent = `学習予定の設定（${kindLabel}）`;
   if(descEl){
     descEl.textContent = isSelect
@@ -16810,7 +16824,7 @@ function renderProgressPlan(root){
   let html = `<div class="card progress-intro">
     <h2 class="prog-h2">勉強の予定 <span class="prog-sub">翌日の学習を着実に</span></h2>
     ${progressSubTabsHtml(state.progressView.kindMode)}
-    <p class="prog-desc">「過去問A」タブで各フレームの <b>予定_編集</b> ボタン、または「選択式」軸の年度カードの <b>📅 予定</b> ボタンから、開始日・時間帯・復習サイクルを設定すると、その日に学習すべきフレーム／選択式セットが開始時刻順にボックスで並びます。各ボックスの「完了」を押すと色が変わります。</p>
+    <p class="prog-desc">「過去問A」「過去問B」「予想問」タブで各フレームの <b>予定_編集</b> ボタン、または「選択式」軸の年度カードの <b>📅 予定</b> ボタンから、開始日・時間帯・復習サイクルを設定すると、その日に学習すべきフレーム／選択式セットが開始時刻順にボックスで並びます。各ボックスの「完了」を押すと色が変わります。過去問A・過去問B・予想問の予定はそれぞれ独立して管理されます。</p>
   </div>`;
 
   // 日付ナビ
@@ -16827,7 +16841,7 @@ function renderProgressPlan(root){
     </div>`;
 
   if(planCount===0){
-    html += `<div class="plan-empty">まだ予定が設定されていません。<br>「過去問A」タブを開き、各フレーム名の右にある <b>予定_編集</b> ボタンから設定してください。</div></div>`;
+    html += `<div class="plan-empty">まだ予定が設定されていません。<br>「過去問A」「過去問B」「予想問」タブを開き、各フレーム名の右にある <b>予定_編集</b> ボタンから設定してください。</div></div>`;
     root.innerHTML = html;
     _wirePlanCommon(root);
     return;
@@ -16842,7 +16856,7 @@ function renderProgressPlan(root){
     for(const o of shown){
       const lbl = o.kindOcc==='review' ? `復習(${o.offset}日後)` : '初回';
       const col = statsSubjectColor(o.subject);
-      const kindTag = o.kind==='forecast' ? `<span class="plan-badge kindtag forecast">予想問</span>` : '';
+      const kindTag = o.kind==='forecast' ? `<span class="plan-badge kindtag forecast">予想問</span>` : (o.kind==='pastB' ? `<span class="plan-badge kindtag pastb">過去問B</span>` : '');
       html += `<div class="plan-overdue-item">
         <span style="color:var(--accent);font-weight:600">${planDateLabel(o.dateKey)}</span>
         <span class="plan-subj-dot" style="background:${col}"></span>
@@ -16876,10 +16890,12 @@ function renderProgressPlan(root){
       const badge = o.kindOcc==='review'
         ? `<span class="plan-badge review">復習 ${o.offset}日後</span>`
         : `<span class="plan-badge first">初回</span>`;
-      // 改修V02_17: 予想問の予定であることを示すタグ(過去問Aと同じ表に並ぶため区別する)
+      // 改修V02_17 / 改修V02_24: 予定の種別タグ(過去問A・過去問B・予想問の3区分)
       const kindTag = o.kind==='forecast'
         ? `<span class="plan-badge kindtag forecast" title="予想問の予定">🎯 予想問</span>`
-        : `<span class="plan-badge kindtag pasta" title="過去問Aの予定">過去問A</span>`;
+        : (o.kind==='pastB'
+          ? `<span class="plan-badge kindtag pastb" title="過去問Bの予定">過去問B</span>`
+          : `<span class="plan-badge kindtag pasta" title="過去問Aの予定">過去問A</span>`);
       // 改修V02_13 / 改修V02_17: ガントと同基準の「演習回数」「遅延」バッジ。予定の kind 基準。
       const pst = _planFrameStatus(o.subject, o.frameRef, o.kind);
       let attemptBadge = '';
@@ -18535,7 +18551,7 @@ function renderProgressFrames(root, summary, subject, kindMode){
       lawBreakdown: lawBreakdown,
       dataFno: fr.n,
       itemsLabel: frItemsLabel,  // 改修
-      planTarget: (kindMode==='pastA' || kindMode==='forecast') ? {subject:subject, frameRef:fr.n, kind:kindMode} : null  // 改修30/V02_17: 過去問A・予想問に予定ボタン
+      planTarget: (kindMode==='pastA' || kindMode==='pastB' || kindMode==='forecast') ? {subject:subject, frameRef:fr.n, kind:kindMode} : null  // 改修30/V02_17/V02_24: 過去問A・過去問B・予想問に予定ボタン
     });
   }
   // 改修V02_05: 集中特訓フレーム(F_T1/T2/T3)を、通常フレームの後ろに追加表示。
@@ -18667,7 +18683,7 @@ function renderProgressSubFrames(root, summary, subject, parentFrameNo, kindMode
       kindModeVal: kindMode,
       lawBreakdown: '',
       dataFno: sf.key,
-      planTarget: (kindMode==='pastA' || kindMode==='forecast') ? {subject:subject, frameRef:sf.key, kind:kindMode} : null  // 改修30/V02_17: 中分類単位で予定設定(過去問A・予想問)
+      planTarget: (kindMode==='pastA' || kindMode==='pastB' || kindMode==='forecast') ? {subject:subject, frameRef:sf.key, kind:kindMode} : null  // 改修30/V02_17/V02_24: 中分類単位で予定設定(過去問A・過去問B・予想問)
     });
   }
   if(shownSubs===0 && !progressKindShowAll(kindMode)){
@@ -19270,8 +19286,8 @@ function renderTaipaTimetable(dateKey, plans, sessions, set){
     const col = statsSubjectColor(p.subject);
     const lbl = frameOrSubFrameLabel(p.subject, p.frameRef);
     const kindB = p.kindOcc==='review' ? `<span class="taipa-mini-badge">復${p.offset}</span>` : `<span class="taipa-mini-badge first">初</span>`;
-    // 改修V02_17: 予想問の予定は小タグで区別
-    const kindTag = p.kind==='forecast' ? `<span class="taipa-mini-badge forecast">予</span>` : '';
+    // 改修V02_17 / 改修V02_24: 予想問「予」・過去問B「B」を小タグで区別
+    const kindTag = p.kind==='forecast' ? `<span class="taipa-mini-badge forecast">予</span>` : (p.kind==='pastB' ? `<span class="taipa-mini-badge pastb">B</span>` : '');
     // 改修57_01②-3: 完了済みの予定には右端に【済】(黒・太字)を表示。
     //   従来の「薄く表示(.done)」は維持しつつ、完了を明確に分かるようにする。
     const doneB = p.done ? `<span class="taipa-done-badge">【済】</span>` : '';
@@ -19392,13 +19408,14 @@ function renderTaipaSummary(dateKey, sessions){
     bySubject[subj].ans += s.answered; bySubject[subj].correct += s.correct;
     bySubject[subj].frames.add(String(s.frameRef));
     const fk = s.subject+'|'+s.frameRef;
-    byFrame[fk] ||= {subject:s.subject, frameRef:s.frameRef, totalMs:0, activeMs:0, pauseMs:0, ans:0, correct:0, anyDone:false, partialCnt:0, sessCnt:0, sessIds:[], hasLongGap:false, hasRestAnswers:false, kindAns:{pastA:0, forecast:0}};
+    byFrame[fk] ||= {subject:s.subject, frameRef:s.frameRef, totalMs:0, activeMs:0, pauseMs:0, ans:0, correct:0, anyDone:false, partialCnt:0, sessCnt:0, sessIds:[], hasLongGap:false, hasRestAnswers:false, kindAns:{pastA:0, pastB:0, forecast:0}};
     byFrame[fk].totalMs += tMs; byFrame[fk].activeMs += aMs; byFrame[fk].pauseMs += bMs;
     byFrame[fk].ans += s.answered; byFrame[fk].correct += s.correct;
     byFrame[fk].sessCnt++;
     byFrame[fk].sessIds.push(s.id);
-    // 改修V02_17: 過去問A/予想問の内訳(解答数)を保持。合算は維持しつつ内訳をバッジ表示する。
-    const sKind = (s.kind==='forecast') ? 'forecast' : 'pastA';
+    // 改修V02_17 / 改修V02_24: 過去問A/過去問B/予想問の内訳(解答数)を保持。合算は維持しつつ内訳をバッジ表示する。
+    const sKind = (s.kind==='forecast') ? 'forecast' : (s.kind==='pastB') ? 'pastB' : 'pastA';
+    if(byFrame[fk].kindAns[sKind]==null) byFrame[fk].kindAns[sKind]=0;
     byFrame[fk].kindAns[sKind] += (s.answered||0);
     if(sessionLongGaps(s).length>0) byFrame[fk].hasLongGap = true;
     // 改修V02_16: 休憩(R)中に解答したのに未計上の区間があれば警告フラグを立てる。
@@ -19482,11 +19499,22 @@ function renderTaipaSummary(dateKey, sessions){
     // 補正ボタン(このフレームの該当セッション群を開く)
     const needFix = d.hasLongGap || d.hasRestAnswers;
     const fixBtn = `<button class="taipa-fix-btn${needFix?' need':''}" data-taipafix="${escapeHtml(fk)}" data-taipafix-date="${escapeHtml(dateKey)}" title="このフレームの学習時間を補正する">✏️補正</button>`;
-    // 改修V02_17: 過去問A・予想問の両方を解いたフレームは、解答数の内訳を小さく併記する。
-    const ka = d.kindAns || {pastA:0, forecast:0};
-    const mixNote = (ka.pastA>0 && ka.forecast>0)
-      ? `<span class="taipa-kind-mix" title="内訳: 過去問A ${ka.pastA}問 / 予想問 ${ka.forecast}問">（過去A ${ka.pastA}・予想 ${ka.forecast}）</span>`
-      : (ka.forecast>0 ? `<span class="taipa-kind-mix forecast" title="予想問">🎯予想</span>` : '');
+    // 改修V02_17 / 改修V02_24: 過去問A・過去問B・予想問の内訳を併記。2種類以上混在したら内訳、単一種別ならタグのみ。
+    const ka = d.kindAns || {pastA:0, pastB:0, forecast:0};
+    const kaA = ka.pastA||0, kaB = ka.pastB||0, kaF = ka.forecast||0;
+    const kindsUsed = [kaA>0, kaB>0, kaF>0].filter(Boolean).length;
+    let mixNote = '';
+    if(kindsUsed >= 2){
+      const parts = [];
+      if(kaA>0) parts.push(`過去A ${kaA}`);
+      if(kaB>0) parts.push(`過去B ${kaB}`);
+      if(kaF>0) parts.push(`予想 ${kaF}`);
+      mixNote = `<span class="taipa-kind-mix" title="内訳: ${parts.join(' / ')}問">（${parts.join('・')}）</span>`;
+    }else if(kaF>0){
+      mixNote = `<span class="taipa-kind-mix forecast" title="予想問">🎯予想</span>`;
+    }else if(kaB>0){
+      mixNote = `<span class="taipa-kind-mix pastb" title="過去問B">過去B</span>`;
+    }
     html += `<tr>
       <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(shortSubject(d.subject))} ${escapeHtml(frameOrSubFrameLabel(d.subject,d.frameRef))}${restMark}</td>
       <td>${stateBadge}${cntNote}</td>
