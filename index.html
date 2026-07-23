@@ -14515,7 +14515,9 @@ function senbonAnswer(q, userAns){
   const s = state.senbonSession;
   const timedOut = (userAns===null);
   const correct = !timedOut && (userAns===q.a);
-  s.results.push({id:q.id, correct, timedOut});
+  // 改修: 振り返り(全問確認)で「あなたの解答」を表示するため userAns も保持する。
+  //   timedOut(=null) の場合は未解答として記録。
+  s.results.push({id:q.id, correct, timedOut, ans: timedOut ? null : userAns});
   // 履歴ログ
   state.senbonHistory.push({
     id:q.id, ts:Date.now(), correct, timedOut,
@@ -14627,6 +14629,7 @@ function renderSenbonResult(root){
     .sbr-catrow{display:flex;justify-content:space-between;padding:8px 14px;font-size:14px;border-bottom:1px solid var(--line,#eee)}
     .sbres-actions{display:flex;gap:10px;margin-top:22px;flex-wrap:wrap}
     .sbres-btn{flex:1;min-width:130px;padding:14px;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer}
+    .sbres-reviewall{background:#2e7d32;color:#fff}
     .sbres-review{background:#1f2a44;color:#fff}
     .sbres-repeat{background:#e8a000;color:#fff}
     .sbres-again{background:#C9472A;color:#fff}
@@ -14637,6 +14640,7 @@ function renderSenbonResult(root){
     <div class="sbres-sub">${correctN} / ${total} 問正解　(不正解 ${wrongN}問・うち時間切れ ${timeoutN}問)</div>
     <div style="max-width:340px;margin:0 auto;text-align:left">${catRows}</div>
     <div class="sbres-actions">
+      <button class="sbres-btn sbres-reviewall" id="sbres-reviewall">📖 全${total}問を確認</button>
       ${wrongN>0?`<button class="sbres-btn sbres-review" id="sbres-review">🔍 ミスした${wrongN}問を確認</button>`:''}
       <button class="sbres-btn sbres-repeat" id="sbres-repeat">🔁 同じ${total}問を繰り返す</button>
       <button class="sbres-btn sbres-again" id="sbres-again">🎲 新しく出題</button>
@@ -14644,8 +14648,10 @@ function renderSenbonResult(root){
     </div>
   </div>`;
 
+  const reviewAllBtn = document.getElementById('sbres-reviewall');
+  if(reviewAllBtn) reviewAllBtn.addEventListener('click', ()=>renderSenbonReview(root,'all'));
   const reviewBtn = document.getElementById('sbres-review');
-  if(reviewBtn) reviewBtn.addEventListener('click', ()=>renderSenbonReview(root));
+  if(reviewBtn) reviewBtn.addEventListener('click', ()=>renderSenbonReview(root,'wrong'));
   document.getElementById('sbres-repeat').addEventListener('click', ()=>startSenbonRun(true));
   document.getElementById('sbres-again').addEventListener('click', ()=>startSenbonRun(false));
   document.getElementById('sbres-back').addEventListener('click',()=>{
@@ -14653,45 +14659,109 @@ function renderSenbonResult(root){
   });
 }
 
-// ===== ミス確認モード(振り返り) =====
-function renderSenbonReview(root){
+// ===== 振り返りモード(全問確認 / ミスのみ確認) =====
+//   改修: 従来は「ミスした問題」のみ確認できたが、正解した問題も
+//   「あやふやだったが当たった」ケースがあるため、全問を対象に
+//   正誤判定・問題文・解説(note)・条文を確認できるようにする。
+//   mode: 'all'(全問) | 'wrong'(ミスのみ)。画面上部のトグルで切替可能。
+function renderSenbonReview(root, mode){
   const s = state.senbonSession;
-  const wrong = (s.results||[]).filter(r=>!r.correct)
+  s._reviewMode = (mode === 'wrong' || mode === 'all') ? mode : (s._reviewMode || 'all');
+  const m = s._reviewMode;
+
+  const all = (s.results||[])
     .map(r=>({r, q: senbonAllQuestions().find(x=>x.id===r.id)}))
     .filter(o=>o.q);
-  const items = wrong.map(({r,q})=>`
-    <div class="sbrv-item">
-      <div class="sbrv-meta">${escapeHtml(q.subject||'')} ${q.subFrameKey?('F'+q.subFrameKey):(q.frameNo!=null?('F'+q.frameNo):'')} ・ ${senbonCatLabel(q.category)}${q.source?(' ・ '+escapeHtml(q.source)):''}</div>
-      <div class="sbrv-q">${escapeHtml(q.q)}</div>
-      <div class="sbrv-ans ${q.a?'o':'x'}">正解: ${q.a?'〇 正しい':'✕ 誤り'}${r.timedOut?' (時間切れ)':''}</div>
-      ${q.note?`<div class="sbrv-note">${escapeHtml(q.note)}</div>`:''}
-    </div>`).join('');
+  const wrong = all.filter(o=>!o.r.correct);
+  const list = (m==='wrong') ? wrong : all;
+
+  // ユーザーの解答表示(〇/✕/時間切れ・未解答)
+  function userAnsLabel(r){
+    if(r.timedOut && (r.ans===null || r.ans===undefined)) return '未解答(時間切れ)';
+    if(r.ans === true)  return '〇 正しい';
+    if(r.ans === false) return '✕ 誤り';
+    return '未解答';
+  }
+
+  const items = list.map(({r,q}, i)=>{
+    const ok = !!r.correct;
+    return `
+    <div class="sbrv-item ${ok?'ok':'ng'}">
+      <div class="sbrv-head">
+        <span class="sbrv-no">${i+1}</span>
+        <span class="sbrv-badge ${ok?'ok':'ng'}">${ok?'正解':'不正解'}</span>
+        ${r.timedOut?'<span class="sbrv-badge to">時間切れ</span>':''}
+      </div>
+      <div class="sbrv-meta">${escapeHtml(q.subject||'')} ${q.subFrameKey?('F'+escapeHtml(String(q.subFrameKey))):(q.frameNo!=null?('F'+q.frameNo):'')} ・ ${escapeHtml(senbonCatLabel(q.category))}${q.source?(' ・ '+escapeHtml(q.source)):''}</div>
+      <div class="sbrv-q">${escapeHtml(q.q||'')}</div>
+      <div class="sbrv-ansrow">
+        <span class="sbrv-ans ${q.a?'o':'x'}">正解: ${q.a?'〇 正しい':'✕ 誤り'}</span>
+        <span class="sbrv-you ${ok?'o':'x'}">あなたの解答: ${escapeHtml(userAnsLabel(r))}</span>
+      </div>
+      ${q.note?`<div class="sbrv-note"><span class="sbrv-note-h">解説</span>${escapeHtml(q.note)}</div>`:'<div class="sbrv-note sbrv-note-empty">解説は登録されていません</div>'}
+      ${senbonHasArticle(q)?`<div class="sbrv-tools"><button class="sbrv-art" data-sbrv-article="${escapeHtml(String(q.id))}">📜 条文を見る</button></div>`:''}
+    </div>`;
+  }).join('');
+
+  const emptyMsg = (m==='wrong')
+    ? 'ミスした問題はありませんでした 🎉'
+    : '確認できる問題がありません';
 
   root.innerHTML = `
   <style>
     .sbrv-card{background:var(--surface,#fff);border-radius:14px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
     .sbrv-h{font-size:17px;font-weight:700;margin:0 0 4px}
-    .sbrv-sub{font-size:12px;color:#888;margin-bottom:14px}
-    .sbrv-item{border:1px solid var(--line,#eee);border-left:4px solid #c62828;border-radius:8px;padding:14px;margin-bottom:10px}
+    .sbrv-sub{font-size:12px;color:#888;margin-bottom:12px}
+    .sbrv-tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+    .sbrv-tab{padding:8px 16px;border:1px solid var(--line,#ddd);background:#fff;border-radius:999px;font-size:13px;font-weight:700;color:#555;cursor:pointer}
+    .sbrv-tab.on{background:#1f2a44;color:#fff;border-color:#1f2a44}
+    .sbrv-item{border:1px solid var(--line,#eee);border-radius:8px;padding:14px;margin-bottom:10px}
+    .sbrv-item.ng{border-left:4px solid #c62828}
+    .sbrv-item.ok{border-left:4px solid #2e7d32}
+    .sbrv-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+    .sbrv-no{font-size:12px;font-weight:800;color:#999;min-width:22px}
+    .sbrv-badge{font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;color:#fff}
+    .sbrv-badge.ok{background:#2e7d32}
+    .sbrv-badge.ng{background:#c62828}
+    .sbrv-badge.to{background:#e8a000}
     .sbrv-meta{font-size:11px;color:#999;margin-bottom:6px}
     .sbrv-q{font-size:15px;line-height:1.6;margin-bottom:8px}
-    .sbrv-ans{font-size:14px;font-weight:700}
+    .sbrv-ansrow{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;font-weight:700;margin-bottom:8px}
     .sbrv-ans.o{color:#2e7d32}.sbrv-ans.x{color:#c62828}
-    .sbrv-note{font-size:13px;color:#555;background:#f7f7f9;border-radius:6px;padding:10px;margin-top:8px;line-height:1.6}
-    .sbrv-actions{display:flex;gap:10px;margin-top:16px}
-    .sbrv-btn{flex:1;padding:13px;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
+    .sbrv-you{color:#555;font-weight:600}
+    .sbrv-you.o{color:#2e7d32}.sbrv-you.x{color:#c62828}
+    .sbrv-note{font-size:13px;color:#555;background:#f7f7f9;border-radius:6px;padding:10px;margin-top:4px;line-height:1.7;white-space:pre-wrap}
+    .sbrv-note-h{display:inline-block;font-size:11px;font-weight:800;color:#1f2a44;background:#e6ebf5;border-radius:4px;padding:2px 7px;margin-right:8px}
+    .sbrv-note-empty{color:#aaa;font-style:italic;white-space:normal}
+    .sbrv-tools{margin-top:8px}
+    .sbrv-art{padding:7px 14px;border:1px solid #C9472A;background:#fff;color:#C9472A;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer}
+    .sbrv-actions{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+    .sbrv-btn{flex:1;min-width:140px;padding:13px;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer}
     .sbrv-retry{background:#C9472A;color:#fff}
     .sbrv-back{background:#eef;color:#2b5dc9}
   </style>
   <div class="sbrv-card">
-    <h3 class="sbrv-h">🔍 ミスした問題の振り返り</h3>
-    <div class="sbrv-sub">間違えた ${wrong.length}問。正解と補足を確認しましょう。</div>
-    ${items || '<div style="padding:20px;text-align:center;color:#888">ミスした問題はありませんでした 🎉</div>'}
+    <h3 class="sbrv-h">📖 問題・解説の振り返り</h3>
+    <div class="sbrv-sub">正解した問題も含めて、問題文・正誤・解説を確認できます。</div>
+    <div class="sbrv-tabs">
+      <button class="sbrv-tab ${m==='all'?'on':''}" data-sbrv-mode="all">全${all.length}問</button>
+      <button class="sbrv-tab ${m==='wrong'?'on':''}" data-sbrv-mode="wrong">ミスのみ ${wrong.length}問</button>
+    </div>
+    ${items || `<div style="padding:20px;text-align:center;color:#888">${emptyMsg}</div>`}
     <div class="sbrv-actions">
       ${wrong.length>0?`<button class="sbrv-btn sbrv-retry" id="sbrv-retry">🔁 ミスした${wrong.length}問だけ解き直す</button>`:''}
       <button class="sbrv-btn sbrv-back" id="sbrv-back">← 結果に戻る</button>
     </div>
   </div>`;
+
+  // 表示切替(全問 / ミスのみ)
+  root.querySelectorAll('[data-sbrv-mode]').forEach(b=>{
+    b.addEventListener('click', ()=> renderSenbonReview(root, b.dataset.sbrvMode));
+  });
+  // 条文ポップアップ(既存機能を再利用)
+  root.querySelectorAll('[data-sbrv-article]').forEach(b=>{
+    b.addEventListener('click', ()=> showSenbonArticle(b.dataset.sbrvArticle));
+  });
 
   const retryBtn = document.getElementById('sbrv-retry');
   if(retryBtn) retryBtn.addEventListener('click',()=>{
