@@ -1507,7 +1507,11 @@
   .plan-badge.kindtag.pasta{background:#EEF0F6;color:#4A5578;border:1px solid #C7CEE0}
   /* 改修V02_24: 過去問B の予定タグ(青系) */
   .plan-badge.kindtag.pastb{background:#E3F2FD;color:#1565C0;border:1px solid #90CAF9}
+  /* 改修V02_27: 千本ノック予定のタグ(濃紺。ガント等の千本ノック色と統一) */
+  .plan-badge.kindtag.senbon{background:#E8EAF6;color:#1f2a5a;border:1px solid #9FA8DA}
   .taipa-mini-badge.pastb{background:#1565C0;color:#fff}
+  /* 改修V02_27: 千本ノックの小タグ(濃紺) */
+  .taipa-mini-badge.senbon{background:#1f2a5a;color:#fff}
   .plan-subj-dot{display:inline-block;width:9px;height:9px;border-radius:50%;flex-shrink:0}
   .plan-box-title{font-size:13px;font-weight:600;color:var(--ink);margin:1px 0 1px;line-height:1.35;display:flex;align-items:center;gap:6px}
   .plan-box-items{font-size:11px;color:var(--ink-muted);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -2575,6 +2579,8 @@
   .taipa-kind-mix{font-size:10px;color:var(--ink-muted);margin-left:4px;white-space:nowrap}
   .taipa-kind-mix.forecast{color:#2E7D32;font-weight:600}
   .taipa-kind-mix.pastb{color:#1565C0;font-weight:600}
+  /* 改修V02_27: 千本ノックの種別タグ(濃紺) */
+  .taipa-kind-mix.senbon{background:#E8EAF6;color:#1f2a5a;border:1px solid #9FA8DA}
   .taipa-block.act.is-partial{border-left-style:dashed}
   .taipa-state-badge{font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;color:#fff}
   .taipa-state-badge.done{background:#2ea043}
@@ -9926,6 +9932,79 @@ function _startSelectStudySession(subject, year, kind){
   // saveState は呼び出し元(startSelectSet)でまとめて行う
 }
 
+/* ============================================================
+   改修V02_27: 千本ノックの計測セッションを開始する。
+   択一の startStudySession / 選択式の _startSelectStudySession を踏襲し、
+   千本ノック専用に qtype:'senbon' を付ける。
+   【改修方針01】科目ごと or 全科目のみを対象とし、実施した問題数の実績のみ計上する。
+     何問やったら完了かは自分で判断するため、自動完了はしない
+     (「✓ 完了」「一旦終了」ボタンで確定する)。
+   【改修方針02】実績時間は、開始から完了までの A(解答)+B(中断) の合計。
+     千本ノックは解答時間そのものは短い(8秒×n問)が、解説確認・復習の時間も
+     「中断」ボタンで学習時間に計上できるようにする(択一と同じ扱い)。
+   subject: 科目名 または SENBON_PLAN_ALL(全科目)
+   ============================================================ */
+function startSenbonStudySession(subject, dateKey){
+  const subj = (subject && subject !== SENBON_PLAN_ALL) ? subject : SENBON_PLAN_ALL;
+  // ① 対象問題が0問なら開始しない(計測だけ始まる空振りを防ぐ)
+  const cnt = senbonPlanQuestionCount(subj);
+  if(cnt === 0){
+    alert(`${senbonPlanLabel(subj)}には演習できる千本ノックの問題がありません。\n「進捗」タブ →「🔫 千本ノック」から問題を登録してください。`);
+    return false;
+  }
+  // ② 既存の進行中セッションがあれば確定してから開始
+  const prev = (typeof getActiveSession==='function') ? getActiveSession() : null;
+  if(prev){
+    if(!confirm('別の学習セッションが進行中です。\nそれを「終了」して千本ノックを開始しますか?')) return false;
+    try{ finishStudySession(prev.id, {silent:true}); }catch(_){}
+  }
+  const now = Date.now();
+  const dk = dateKey || ((typeof _gDateKey==='function') ? _gDateKey(new Date()) : new Date().toISOString().slice(0,10));
+  const sess = {
+    id: 'ss_' + now + '_' + Math.random().toString(36).slice(2,7),
+    planKey: senbonPlanKey(subj),   // 千本ノック予定との突き合わせ用
+    qtype: 'senbon',                // 改修V02_27: 千本ノックセッションの目印
+    subject: subj,
+    frameRef: '',                   // 千本ノックはフレーム単位ではない
+    dateKey: dk,
+    kind: 'senbon',
+    startTs: now, endTs: null,
+    segments: [{start: now, end: null, mode:'A'}],
+    status: 'running',
+    answered: 0, correct: 0
+  };
+  state.studySessions ||= [];
+  state.studySessions.push(sess);
+  state.activeSessionId = sess.id;
+
+  // ③ 千本ノックの設定画面をその科目で開く。
+  //    科目だけ設定し、出題数・スピード等は本人の設定を尊重する(すぐ「スタート」できる状態にする)。
+  try{
+    ensureSenbonState();
+    state.senbonSession.subject = (subj === SENBON_PLAN_ALL) ? '' : subj;
+    state.senbonSession.frame = '';   // 方針01: フレームは絞らない(実践想定のランダム学習)
+    state.senbonSession.running = false;
+  }catch(_){}
+  saveState();
+
+  // ④ 弱点タブの「千本ノック」サブタブへ遷移
+  try{
+    state.senbonView ||= {};
+    state.senbonView.weakSub = 'senbon';
+    switchTab('weak');
+    if(typeof renderWeakTab === 'function') renderWeakTab();
+    else if(typeof renderSenbon === 'function') renderSenbon();
+    window.scrollTo({top:0, behavior:'smooth'});
+  }catch(e){ console.warn('[senbon plan] tab switch failed', e); }
+  return true;
+}
+
+/* 改修V02_27: 進行中の千本ノック計測セッションを取得 */
+function getActiveSenbonSession(){
+  return (state.studySessions||[]).find(x=>
+    x && x.qtype==='senbon' && (x.status==='running'||x.status==='paused'||x.status==='resting')) || null;
+}
+
 /* 改修V02_23(手順4): 進行中の選択式計測セッションを終了確定する。
    outcome: 'done'(判定完了) / 'partial'(中断) */
 function _finishSelectStudySession(outcome){
@@ -14228,6 +14307,126 @@ function renderSenbon(){
   }
 }
 
+/* ============================================================
+   改修V02_27: 千本ノックの計測バー。
+   予定タブから「▶開始」した千本ノックセッションを、千本ノック画面上からも
+   中断/休憩/再開/完了/一旦終了できるようにする(択一の quiz-sess-timer と同構成)。
+   【方針01】「完了」は自分で判断して押す。全問やらなくても完了にできる。
+   【方針02】「中断」中も学習時間に計上される(解説確認・復習の時間)。
+   ============================================================ */
+function renderSenbonSessionBar(){
+  const sess = (typeof getActiveSenbonSession==='function') ? getActiveSenbonSession() : null;
+  if(!sess) return '';
+  const status = sess.status;
+  const stateCls = status==='running' ? 'is-running' : (status==='paused' ? 'is-paused' : 'is-resting');
+  const stateLabel = status==='running'
+    ? '計測中'
+    : (status==='paused' ? '中断中(ロックオン・学習時間に計上)' : '休憩中(学習時間に計上しません)');
+  let btns = '';
+  if(status==='running'){
+    btns = `<button class="plan-timer-btn pause" data-sbsesspause="${sess.id}">中断</button>
+            <button class="plan-timer-btn rest" data-sbsessrest="${sess.id}">休憩</button>`;
+  }else if(status==='paused'){
+    btns = `<button class="plan-timer-btn resume" data-sbsessresume="${sess.id}">再開</button>
+            <button class="plan-timer-btn rest" data-sbsessrest="${sess.id}">休憩</button>`;
+  }else{
+    btns = `<button class="plan-timer-btn resume" data-sbsessresume="${sess.id}">再開</button>`;
+  }
+  // 現時点で計上されている実施問題数(予定の対象科目で絞った件数)
+  let doneN = 0;
+  try{ doneN = sessionAnswerStats(sess).answered || 0; }catch(_){}
+  const target = senbonPlanLabel(sess.subject);
+  return `<div class="sb-sessbar">
+    <div class="sb-sessbar-head">📅 予定演習中：<b>${escapeHtml(target)}</b>　<span class="sb-sessbar-cnt">これまでに ${doneN}問 実施</span></div>
+    <div class="plan-timer sb-sess-timer ${stateCls}" data-sbsessid="${sess.id}">
+      <span class="plan-timer-clock" data-sbsessclock="${sess.id}">${fmtClockMs(sessionTotalMs(sess))}</span>
+      <span class="plan-timer-state">${stateLabel}</span>
+      ${btns}
+      <button class="plan-timer-btn finish" data-sbsessfinish="${sess.id}" data-sboutcome="done">✓ 完了</button>
+      <button class="plan-timer-btn pausefinish" data-sbsessfinish="${sess.id}" data-sboutcome="partial">一旦終了</button>
+      <button class="plan-timer-btn cancel" data-sbsesscancel="${sess.id}">キャンセル</button>
+    </div>
+    <div class="sb-sessbar-hint">※ 何問やったら終わりかは自分で判断します。今日の学習を終えるときは「✓ 完了」を押してください（全問やらなくても完了になります）。解説の確認・復習をするときは「中断」を押すと、その時間も学習時間に計上されます。</div>
+  </div>`;
+}
+
+/* 改修V02_27: 演習中(タイマー稼働中)に出す最小バナー。
+   ここでは操作ボタンを出さず「予定演習中である」ことと経過時間のみ示す。
+   中断・完了は演習を終えた後(結果画面/設定画面)の計測バーから行う。 */
+function _senbonRunPlanBanner(){
+  const sess = (typeof getActiveSenbonSession==='function') ? getActiveSenbonSession() : null;
+  if(!sess) return '';
+  let doneN = 0;
+  try{ doneN = sessionAnswerStats(sess).answered || 0; }catch(_){}
+  return `<div class="sbr-planbar">
+    📅 予定演習中：<b>${escapeHtml(senbonPlanLabel(sess.subject))}</b>
+    <span class="sbr-planclock" data-sbsessclock="${sess.id}">${fmtClockMs(sessionTotalMs(sess))}</span>
+    <span>これまでに ${doneN}問</span>
+    <span style="color:#667">※ 完了・中断はこのセットを終えた後の画面から</span>
+  </div>`;
+}
+
+// 千本ノック計測バーのCSS(各描画で使い回す)
+const SENBON_SESSBAR_CSS = `
+  .sb-sessbar{background:#EEF1FA;border:1px solid #c5cde4;border-left:4px solid #1f2a5a;border-radius:12px;padding:12px 14px;margin-bottom:14px}
+  .sb-sessbar-head{font-size:13px;color:#1f2a5a;margin-bottom:8px}
+  .sb-sessbar-cnt{font-size:12px;color:#2b5dc9;font-weight:700}
+  .sb-sessbar-hint{font-size:11px;color:#667;line-height:1.6;margin-top:8px}
+  .sb-sess-timer{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+`;
+
+// 千本ノック計測バーのボタン配線。onAfter は状態変更後の再描画関数。
+function _wireSenbonSessionBar(root, onAfter){
+  if(!root) return;
+  const redraw = ()=>{ if(typeof onAfter==='function') onAfter(); else renderSenbon(); };
+  root.querySelectorAll('button[data-sbsesspause]').forEach(b=>{
+    b.addEventListener('click', ()=>{ pauseStudySession(b.dataset.sbsesspause); redraw(); });
+  });
+  root.querySelectorAll('button[data-sbsessrest]').forEach(b=>{
+    b.addEventListener('click', ()=>{ restStudySession(b.dataset.sbsessrest); redraw(); });
+  });
+  root.querySelectorAll('button[data-sbsessresume]').forEach(b=>{
+    b.addEventListener('click', ()=>{ resumeStudySession(b.dataset.sbsessresume); redraw(); });
+  });
+  root.querySelectorAll('button[data-sbsessfinish]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const outcome = (b.dataset.sboutcome === 'partial') ? 'partial' : 'done';
+      const sess = (state.studySessions||[]).find(x=>x.id===b.dataset.sbsessfinish);
+      let n = 0;
+      try{ if(sess) n = sessionAnswerStats(sess).answered || 0; }catch(_){}
+      const msg = outcome==='partial'
+        ? `千本ノックを「一旦終了(途中)」にします。\n(これまでの実施: ${n}問)\n記録は残りますが、予定は未完のままです。続きは後で計測できます。\nよろしいですか?`
+        : `千本ノックを「完了」にします。\n(実施した問題数: ${n}問)\n予定が完了になり、学習時間と実施問題数が実績に計上されます。\nよろしいですか?`;
+      if(!confirm(msg)) return;
+      finishStudySession(b.dataset.sbsessfinish, {outcome, silent:true});
+      redraw();
+    });
+  });
+  root.querySelectorAll('button[data-sbsesscancel]').forEach(b=>{
+    b.addEventListener('click', ()=>{ cancelStudySession(b.dataset.sbsesscancel); redraw(); });
+  });
+  // 経過時間の毎秒更新
+  _startSenbonSessClock(root);
+}
+
+let _senbonSessClockTimer = null;
+function _startSenbonSessClock(root){
+  if(_senbonSessClockTimer){ clearInterval(_senbonSessClockTimer); _senbonSessClockTimer = null; }
+  if(!root || !root.querySelector('[data-sbsessclock]')) return;
+  _senbonSessClockTimer = setInterval(()=>{
+    let alive = false;
+    root.querySelectorAll('[data-sbsessclock]').forEach(el=>{
+      const id = el.getAttribute('data-sbsessclock');
+      const sess = (state.studySessions||[]).find(x=>x.id===id);
+      if(sess && (sess.status==='running'||sess.status==='paused'||sess.status==='resting')){
+        el.textContent = fmtClockMs(sessionTotalMs(sess));
+        alive = true;
+      }
+    });
+    if(!alive){ clearInterval(_senbonSessClockTimer); _senbonSessClockTimer = null; }
+  }, 1000);
+}
+
 // ===== 設定画面 =====
 function renderSenbonSetup(root){
   const s = state.senbonSession;
@@ -14287,7 +14486,9 @@ function renderSenbonSetup(root){
     .sb-start:disabled{background:#ccc;cursor:not-allowed}
     .sb-poolinfo{font-size:13px;color:var(--ink-muted,#666);margin-top:10px;text-align:center}
     .sb-empty{padding:30px;text-align:center;color:var(--ink-muted,#888);font-size:14px;line-height:1.7}
+    ${SENBON_SESSBAR_CSS}
   </style>
+  ${renderSenbonSessionBar()}
   <div class="sb-card">
     <h2 class="sb-h2">🔫 千本ノック <span class="sb-sub">瞬時に判断、瞬時に解答</span></h2>
     ${all.length===0 ? `<div class="sb-empty">まだ千本ノック用の問題がありません。<br>「進捗」タブ →「🔫 千本ノック」から、科目・フレームごとに一問一答を追加してください。<br>(AIに「○○法F○の千本ノックを15問」と依頼してJSONを取り込む運用が便利です)</div>` : `
@@ -14348,6 +14549,8 @@ function renderSenbonSetup(root){
   });
   const startBtn = document.getElementById('sb-start');
   if(startBtn) startBtn.addEventListener('click', startSenbonRun);
+  // 改修V02_27: 予定演習中なら計測バーを配線
+  _wireSenbonSessionBar(root, ()=>renderSenbon());
 }
 
 // ===== 演習開始 =====
@@ -14443,7 +14646,12 @@ function renderSenbonRun(root){
     .sbr-wrong .sbr-judge-txt{color:#c62828}
     .sbr-ans{font-size:15px;margin:6px 0}
     .sbr-note{font-size:14px;color:var(--ink-muted,#555);line-height:1.6;background:#f7f7f9;border-radius:8px;padding:12px;margin-top:12px;text-align:left}
+    /* 改修V02_27: 予定演習中であることの小バナー(演習の集中を妨げないよう最小限) */
+    .sbr-planbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#EEF1FA;border:1px solid #c5cde4;border-left:4px solid #1f2a5a;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#1f2a5a}
+    .sbr-planbar b{font-weight:700}
+    .sbr-planbar .sbr-planclock{font-weight:700;font-variant-numeric:tabular-nums;color:#2b5dc9}
   </style>
+  ${_senbonRunPlanBanner()}
   <div class="sbr-wrap">
     <div class="sbr-top">
       <span class="sbr-pos">${s.idx+1} / ${s.order.length}</span>
@@ -14466,6 +14674,8 @@ function renderSenbonRun(root){
     senbonAnswer(q, b.dataset.ans==='true');
   }));
   document.getElementById('sbr-quit').addEventListener('click', quitSenbonRun);
+  // 改修V02_27: 予定演習中バナーの経過時間を毎秒更新
+  _startSenbonSessClock(root);
   document.getElementById('sbr-pause').addEventListener('click',()=>pauseSenbonRun(q));
 
   // タイマー開始(一時停止からの再開なら残時間を引き継ぐ)
@@ -14634,7 +14844,9 @@ function renderSenbonResult(root){
     .sbres-repeat{background:#e8a000;color:#fff}
     .sbres-again{background:#C9472A;color:#fff}
     .sbres-back{background:#eef;color:#2b5dc9}
+    ${SENBON_SESSBAR_CSS}
   </style>
+  ${renderSenbonSessionBar()}
   <div class="sbres">
     <div class="sbres-rate">${rate}%</div>
     <div class="sbres-sub">${correctN} / ${total} 問正解　(不正解 ${wrongN}問・うち時間切れ ${timeoutN}問)</div>
@@ -14657,6 +14869,8 @@ function renderSenbonResult(root){
   document.getElementById('sbres-back').addEventListener('click',()=>{
     state.senbonSession.running=false; saveState(); renderSenbon();
   });
+  // 改修V02_27: 予定演習中なら計測バーを配線(結果画面から直接「完了」できる)
+  _wireSenbonSessionBar(root, ()=>renderSenbonResult(root));
 }
 
 // ===== 振り返りモード(全問確認 / ミスのみ確認) =====
@@ -14935,6 +15149,64 @@ function renderSenbonManage(root){
         <span style="font-size:12px;color:#888;margin-left:8px">択一で「千本」付箋を付けフレーム完了した問題が${pend}件、AI加工待ちです</span>
       </div>`;
     }
+    /* ============================================================
+       改修V02_27: 千本ノックの「予定」設定エリア。
+       千本ノックは実践想定のランダム学習が基本のため、フレーム単位ではなく
+       ①各科目ごと ②全科目 の2パターンで予定を組めるようにする。
+       ここで設定した予定は「進捗」→「予定」タブに、択一・選択式と同じ
+       予定ボックスとして並び、開始/中断/完了で実績(時間・問題数)が計上される。
+       ============================================================ */
+    {
+      const plans = state.studyPlans || {};
+      const allKey = senbonPlanKey(SENBON_PLAN_ALL);
+      const allPlan = plans[allKey];
+      const allCnt = senbonPlanQuestionCount(SENBON_PLAN_ALL);
+      const _planSummary = (pl)=>{
+        if(!pl || !pl.startDate) return '<span class="sbp-none">予定なし</span>';
+        const t = pl.startTime ? (pl.endTime ? `${pl.startTime}〜${pl.endTime}` : `${pl.startTime}〜`) : '時刻未設定';
+        const rv = (Array.isArray(pl.reviewOffsets) && pl.reviewOffsets.length)
+          ? ` / 復習${pl.reviewOffsets.length}回` : '';
+        return `<span class="sbp-set">📅 ${escapeHtml(planDateLabel(pl.startDate))} ${escapeHtml(t)}${rv}</span>`;
+      };
+      html += `<style>
+        .sbp-wrap{margin:0 0 16px 0;padding:14px;border:1px solid #d7dcea;border-radius:12px;background:#f6f8fd}
+        .sbp-h{font-size:14px;font-weight:700;color:#1f2a5a;margin:0 0 4px}
+        .sbp-desc{font-size:11.5px;color:#667;line-height:1.6;margin:0 0 10px}
+        .sbp-all{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid #c5cde4;border-radius:9px;background:#fff;margin-bottom:10px}
+        .sbp-all-title{font-size:13.5px;font-weight:700;color:#1f2a5a}
+        .sbp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+        .sbp-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line,#e5e5e5);border-radius:8px;background:#fff;font-size:12.5px}
+        .sbp-row-name{font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .sbp-cnt{font-size:11px;color:#888;white-space:nowrap}
+        .sbp-btn{padding:5px 11px;border:1px solid #2b5dc9;border-radius:7px;background:#fff;color:#2b5dc9;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+        .sbp-btn.set{background:#2b5dc9;color:#fff}
+        .sbp-none{font-size:11px;color:#aaa}
+        .sbp-set{font-size:11px;color:#2b5dc9;font-weight:700}
+        .sbp-meta{flex-basis:100%;margin-top:2px}
+      </style>
+      <div class="sbp-wrap">
+        <div class="sbp-h">📅 千本ノックの学習予定</div>
+        <p class="sbp-desc">千本ノックは実践を想定したランダム演習のため、フレーム単位ではなく <b>科目ごと</b> または <b>全科目</b> の単位で予定を組みます。設定すると「進捗」→「予定」タブに予定ボックスが並び、<b>▶開始</b>／<b>中断</b>／<b>✓完了</b> で学習時間と実施問題数が実績に計上されます。<br>※ 何問やったら完了かは自分で判断します（全問やらなくても「完了」で確定できます）。解説の確認・復習は「中断」を押せば学習時間に計上されます。</p>
+        <div class="sbp-all">
+          <span class="sbp-all-title">🔫 全科目まとめて</span>
+          <span class="sbp-cnt">対象 ${allCnt}問</span>
+          <button class="sbp-btn ${allPlan?'set':''}" data-sbp-plan="${escapeHtml(SENBON_PLAN_ALL)}">${allPlan?'予定を編集':'予定を設定'}</button>
+          <span class="sbp-meta">${_planSummary(allPlan)}</span>
+        </div>
+        <div class="sbp-grid">`;
+      SUBJECTS_ORDER.forEach(subj=>{
+        const pl = plans[senbonPlanKey(subj)];
+        const c = senbonPlanQuestionCount(subj);
+        html += `<div class="sbp-row">
+          <span class="sbp-row-name">${escapeHtml(subj)}</span>
+          <span class="sbp-cnt">${c}問</span>
+          <button class="sbp-btn ${pl?'set':''}" data-sbp-plan="${escapeHtml(subj)}">${pl?'編集':'予定'}</button>
+          <span class="sbp-meta">${_planSummary(pl)}</span>
+        </div>`;
+      });
+      html += `</div></div>`;
+    }
+
     html += `<div class="sbm-grid">`;
     SUBJECTS_ORDER.forEach(subj=>{
       const cnt = all.filter(q=>q.subject===subj).length;
@@ -15042,6 +15314,11 @@ function renderSenbonManage(root){
 
   // ---- イベント結線 ----
   root.querySelectorAll('.prog-subtab').forEach(t=>t.addEventListener('click',()=>_handleProgSubTabClick(t)));
+  // 改修V02_27: 千本ノックの「予定を設定/編集」ボタン(科目 or 全科目)
+  root.querySelectorAll('[data-sbp-plan]').forEach(b=>b.addEventListener('click',(e)=>{
+    e.stopPropagation();
+    openPlanEditModal(b.dataset.sbpPlan, '', 'senbon', false, true);
+  }));
   root.querySelectorAll('[data-sbm-subject]').forEach(c=>c.addEventListener('click',()=>{
     v.mode='frames'; v.subject=c.dataset.sbmSubject; v.frameNo=null; v.subFrameKey=null; saveState(); renderProgress();
   }));
@@ -16190,6 +16467,31 @@ function selectPlanKey(subject, year, kind){
   return 'SEL::' + subject + '|' + year + '|' + k;
 }
 function isSelectPlanKey(key){ return typeof key==='string' && key.indexOf('SEL::')===0; }
+
+/* ============================================================
+   改修V02_27: 千本ノックの予定/計測キー。
+   択一(planKey)・選択式(SEL::)と名前空間が衝突しないよう接頭辞 "SBN::" を付ける。
+   形式: "SBN::科目"  … 科目単位の千本ノック予定
+         "SBN::__ALL__" … 全科目まとめての千本ノック予定
+   千本ノックは実践想定のランダム学習が基本のため、
+   フレーム単位ではなく「科目ごと」「全科目」の2パターンのみを予定対象とする。
+   ============================================================ */
+const SENBON_PLAN_ALL = '__ALL__';   // 全科目を表す擬似科目名
+function senbonPlanKey(subject){
+  const s = (subject && subject !== SENBON_PLAN_ALL) ? subject : SENBON_PLAN_ALL;
+  return 'SBN::' + s;
+}
+function isSenbonPlanKey(key){ return typeof key==='string' && key.indexOf('SBN::')===0; }
+function parseSenbonPlanKey(key){
+  const body = String(key||'').replace(/^SBN::/, '');
+  const isAll = (body === SENBON_PLAN_ALL || body === '');
+  return {subject: isAll ? SENBON_PLAN_ALL : body, isAll};
+}
+// 予定ボックス等での表示名
+function senbonPlanLabel(subject){
+  return (!subject || subject === SENBON_PLAN_ALL) ? '全科目' : subject;
+}
+
 function parseSelectPlanKey(key){
   const body = String(key||'').replace(/^SEL::/, '');
   const parts = body.split('|');
@@ -16200,10 +16502,16 @@ function parseSelectPlanKey(key){
 //   改修V02_17: 末尾が "|forecast" のときは kind='forecast'、それ以外は 'pastA'。
 //   科目名・フレーム参照自体に "|" は含まれない前提(科目=先頭、frameRef=中間)。
 function splitPlanKey(key){
+  // 改修V02_27: 千本ノックの予定キー("SBN::科目" / "SBN::__ALL__")に対応。
+  //   frameRef は使わないため空文字。kind は 'senbon' 固定。
+  if(typeof key==='string' && key.indexOf('SBN::')===0){
+    const p = parseSenbonPlanKey(key);
+    return {subject: p.subject, frameRef: '', kind: 'senbon', isSelect: false, isSenbon: true, isAll: p.isAll};
+  }
   // 改修V02_23: 選択式の予定キー("SEL::科目|年度|kind")に対応。
   if(typeof key==='string' && key.indexOf('SEL::')===0){
     const p = parseSelectPlanKey(key);
-    return {subject: p.subject, frameRef: p.year, kind: p.kind, isSelect: true};
+    return {subject: p.subject, frameRef: p.year, kind: p.kind, isSelect: true, isSenbon: false};
   }
   const parts = String(key).split('|');
   if(parts.length < 2) return null;
@@ -16217,7 +16525,7 @@ function splitPlanKey(key){
   }else{
     frameRef = parts.slice(1).join('|');
   }
-  return {subject: parts[0], frameRef, kind, isSelect: false};
+  return {subject: parts[0], frameRef, kind, isSelect: false, isSenbon: false};
 }
 
 // 並び順用: 親フレーム番号と中分類番号(なければ0)を返す
@@ -16290,6 +16598,42 @@ function planFrameQuestionCount(subject, frameRef, kind){
   }catch(_){ return 0; }
 }
 
+/* ============================================================
+   改修V02_27: 千本ノック予定の「対象問題数」を返す。
+   subject=SENBON_PLAN_ALL(全科目)なら登録総数、科目指定ならその科目の問題数。
+   演習対象外(要チェック/確認中マーク)は除外し、実際に出題され得る数を返す。
+   ============================================================ */
+function senbonPlanQuestionCount(subject){
+  try{
+    const all = (typeof senbonAllQuestions==='function') ? senbonAllQuestions() : (state.senbon||[]);
+    const playable = all.filter(q=> (typeof senbonPlayable==='function') ? senbonPlayable(q) : true);
+    if(!subject || subject === SENBON_PLAN_ALL) return playable.length;
+    return playable.filter(q=> q.subject === subject).length;
+  }catch(_){ return 0; }
+}
+
+/* 改修V02_27: 千本ノック予定の実施状況を返す。
+   千本ノックは「フレーム完了」という概念を持たない(方針01: 何問やるかは自分で判断)ため、
+   frameAttempts ではなく senbonRuns(完走記録)と studySessions(計測記録)から集計する。
+   返り値: {runCount, answeredTotal, lastTs} */
+function _senbonPlanStatus(subject){
+  const out = {runCount:0, answeredTotal:0, lastTs:0};
+  try{
+    const isAll = (!subject || subject === SENBON_PLAN_ALL);
+    const key = senbonPlanKey(subject);
+    // この予定に紐づく完了済みの計測セッション(千本ノック)を集計
+    for(const ss of (state.studySessions||[])){
+      if(!ss || ss.qtype !== 'senbon') continue;
+      if(ss.planKey !== key) continue;
+      if(ss.status !== 'done') continue;
+      out.runCount++;
+      out.answeredTotal += (ss.answered || 0);
+      if(ss.endTs && ss.endTs > out.lastTs) out.lastTs = ss.endTs;
+    }
+  }catch(_){}
+  return out;
+}
+
 /* 改修V02_13: 予定タブ表示用 — 指定の科目・フレーム(過去問A)の「演習回数」と
    「遅延ステータス」を、ガントチャート(_gBuildRowData/_gReviewStatus)と同一基準で返す。
    進捗管理「予定」タブの各ボックスに、何回目の演習か・遅延(赤/黄)かを出して、
@@ -16343,6 +16687,8 @@ function getPlanOccurrencesForDate(dateKey){
       list.push({
         key, subject: sp.subject, frameRef: sp.frameRef, kind: sp.kind,
         isSelect: !!sp.isSelect,
+        isSenbon: !!sp.isSenbon,   // 改修V02_27: 千本ノック予定の目印
+        isAll: !!sp.isAll,         // 改修V02_27: 全科目まとめての予定か
         startTime: plan.startTime || '',
         endTime: plan.endTime || '',
         durationMin: (plan.durationMin!=null ? plan.durationMin : null),
@@ -16360,6 +16706,12 @@ function getPlanOccurrencesForDate(dateKey){
     const sa = SUBJECTS_ORDER.indexOf(a.subject); const sb = SUBJECTS_ORDER.indexOf(b.subject);
     const sai = sa<0?999:sa; const sbi = sb<0?999:sb;
     if(sai !== sbi) return sai - sbi;
+    // 改修V02_27: 千本ノック予定は frameRef を持たないため planSortIndex を通さない。
+    //   同時刻・同科目でバッティングした場合は、千本ノックを後ろに置く。
+    if(a.isSenbon || b.isSenbon){
+      if(a.isSenbon && b.isSenbon) return 0;
+      return a.isSenbon ? 1 : -1;
+    }
     const ia = planSortIndex(a.subject, a.frameRef); const ib = planSortIndex(b.subject, b.frameRef);
     if(ia.fno !== ib.fno) return ia.fno - ib.fno;
     return ia.sub - ib.sub;
@@ -16380,7 +16732,7 @@ function getOverduePlanOccurrences(beforeDateKey){
       if(occ.dateKey >= beforeDateKey) continue; // 当日以降は遅れではない
       const done = !!(plan.done && plan.done[occ.dateKey]);
       if(done) continue;
-      out.push({key, subject: sp.subject, frameRef: sp.frameRef, kind: sp.kind, isSelect: !!sp.isSelect, dateKey:occ.dateKey, kindOcc:occ.kind, offset:occ.offset, startTime: plan.startTime||''});
+      out.push({key, subject: sp.subject, frameRef: sp.frameRef, kind: sp.kind, isSelect: !!sp.isSelect, isSenbon: !!sp.isSenbon, isAll: !!sp.isAll, dateKey:occ.dateKey, kindOcc:occ.kind, offset:occ.offset, startTime: plan.startTime||''});
     }
   }
   out.sort((a,b)=> a.dateKey < b.dateKey ? 1 : (a.dateKey > b.dateKey ? -1 : 0));
@@ -16556,11 +16908,21 @@ function sessionAnswerStats(sess, nowTs){
   }
   let answered=0, correct=0;
   // 改修V02_23: 選択式セッション(qtype==='select')は selectHistory を集計。
+  // 改修V02_27: 千本ノックセッション(qtype==='senbon')は senbonHistory を集計。
+  //   千本ノックの解答は state.history に入らないため、これを分けないと
+  //   「実施した問題数」が常に0になる(方針01: 実施問題数の実績のみ計上する)。
   //   それ以外(択一・従来)は state.history を集計(従来動作を厳密維持)。
   const srcHist = (sess.qtype === 'select')
     ? (state.selectHistory || [])
-    : (state.history || []);
+    : (sess.qtype === 'senbon')
+      ? (state.senbonHistory || [])
+      : (state.history || []);
+  // 改修V02_27: 科目単位の千本ノック予定("SBN::雇用保険法" 等)では、
+  //   その科目の解答のみを実績に計上する(全科目予定 "SBN::__ALL__" は全件対象)。
+  const senbonSubjFilter = (sess.qtype === 'senbon' && sess.subject && sess.subject !== SENBON_PLAN_ALL)
+    ? sess.subject : null;
   for(const h of srcHist){
+    if(senbonSubjFilter && h.subject !== senbonSubjFilter) continue;
     const inAny = intervals.some(iv=> h.ts>=iv[0] && h.ts<=iv[1]);
     if(inAny){ answered++; if(h.correct) correct++; }
   }
@@ -16788,10 +17150,14 @@ function getSessionsForDate(dateKey){
 let _planEditKey = null;
 // 改修V02_17: kind('pastA'|'forecast')を受けて、過去問A/予想問それぞれの予定を編集できる。
 // 改修V02_23: isSelect=true で選択式の予定(科目×年度)を編集できる。
-function openPlanEditModal(subject, frameRef, kind, isSelect){
+function openPlanEditModal(subject, frameRef, kind, isSelect, isSenbon){
   // frameRef は数値・数字文字列("4")または中分類キー("2.1")、選択式では年度("R7")
+  // 改修V02_27: isSenbon=true で千本ノックの予定(科目 or 全科目)を編集できる。
   let kd;
-  if(isSelect){
+  if(isSenbon || kind === 'senbon'){
+    kd = 'senbon';
+    _planEditKey = senbonPlanKey(subject);
+  }else if(isSelect){
     kd = (kind==='forecast') ? 'forecast' : (kind==='pastB' ? 'pastB' : 'pastA');
     _planEditKey = selectPlanKey(subject, frameRef, kd);
   }else{
@@ -16802,14 +17168,22 @@ function openPlanEditModal(subject, frameRef, kind, isSelect){
   const plan = (state.studyPlans && state.studyPlans[_planEditKey]) || {};
   const titleEl = document.getElementById('plan-edit-title');
   const descEl = document.getElementById('plan-edit-desc');
-  const kindLabel = isSelect
-    ? ('選択式・' + ((kd==='forecast')?'🎯 予想問':(kd==='pastB'?'📖 過去問B':'📚 過去問A')))
-    : ((kd==='forecast') ? '🎯 予想問' : (kd==='pastB') ? '過去問B' : '過去問A');
+  const kindLabel = (kd==='senbon')
+    ? '🔫 千本ノック'
+    : (isSelect
+      ? ('選択式・' + ((kd==='forecast')?'🎯 予想問':(kd==='pastB'?'📖 過去問B':'📚 過去問A')))
+      : ((kd==='forecast') ? '🎯 予想問' : (kd==='pastB') ? '過去問B' : '過去問A'));
   if(titleEl) titleEl.textContent = `学習予定の設定（${kindLabel}）`;
   if(descEl){
-    descEl.textContent = isSelect
-      ? `${subject}　${frameRef}（${kindLabel}／A〜E一括）`
-      : `${subject}　${frameOrSubFrameLabel(subject, frameRef)}（${kindLabel}）`;
+    if(kd==='senbon'){
+      // 改修V02_27: 千本ノックは科目 or 全科目単位。フレームは対象外。
+      const cnt = senbonPlanQuestionCount(subject);
+      descEl.textContent = `${senbonPlanLabel(subject)}（${kindLabel}／対象 ${cnt}問・ランダム演習）`;
+    }else{
+      descEl.textContent = isSelect
+        ? `${subject}　${frameRef}（${kindLabel}／A〜E一括）`
+        : `${subject}　${frameOrSubFrameLabel(subject, frameRef)}（${kindLabel}）`;
+    }
   }
   // 既存値を流し込み(なければ初期値: 開始日=明日)
   const def = _gDateKey(_gAddDays(_gTodayDate(), 1));
@@ -16865,6 +17239,7 @@ function savePlanEdit(){
     reviewOffsets: offsets,
     kind: (spEdit ? spEdit.kind : 'pastA'),
     isSelect: !!(spEdit && spEdit.isSelect),   // 改修V02_23: 選択式予定の目印
+    isSenbon: !!(spEdit && spEdit.isSenbon),   // 改修V02_27: 千本ノック予定の目印
     done: prev.done || {}
   };
   saveState();
@@ -16894,7 +17269,7 @@ function renderProgressPlan(root){
   let html = `<div class="card progress-intro">
     <h2 class="prog-h2">勉強の予定 <span class="prog-sub">翌日の学習を着実に</span></h2>
     ${progressSubTabsHtml(state.progressView.kindMode)}
-    <p class="prog-desc">「過去問A」「過去問B」「予想問」タブで各フレームの <b>予定_編集</b> ボタン、または「選択式」軸の年度カードの <b>📅 予定</b> ボタンから、開始日・時間帯・復習サイクルを設定すると、その日に学習すべきフレーム／選択式セットが開始時刻順にボックスで並びます。各ボックスの「完了」を押すと色が変わります。過去問A・過去問B・予想問の予定はそれぞれ独立して管理されます。</p>
+    <p class="prog-desc">「過去問A」「過去問B」「予想問」タブで各フレームの <b>予定_編集</b> ボタン、または「選択式」軸の年度カードの <b>📅 予定</b> ボタンから、開始日・時間帯・復習サイクルを設定すると、その日に学習すべきフレーム／選択式セットが開始時刻順にボックスで並びます。各ボックスの「完了」を押すと色が変わります。過去問A・過去問B・予想問の予定はそれぞれ独立して管理されます。<br>また「🔫 千本ノック」タブの上部からは、<b>科目ごと</b>または<b>全科目</b>単位で千本ノックの予定を設定できます（千本ノックはランダム演習が基本のため、フレーム単位ではありません）。</p>
   </div>`;
 
   // 日付ナビ
@@ -16926,11 +17301,14 @@ function renderProgressPlan(root){
     for(const o of shown){
       const lbl = o.kindOcc==='review' ? `復習(${o.offset}日後)` : '初回';
       const col = statsSubjectColor(o.subject);
-      const kindTag = o.kind==='forecast' ? `<span class="plan-badge kindtag forecast">予想問</span>` : (o.kind==='pastB' ? `<span class="plan-badge kindtag pastb">過去問B</span>` : '');
+      const kindTag = o.isSenbon ? `<span class="plan-badge kindtag senbon">🔫 千本ノック</span>`
+        : (o.kind==='forecast' ? `<span class="plan-badge kindtag forecast">予想問</span>` : (o.kind==='pastB' ? `<span class="plan-badge kindtag pastb">過去問B</span>` : ''));
+      // 改修V02_27: 千本ノックはフレームを持たないためラベルを分岐
+      const odLabel = o.isSenbon ? '' : frameOrSubFrameLabel(o.subject, o.frameRef);
       html += `<div class="plan-overdue-item">
         <span style="color:var(--accent);font-weight:600">${planDateLabel(o.dateKey)}</span>
         <span class="plan-subj-dot" style="background:${col}"></span>
-        ${escapeHtml(o.subject)}　${escapeHtml(frameOrSubFrameLabel(o.subject, o.frameRef))}${kindTag}
+        ${escapeHtml(o.isSenbon ? senbonPlanLabel(o.subject) : o.subject)}　${escapeHtml(odLabel)}${kindTag}
         <span class="plan-badge ${o.kindOcc==='review'?'review':'first'}">${lbl}</span>
       </div>`;
     }
@@ -16949,27 +17327,47 @@ function renderProgressPlan(root){
     html += `<div style="font-size:12.5px;color:var(--ink-muted);margin-bottom:10px">この日の予定: ${occs.length}件　完了: ${doneCount}/${occs.length}</div>`;
     for(let i=0;i<occs.length;i++){
       const o = occs[i];
-      const label = frameOrSubFrameLabel(o.subject, o.frameRef);  // "F4 標準報酬" / "F2_1 国民健康保険法"
-      const content = planLearningContent(o.subject, o.frameRef);
-      const subjCol = statsSubjectColor(o.subject);  // 改修30b: 科目カラー
+      // 改修V02_27: 千本ノック予定はフレームを持たないため、ラベル生成を分岐する。
+      const label = o.isSenbon
+        ? ('🔫 千本ノック（' + senbonPlanLabel(o.subject) + '）')
+        : frameOrSubFrameLabel(o.subject, o.frameRef);  // "F4 標準報酬" / "F2_1 国民健康保険法"
+      const content = o.isSenbon
+        ? '一問一答をランダムに演習（何問やるかは自分で判断し、「完了」で確定）'
+        : planLearningContent(o.subject, o.frameRef);
+      const subjCol = o.isSenbon && o.isAll ? '#1f2a5a' : statsSubjectColor(o.subject);  // 改修30b: 科目カラー
       const timeStr = o.startTime ? (o.endTime ? `${o.startTime}〜${o.endTime}` : `${o.startTime}〜`) : '時刻未設定';
       const durStr = (o.durationMin!=null && o.durationMin>0) ? `<span class="plan-box-dur">(見込み ${o.durationMin}分)</span>` : '';
       // 改修57_04 / 改修V02_17: 解答すべき問題数を表示。予定の kind(過去問A/予想問)基準。
-      const qCount = planFrameQuestionCount(o.subject, o.frameRef, o.kind);
-      const qcountStr = qCount>0 ? `<span class="plan-box-qcount">📝 ${qCount}問</span>` : '';
+      // 改修V02_27: 千本ノックは senbonPlanQuestionCount(科目 or 全科目)で算出。
+      const qCount = o.isSenbon
+        ? senbonPlanQuestionCount(o.subject)
+        : planFrameQuestionCount(o.subject, o.frameRef, o.kind);
+      const qcountStr = qCount>0
+        ? `<span class="plan-box-qcount">📝 ${qCount}問${o.isSenbon?'(母数)':''}</span>` : '';
       const badge = o.kindOcc==='review'
         ? `<span class="plan-badge review">復習 ${o.offset}日後</span>`
         : `<span class="plan-badge first">初回</span>`;
       // 改修V02_17 / 改修V02_24: 予定の種別タグ(過去問A・過去問B・予想問の3区分)
-      const kindTag = o.kind==='forecast'
+      const kindTag = o.isSenbon
+        ? `<span class="plan-badge kindtag senbon" title="千本ノックの予定">🔫 千本ノック</span>`
+        : (o.kind==='forecast'
         ? `<span class="plan-badge kindtag forecast" title="予想問の予定">🎯 予想問</span>`
         : (o.kind==='pastB'
           ? `<span class="plan-badge kindtag pastb" title="過去問Bの予定">過去問B</span>`
-          : `<span class="plan-badge kindtag pasta" title="過去問Aの予定">過去問A</span>`);
+          : `<span class="plan-badge kindtag pasta" title="過去問Aの予定">過去問A</span>`));
       // 改修V02_13 / 改修V02_17: ガントと同基準の「演習回数」「遅延」バッジ。予定の kind 基準。
-      const pst = _planFrameStatus(o.subject, o.frameRef, o.kind);
+      // 改修V02_27: 千本ノックは frameAttempts を持たない(完了は自己判断)。
+      //   代わりに、この予定で完了した計測セッションの回数と累計解答数を出す。
+      const senbonStat = o.isSenbon ? _senbonPlanStatus(o.subject) : null;
+      const pst = o.isSenbon
+        ? {attemptNo:1, completedCount:0, inProgress:false, status:'ok', hasAttempt:false}
+        : _planFrameStatus(o.subject, o.frameRef, o.kind);
       let attemptBadge = '';
-      if(pst.inProgress){
+      if(o.isSenbon){
+        attemptBadge = senbonStat.runCount > 0
+          ? `<span class="plan-badge attempt" title="この予定で ${senbonStat.runCount}回実施 / 累計 ${senbonStat.answeredTotal}問">${senbonStat.runCount}回実施・累計${senbonStat.answeredTotal}問</span>`
+          : `<span class="plan-badge attempt none" title="まだ実施していません">未着手</span>`;
+      }else if(pst.inProgress){
         attemptBadge = `<span class="plan-badge attempt prog" title="現在 ${pst.attemptNo}回目を演習中">${pst.attemptNo}回目 演習中</span>`;
       }else if(pst.completedCount > 0){
         attemptBadge = `<span class="plan-badge attempt" title="${pst.completedCount}回完了 / 次は${pst.attemptNo}回目">${pst.completedCount}回完了→${pst.attemptNo}回目</span>`;
@@ -17026,7 +17424,7 @@ function renderProgressPlan(root){
           ? 'このフレームは「一旦終了(途中)」の記録があります。続きを計測できます'
           : '学習を始めるときに押すと、時間と解答数を自動で計測します';
         timerHtml = `<div class="plan-timer is-idle">
-          <button class="plan-timer-btn start" data-sessstart-subj="${escapeHtml(o.subject)}" data-sessstart-fref="${escapeHtml(String(o.frameRef))}" data-sessstart-date="${dateKey}" data-sessstart-kind="${escapeHtml(o.kind||'pastA')}" data-sessstart-select="${o.isSelect?'1':'0'}">${startLabel}</button>
+          <button class="plan-timer-btn start" data-sessstart-subj="${escapeHtml(o.subject)}" data-sessstart-fref="${escapeHtml(String(o.frameRef))}" data-sessstart-date="${dateKey}" data-sessstart-kind="${escapeHtml(o.kind||'pastA')}" data-sessstart-select="${o.isSelect?'1':'0'}" data-sessstart-senbon="${o.isSenbon?'1':'0'}">${startLabel}</button>
           <span class="plan-timer-hint">${hint}</span>
         </div>`;
       }
@@ -17035,13 +17433,13 @@ function renderProgressPlan(root){
           <div class="plan-box-top">
             <span class="plan-box-time">🕒 ${timeStr}</span>${durStr}${qcountStr}${kindTag}${attemptBadge}${delayBadge}${badge}
           </div>
-          <div class="plan-box-title"><span class="plan-subj-dot" style="background:${subjCol}"></span>${escapeHtml(o.subject)}　${escapeHtml(o.isSelect?('選択式 '+o.frameRef):label)}</div>
+          <div class="plan-box-title"><span class="plan-subj-dot" style="background:${subjCol}"></span>${escapeHtml(o.isSenbon ? senbonPlanLabel(o.subject) : o.subject)}　${escapeHtml(o.isSelect?('選択式 '+o.frameRef):label)}</div>
           ${itemsHtml}
           ${timerHtml}
         </div>
         <div class="plan-box-action">
           ${o.done?'<span class="plan-done-mark">✓ 完了</span>':''}
-          <button class="plan-edit-inline" data-planedit="1" data-subj="${escapeHtml(o.subject)}" data-fref="${escapeHtml(String(o.frameRef))}" data-kind="${escapeHtml(o.kind||'pastA')}" data-select="${o.isSelect?'1':'0'}">編集</button>
+          <button class="plan-edit-inline" data-planedit="1" data-subj="${escapeHtml(o.subject)}" data-fref="${escapeHtml(String(o.frameRef))}" data-kind="${escapeHtml(o.kind||'pastA')}" data-select="${o.isSelect?'1':'0'}" data-senbon="${o.isSenbon?'1':'0'}">編集</button>
           <button class="plan-done-btn ${o.done?'is-done':''}" data-plankey="${escapeHtml(o.key)}" data-date="${dateKey}">${o.done?'完了を取消':'完了にする'}</button>
         </div>
       </div>`;
@@ -17063,6 +17461,8 @@ function renderProgressPlan(root){
       const ref = b.dataset.fref;
       const kind = b.dataset.kind || 'pastA'; // 改修V02_17
       const isSel = b.dataset.select === '1';  // 改修V02_23
+      const isSbn = b.dataset.senbon === '1';  // 改修V02_27
+      if(isSbn){ openPlanEditModal(subj, '', 'senbon', false, true); return; }
       if(subj && ref) openPlanEditModal(subj, ref, kind, isSel);
     });
   });
@@ -17070,7 +17470,10 @@ function renderProgressPlan(root){
   //   改修V02_23: 選択式予定は選択式演習(startSelectSet)を起動する。
   root.querySelectorAll('button[data-sessstart-subj]').forEach(b=>{
     b.addEventListener('click', ()=>{
-      if(b.dataset.sessstartSelect === '1'){
+      if(b.dataset.sessstartSenbon === '1'){
+        // 改修V02_27: 千本ノック予定 → 千本ノックの計測を開始し、弱点タブの千本ノックへ遷移
+        startSenbonStudySession(b.dataset.sessstartSubj, b.dataset.sessstartDate);
+      }else if(b.dataset.sessstartSelect === '1'){
         startSelectSet(b.dataset.sessstartSubj, b.dataset.sessstartFref, b.dataset.sessstartKind || 'pastA');
       }else{
         startStudySession(b.dataset.sessstartSubj, b.dataset.sessstartFref, b.dataset.sessstartDate, b.dataset.sessstartKind || 'pastA');
@@ -19353,18 +19756,23 @@ function renderTaipaTimetable(dateKey, plans, sessions, set){
     if(e<=s) e = s + TAIPA_SLOT_MIN;
     const top = ((s/TAIPA_SLOT_MIN) - startSlot) * TAIPA_ROW_PX;
     const h = Math.max(TAIPA_ROW_PX, ((e-s)/TAIPA_SLOT_MIN) * TAIPA_ROW_PX);
-    const col = statsSubjectColor(p.subject);
-    const lbl = frameOrSubFrameLabel(p.subject, p.frameRef);
+    // 改修V02_27: 千本ノックの予定はフレームを持たない。科目名・色・タグを専用表示にする。
+    const pIsSbn = !!p.isSenbon;
+    const col = (pIsSbn && p.isAll) ? '#1f2a5a' : statsSubjectColor(p.subject);
+    const lbl = pIsSbn ? '' : frameOrSubFrameLabel(p.subject, p.frameRef);
+    const subjDisp = pIsSbn ? senbonPlanLabel(p.subject) : shortSubject(p.subject);
     const kindB = p.kindOcc==='review' ? `<span class="taipa-mini-badge">復${p.offset}</span>` : `<span class="taipa-mini-badge first">初</span>`;
     // 改修V02_17 / 改修V02_24: 予想問「予」・過去問B「B」を小タグで区別
-    const kindTag = p.kind==='forecast' ? `<span class="taipa-mini-badge forecast">予</span>` : (p.kind==='pastB' ? `<span class="taipa-mini-badge pastb">B</span>` : '');
+    // 改修V02_27: 千本ノックは「千」タグ
+    const kindTag = pIsSbn ? `<span class="taipa-mini-badge senbon">千</span>`
+      : (p.kind==='forecast' ? `<span class="taipa-mini-badge forecast">予</span>` : (p.kind==='pastB' ? `<span class="taipa-mini-badge pastb">B</span>` : ''));
     // 改修57_01②-3: 完了済みの予定には右端に【済】(黒・太字)を表示。
     //   従来の「薄く表示(.done)」は維持しつつ、完了を明確に分かるようにする。
     const doneB = p.done ? `<span class="taipa-done-badge">【済】</span>` : '';
     planBlocks += `<div class="taipa-block plan ${p.done?'done':''}" data-plan-key="${escapeHtml(p.key)}" data-plan-start="${escapeHtml(p.startTime)}" data-plan-dur="${e-s}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.10)}" title="ドラッグで時間帯を移動(左右のタイムテーブル間でも移動可) / 上下の端で長さ変更">
       <div class="taipa-resize top"></div>
       ${doneB}
-      <div class="taipa-block-sub">${escapeHtml(shortSubject(p.subject))}${kindB}${kindTag}</div>
+      <div class="taipa-block-sub">${escapeHtml(subjDisp)}${kindB}${kindTag}</div>
       <div class="taipa-block-frame">${escapeHtml(_taipaFrameFull(p.subject,p.frameRef))}</div>
       <div class="taipa-resize bottom"></div>
     </div>`;
@@ -19377,11 +19785,13 @@ function renderTaipaTimetable(dateKey, plans, sessions, set){
   //   - 5分未満 → 科目カラーの極薄帯のみ(科目/フレーム/問題数のラベルは出さない)。
   let actBlocks = '';
   for(const ss of sessions){
+    // 改修V02_27: 千本ノック(全科目)の実績帯は濃紺で表示する。
     const learnMs = sessionTotalMs(ss);       // A+B(補正反映)
     const isTiny = learnMs < TAIPA_SLOT_MIN*60000;
     const bands = sessionDisplayBands(ss);
     if(!bands.length) continue;
-    const col = statsSubjectColor(ss.subject);
+    const col = ((ss.qtype==='senbon'||ss.kind==='senbon') && ss.subject===SENBON_PLAN_ALL)
+      ? '#1f2a5a' : statsSubjectColor(ss.subject);
     const totMin = Math.round(learnMs/60000);
     const isPartial = ss.outcome==='partial';
 
@@ -19396,7 +19806,7 @@ function renderTaipaTimetable(dateKey, plans, sessions, set){
       if(isTiny){
         // 短時間 → 極薄の色帯のみ(高さは最小1pxを確保、ラベルなし)
         const h = Math.max(2, rawH);
-        actBlocks += `<div class="taipa-block act tiny" style="top:${top}px;height:${Math.max(1,h-1)}px;border-left-color:${col};background:${_taipaTint(col,0.30)}" title="${escapeHtml(ss.subject)} ${escapeHtml(frameOrSubFrameLabel(ss.subject,ss.frameRef))} / ${fmtHM(ss.startTs)} / 学習${totMin}分(5分未満) / 解答${ss.answered}問"></div>`;
+        actBlocks += `<div class="taipa-block act tiny" style="top:${top}px;height:${Math.max(1,h-1)}px;border-left-color:${col};background:${_taipaTint(col,0.30)}" title="${escapeHtml(_taipaSessSubj(ss))} ${escapeHtml(_taipaFrameFull(ss.subject,ss.frameRef))} / ${fmtHM(ss.startTs)} / 学習${totMin}分(5分未満) / 解答${ss.answered}問"></div>`;
       }else{
         const h = Math.max(TAIPA_ROW_PX, rawH);
         const outcomeBadge = isPartial ? `<span class="taipa-mini-badge partial">途中</span>` : '';
@@ -19404,8 +19814,8 @@ function renderTaipaTimetable(dateKey, plans, sessions, set){
         const splitTxt = bands.length>1 ? ` / 区間${bi+1}/${bands.length}(長い休憩で分割)` : '';
         // ラベルは最初の帯にだけ出す(分割時に同じ情報を繰り返さない)
         const showLabel = (bi===0);
-        actBlocks += `<div class="taipa-block act ${isPartial?'is-partial':''}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.20)}" title="${escapeHtml(ss.subject)} ${escapeHtml(frameOrSubFrameLabel(ss.subject,ss.frameRef))} / ${fmtHM(ss.startTs)}〜${fmtHM(ss.endTs)} / 学習${totMin}分 / 解答${ss.answered}問${outcomeTxt}${splitTxt}">
-          ${showLabel?`<div class="taipa-block-sub">${escapeHtml(shortSubject(ss.subject))}<span class="taipa-mini-badge act">${ss.answered}問</span>${outcomeBadge}</div>
+        actBlocks += `<div class="taipa-block act ${isPartial?'is-partial':''}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.20)}" title="${escapeHtml(_taipaSessSubj(ss))} ${escapeHtml(_taipaFrameFull(ss.subject,ss.frameRef))} / ${fmtHM(ss.startTs)}〜${fmtHM(ss.endTs)} / 学習${totMin}分 / 解答${ss.answered}問${outcomeTxt}${splitTxt}">
+          ${showLabel?`<div class="taipa-block-sub">${escapeHtml((ss.qtype==='senbon'||ss.kind==='senbon')?senbonPlanLabel(ss.subject):shortSubject(ss.subject))}<span class="taipa-mini-badge act">${ss.answered}問</span>${outcomeBadge}</div>
           <div class="taipa-block-frame">${escapeHtml(_taipaFrameFull(ss.subject,ss.frameRef))}</div>`:''}
         </div>`;
       }
@@ -19446,6 +19856,9 @@ function shortSubject(subject){
 }
 // フレームラベルの短縮("F4" / "F2_1")
 function _taipaFrameShort(subject, frameRef){
+  // 改修V02_27: 千本ノックのセッション/予定は frameRef を持たない(科目 or 全科目単位)。
+  //   resolveFrameRef に空を渡すと不正表示になるため、専用ラベルを返す。
+  if(frameRef === '' || frameRef == null) return '🔫千本';
   const r = resolveFrameRef(subject, frameRef);
   if(r.isSubFrame && r.subFrameKey) return 'F'+r.subFrameKey.replace('.', '_');
   if(r.frameNo!=null) return 'F'+r.frameNo;
@@ -19453,7 +19866,19 @@ function _taipaFrameShort(subject, frameRef){
 }
 /* 改修05修正: フレーム番号 + 中分類名(例 "F3 適用事業所と被保険者")。
    タイムテーブルの帯に表示。名前が長い場合は折り返し表示(CSS側で2行まで)。 */
+/* 改修V02_27: セッションの表示用科目名(千本ノックの疑似科目 __ALL__ を「全科目」に) */
+function _taipaSessSubj(ss){
+  if(!ss) return '';
+  if(ss.qtype==='senbon' || ss.kind==='senbon'){
+    return (typeof senbonPlanLabel==='function') ? senbonPlanLabel(ss.subject) : (ss.subject||'');
+  }
+  return ss.subject || '';
+}
 function _taipaFrameFull(subject, frameRef){
+  // 改修V02_27: 千本ノックは「🔫 千本ノック(科目名/全科目)」で表示する。
+  if(frameRef === '' || frameRef == null){
+    return '🔫 千本ノック（' + ((typeof senbonPlanLabel==='function') ? senbonPlanLabel(subject) : (subject||'全科目')) + '）';
+  }
   const short = _taipaFrameShort(subject, frameRef);
   const full = frameOrSubFrameLabel(subject, frameRef); // 例 "F3 適用事業所と…"
   // frameOrSubFrameLabel は "F3 名前" 形式。先頭の "F3 " を除いて名前部分を取り出す
@@ -19484,7 +19909,10 @@ function renderTaipaSummary(dateKey, sessions){
     byFrame[fk].sessCnt++;
     byFrame[fk].sessIds.push(s.id);
     // 改修V02_17 / 改修V02_24: 過去問A/過去問B/予想問の内訳(解答数)を保持。合算は維持しつつ内訳をバッジ表示する。
-    const sKind = (s.kind==='forecast') ? 'forecast' : (s.kind==='pastB') ? 'pastB' : 'pastA';
+    // 改修V02_27: 千本ノック(kind='senbon')は過去問A/B・予想問のいずれでもないため
+    //   独立したカウンタに入れる(pastA に混入させない)。
+    const sKind = (s.qtype==='senbon' || s.kind==='senbon') ? 'senbon'
+      : (s.kind==='forecast') ? 'forecast' : (s.kind==='pastB') ? 'pastB' : 'pastA';
     if(byFrame[fk].kindAns[sKind]==null) byFrame[fk].kindAns[sKind]=0;
     byFrame[fk].kindAns[sKind] += (s.answered||0);
     if(sessionLongGaps(s).length>0) byFrame[fk].hasLongGap = true;
@@ -19531,9 +19959,12 @@ function renderTaipaSummary(dateKey, sessions){
     <thead><tr><th>科目</th><th>学習時間</th><th>解答時間</th><th>解答/正答</th><th>正答率</th><th>タイパ(A)</th></tr></thead><tbody>`;
   for(const subj of subjKeys){
     const d = bySubject[subj];
-    const col = statsSubjectColor(subj);
+    // 改修V02_27: 千本ノックの全科目予定は疑似科目名 "__ALL__" のため表示名に変換する。
+    const isSbnAll = (subj === SENBON_PLAN_ALL);
+    const subjDisp = isSbnAll ? '🔫 千本ノック(全科目)' : subj;
+    const col = isSbnAll ? '#1f2a5a' : statsSubjectColor(subj);
     html += `<tr>
-      <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(subj)}</td>
+      <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(subjDisp)}</td>
       <td>${fmtDurationMs(d.totalMs)}</td>
       <td class="taipa-col-answ">${fmtDurationMs(d.activeMs)}</td>
       <td>${d.ans} / ${d.correct}</td>
@@ -19548,6 +19979,13 @@ function renderTaipaSummary(dateKey, sessions){
     const da=byFrame[a], db=byFrame[b];
     const ia=SUBJECTS_ORDER.indexOf(da.subject), ib=SUBJECTS_ORDER.indexOf(db.subject);
     if((ia<0?999:ia)!==(ib<0?999:ib)) return (ia<0?999:ia)-(ib<0?999:ib);
+    // 改修V02_27: 千本ノック(frameRef='')は planSortIndex の対象外。末尾にまとめる。
+    const aSbn = (da.frameRef==='' || da.frameRef==null);
+    const bSbn = (db.frameRef==='' || db.frameRef==null);
+    if(aSbn || bSbn){
+      if(aSbn && bSbn) return 0;
+      return aSbn ? 1 : -1;
+    }
     const sa=planSortIndex(da.subject,da.frameRef), sb=planSortIndex(db.subject,db.frameRef);
     if(sa.fno!==sb.fno) return sa.fno-sb.fno; return sa.sub-sb.sub;
   });
@@ -19556,7 +19994,9 @@ function renderTaipaSummary(dateKey, sessions){
     <thead><tr><th>科目 / フレーム</th><th>状態</th><th>学習時間</th><th>解答時間</th><th>解答/正答</th><th>正答率</th><th>タイパ(A)</th><th></th></tr></thead><tbody>`;
   for(const fk of frameKeys){
     const d = byFrame[fk];
-    const col = statsSubjectColor(d.subject);
+    // 改修V02_27: 千本ノックはフレームを持たないため、科目名・ラベルを専用表示にする。
+    const dIsSbn = (d.frameRef==='' || d.frameRef==null);
+    const col = (dIsSbn && d.subject===SENBON_PLAN_ALL) ? '#1f2a5a' : statsSubjectColor(d.subject);
     // 改修31c: 状態 — いずれかが完了なら「完了」、全て途中なら「途中」
     const stateBadge = d.anyDone
       ? `<span class="taipa-state-badge done">完了</span>`
@@ -19574,7 +20014,10 @@ function renderTaipaSummary(dateKey, sessions){
     const kaA = ka.pastA||0, kaB = ka.pastB||0, kaF = ka.forecast||0;
     const kindsUsed = [kaA>0, kaB>0, kaF>0].filter(Boolean).length;
     let mixNote = '';
-    if(kindsUsed >= 2){
+    // 改修V02_27: 千本ノックの行は専用タグを出す(過去問A/B・予想問の内訳は無い)。
+    if(dIsSbn){
+      mixNote = `<span class="taipa-kind-mix senbon" title="千本ノック">🔫千本</span>`;
+    }else if(kindsUsed >= 2){
       const parts = [];
       if(kaA>0) parts.push(`過去A ${kaA}`);
       if(kaB>0) parts.push(`過去B ${kaB}`);
@@ -19586,7 +20029,7 @@ function renderTaipaSummary(dateKey, sessions){
       mixNote = `<span class="taipa-kind-mix pastb" title="過去問B">過去B</span>`;
     }
     html += `<tr>
-      <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(shortSubject(d.subject))} ${escapeHtml(frameOrSubFrameLabel(d.subject,d.frameRef))}${restMark}</td>
+      <td><span class="plan-subj-dot" style="background:${col}"></span>${escapeHtml(dIsSbn ? ('🔫 千本ノック（'+senbonPlanLabel(d.subject)+'）') : (shortSubject(d.subject)+' '+frameOrSubFrameLabel(d.subject,d.frameRef)))}${restMark}</td>
       <td>${stateBadge}${cntNote}</td>
       <td>${warnMark}${fmtDurationMs(d.totalMs)}</td>
       <td class="taipa-col-answ">${fmtDurationMs(d.activeMs)}</td>
