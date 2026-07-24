@@ -11364,7 +11364,10 @@ function renderFigurePickerList(){
   if(!_pickerTarget) return;
   const {id, type, activeTab, ctxSubject, ctxFrame, workingLinkedIds} = _pickerTarget;
   let entity;
+  // ★V02_29(改修94): type==='senbon' の分岐が抜けており、千本ノックからピッカーを開くと
+  //   entity が undefined → 早期 return で図表リストが描画されず「貼り付け不可」になっていた。
   if(type === 'case') entity = state.cases.find(x=>x.id===id);
+  else if(type === 'senbon') entity = (state.senbon||[]).find(x=>x.id===id);
   else entity = state.questions.find(x=>x.id===id);
   if(!entity) return;
 
@@ -11924,7 +11927,8 @@ function openArticlePicker(qid, type='question'){
   // 初期の法律/フレームを決定 — 改修2: キーは文字列(整数 or "2.1"形式)として扱う
   const articles = state.articles || {};
   const lawsWithData = SUBJECTS_ORDER.filter(s => articles[s] && Object.keys(articles[s]).length>0);
-  const qSubj = lawToSubject(entity.law||'');
+  // ★V02_29(改修94): 千本ノックは law ではなく subject を直接持つため、subject から解決する。
+  const qSubj = (type === 'senbon') ? (entity.subject || '') : lawToSubject(entity.law||'');
   // フレームキーをソート(整数優先、サブフレームは親フレーム内で連番)
   const sortFrameKeys = (keys) => keys.slice().sort((a,b)=>{
     const aSub = parseSubFrameKey(a), bSub = parseSubFrameKey(b);
