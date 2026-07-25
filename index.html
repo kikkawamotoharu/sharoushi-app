@@ -14625,14 +14625,27 @@ const SENBON_LINK_CSS = `
   .sb-linkbtn{padding:5px 11px;border:1px solid #2b5dc9;border-radius:7px;background:#fff;color:#2b5dc9;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap}
   .sb-linkbtn.art{border-color:#C9472A;color:#C9472A}
   .sb-artlist{flex-direction:column;align-items:stretch}
-  .sb-artblk{border:1px solid var(--line,#e5e5e5);border-radius:7px;background:#fff;width:100%;margin-bottom:4px}
-  .sb-artblk summary{cursor:pointer;padding:7px 10px;font-size:12px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .sb-artblk{border:1px solid var(--line,#e5e5e5);border-radius:7px;background:#fff;width:100%;margin-bottom:4px;overflow:hidden}
+  /* ★V02_30(改修95): 見出しクリックで本文を開閉するアコーディオン */
+  .sb-artblk-head{cursor:pointer;padding:8px 10px;font-size:12px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .sb-artblk-head:hover{background:#fafbff}
+  .sb-artblk-ti{font-weight:600;color:#333}
+  .sb-artref{font-size:10.5px;color:#C9472A;font-weight:700}
+  .sb-artarrow{margin-left:6px;color:#bbb;font-size:15px;transition:transform .15s}
+  .sb-artblk.open .sb-artarrow{transform:rotate(90deg)}
   .sb-artkind{font-size:10px;font-weight:800;padding:2px 6px;border-radius:4px;background:#eee;color:#555}
   .sb-artkind-a{background:#E3F2FD;color:#1565C0}
   .sb-artkind-b{background:#E8F5E9;color:#2E7D32}
   .sb-artkind-c{background:#FFF3E0;color:#B07400}
+  /* 択一の articleKindMeta が返す cls(k-a/k-b/k-c 等)にも同色を当てる */
+  .sb-artkind.k-a,.sb-artkind.k-article{background:#E3F2FD;color:#1565C0}
+  .sb-artkind.k-b,.sb-artkind.k-explain{background:#E8F5E9;color:#2E7D32}
+  .sb-artkind.k-c,.sb-artkind.k-hikaku{background:#FFF3E0;color:#B07400}
   .sb-artloc{font-size:10.5px;color:#999;margin-left:auto}
-  .sb-artbody{padding:10px 12px;border-top:1px solid var(--line,#eee);font-size:12.5px;line-height:1.85;white-space:pre-wrap;color:#333}
+  .sb-artbody{display:none;padding:0}
+  .sb-artblk.open .sb-artbody{display:block;border-top:1px solid var(--line,#eee)}
+  .sb-artbody-loc{padding:6px 12px;font-size:10.5px;color:#999;background:#fafafa;border-bottom:1px solid var(--line,#f0f0f0)}
+  .sb-artbody-text{padding:10px 12px;font-size:12.5px;line-height:1.85;white-space:pre-wrap;color:#333}
   .ans-history.sbah{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;padding:7px 10px;background:#fafafa;border:1px solid var(--line,#eee);border-radius:8px;font-size:11.5px}
   .ans-history.sbah .ah-label{font-size:10.5px;color:#888;white-space:nowrap}
   .ans-history.sbah .ah-marks{display:flex;gap:2px;flex-wrap:wrap}
@@ -14725,9 +14738,26 @@ function renderSenbonLinkArea(q){
       if(!info) return '';
       const b = info.block || {};
       const ttl = b.title || info.indexTitle || '(無題)';
-      const kindLbl = b.kind==='a' ? '条文' : (b.kind==='b' ? '解説' : (b.kind==='c' ? '比較認識法®' : ''));
-      return `<details class="sb-artblk"><summary><span class="sb-artkind sb-artkind-${escapeHtml(b.kind||'')}">${escapeHtml(kindLbl)}</span>${escapeHtml(ttl)}<span class="sb-artloc">${escapeHtml(info.law||'')} ${info.frameKey!=null?('F'+info.frameKey):''}</span></summary>
-        <div class="sb-artbody">${(typeof highlightArticleNumbers==='function') ? highlightArticleNumbers(escapeHtml(b.body||'')) : escapeHtml(b.body||'')}</div></details>`;
+      // ★V02_30(改修95): 択一と同じ articleKindMeta / formatArticleText を使い、
+      //   本文フィールドは b.body ではなく b.text(実データのキー)を読む。
+      //   従来は b.body(存在しない)を読んでいたため本文が空=「見られない」状態だった。
+      const meta = (typeof articleKindMeta==='function') ? articleKindMeta(b.kind) : {lbl:'', cls:''};
+      const kindLbl = meta.lbl || (b.kind==='a' ? '条文' : (b.kind==='b' ? '解説' : (b.kind==='c' ? '比較認識法®' : '')));
+      const loc = (typeof articleBlockLocationLabel==='function') ? articleBlockLocationLabel(info) : ((info.law||'') + (info.frameKey!=null?(' F'+info.frameKey):''));
+      const ref = b.legalRef ? `<span class="sb-artref">${escapeHtml(b.legalRef)}</span>` : '';
+      const bodyText = (typeof formatArticleText==='function')
+        ? formatArticleText(b.text || '')
+        : ((typeof highlightArticleNumbers==='function') ? highlightArticleNumbers(escapeHtml(b.text||'')) : escapeHtml(b.text||''));
+      return `<div class="sb-artblk" data-sbartacc>
+        <div class="sb-artblk-head">
+          <span class="sb-artkind ${escapeHtml(meta.cls||'')}">${escapeHtml(kindLbl)}</span>
+          <span class="sb-artblk-ti">${escapeHtml(ttl)}</span>
+          ${ref}
+          <span class="sb-artloc">${escapeHtml(loc)}</span>
+          <span class="sb-artarrow">›</span>
+        </div>
+        <div class="sb-artbody"><div class="sb-artbody-loc">${escapeHtml(loc)}${info.indexTitle?(' / '+escapeHtml(info.indexTitle)):''}</div><div class="sb-artbody-text">${bodyText}</div></div>
+      </div>`;
     }).join('');
     artHtml = items || '<span style="font-size:11.5px;color:var(--ink-muted,#888)">紐付けなし</span>';
   }else{
@@ -14783,6 +14813,14 @@ function wireSenbonLinkArea(root, q, onAfter){
   root.querySelectorAll('[data-sbownart]').forEach(b=>{
     b.addEventListener('click', ()=>{
       if(typeof showSenbonArticle==='function') showSenbonArticle(b.dataset.sbownart);
+    });
+  });
+  // ★V02_30(改修95): 紐付けた条文・解説ブロックのアコーディオン開閉。
+  //   択一(wireLinkedArticlesAccordion)と同じく、見出しクリックで本文を開閉する。
+  root.querySelectorAll('.sb-artblk[data-sbartacc] .sb-artblk-head').forEach(head=>{
+    head.addEventListener('click', ()=>{
+      const item = head.closest('.sb-artblk');
+      if(item) item.classList.toggle('open');
     });
   });
 }
