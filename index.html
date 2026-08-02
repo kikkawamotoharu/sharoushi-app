@@ -8346,6 +8346,9 @@ function importMockQuestion(q){
       answer: q.answer!=null ? String(q.answer) : '',
       prompt: q.prompt!=null ? String(q.prompt) : '',
       comboOptions: Array.isArray(q.comboOptions) ? q.comboOptions.map(String) : undefined,
+      answerOptions: Array.isArray(q.answerOptions) ? q.answerOptions.map(String) : undefined,
+      countChoiceLabels: (q.countChoiceLabels && typeof q.countChoiceLabels==='object') ? q.countChoiceLabels : undefined,
+      explanationOverall: q.explanationOverall!=null ? String(q.explanationOverall) : undefined,
       choices: q.choices.map(c=>({
         label: String(c.label!=null?c.label:''),
         text: String(c.text!=null?c.text:''),
@@ -14567,6 +14570,10 @@ function renderMockQuestion(q, idx, prog){
   </div>`;
   h += `<div class="mock-q-body">`;
   if(q.prompt) h += `<div class="mock-prompt">${escapeHtml(q.prompt)}</div>`;
+  // 個数問題などの全体解説(判定後に表示)
+  if(judged && q.explanationOverall){
+    h += `<div style="margin:0 0 12px;padding:10px 12px;background:var(--bg);border-radius:8px;font-size:12.5px;color:var(--ink-muted);line-height:1.7">${escapeHtml(q.explanationOverall)}</div>`;
+  }
 
   // 各肢
   (q.choices||[]).forEach(c=>{
@@ -14634,13 +14641,19 @@ function renderMockAnswerRow(q, idx, prog){
       return `<button data-mock-pick="${escapeHtml(op)}" class="${cls}" ${judged?'disabled':''}>${escapeHtml(op)}</button>`;
     }).join('') + `</div>`;
   }else if(type==='count'){
-    controls = `<div class="mock-ans-choices">` + ['1','2','3','4','5'].map(n=>{
+    // 本番の選択肢ラベル(A 一つ〜E 五つ)がJSONにあれば併記する。
+    const clabels = q.countChoiceLabels || {A:'一つ',B:'二つ',C:'三つ',D:'四つ',E:'五つ'};
+    const optMap = q.answerOptions && q.answerOptions.length ? q.answerOptions : ['A','B','C','D','E'];
+    // n個(1〜5) と 選択肢ラベル(A〜E) を対応させる。answer は「個数の数値」で判定。
+    controls = `<div class="mock-ans-choices">` + ['1','2','3','4','5'].map((n,i)=>{
       let cls='';
       if(judged){
         if(String(picked)===String(n)) cls = (String(picked)===String(q.answer))?'picked':'picked wrong';
         if(String(n)===String(q.answer)) cls='reveal-correct';
       }else if(String(picked)===String(n)){ cls='picked'; }
-      return `<button data-mock-pick="${escapeHtml(n)}" class="${cls}" ${judged?'disabled':''}>${escapeHtml(n)}個</button>`;
+      const optLabel = optMap[i] || '';
+      const jpLabel = clabels[optLabel] || (n+'つ');
+      return `<button data-mock-pick="${escapeHtml(n)}" class="${cls}" ${judged?'disabled':''}>${escapeHtml(optLabel)} ${escapeHtml(jpLabel)}</button>`;
     }).join('') + `</div>`;
   }
 
@@ -14788,19 +14801,35 @@ function startMockFromPlan(examName, subject){
   startMockSession(examName, subject);
 }
 
-/* LEC_2026_ファイナル模試 / 労働者災害補償保険法 / 問1 */
+/* LEC_2026_ファイナル模試 / 労働者災害補償保険法 / 問1〜問4 */
 function ensureMockSampleSeed(){
   try{
     state.mockExams = state.mockExams || [];
-    const already = state.mockExams.some(q=>q && q.id==='mock_LEC2026F_rousai_q1');
-    // 既に履歴やユーザー登録がある場合でも、この特定IDが無ければ1問だけ補充する。
-    // ユーザーが削除した場合の復活を避けたいときは _mockSeedDone フラグで制御。
-    if(already) return;
-    if(state._mockSeedDone) return;
-    const q1 = MOCK_SAMPLE_Q1;
-    state.mockExams.push(q1);
+    // 問1〜問4のサンプル問題。特定IDが無ければ補充する(ユーザー削除後の復活はフラグで抑止)。
+    const samples = [MOCK_SAMPLE_Q1].concat(MOCK_SAMPLE_MORE);
+    if(state._mockSeedDone2){
+      // 既に新シード済み。何もしない(ユーザーの削除を尊重)。
+      return;
+    }
+    let added = 0;
+    for(const q of samples){
+      if(!state.mockExams.some(x=>x && x.id===q.id)){
+        const rec = JSON.parse(JSON.stringify(q));
+        // 出題形式を type に正規化(single/combo/count)。
+        //   ・rec.type が既に single/combo/count ならそれを尊重(問1など)。
+        //   ・rec.type が 'mock'(取込判別用) の場合は mockType 等から決定。
+        let t = rec.type;
+        if(!['single','combo','count'].includes(t)){
+          t = rec.mockType || rec.answerType || rec.subtype || 'single';
+        }
+        rec.type = ['single','combo','count'].includes(t) ? t : 'single';
+        state.mockExams.push(rec);
+        added++;
+      }
+    }
     state._mockSeedDone = true;
-    saveState();
+    state._mockSeedDone2 = true;
+    if(added>0) saveState();
   }catch(e){ console.warn('mock seed failed', e); }
 }
 
@@ -14847,6 +14876,157 @@ const MOCK_SAMPLE_Q1 = {
   ],
   "createdAt": 0
 };
+
+const MOCK_SAMPLE_MORE = [
+  {
+    "id": "mock_LEC2026F_rousai_q2",
+    "type": "mock",
+    "examName": "LEC_2026_ファイナル模試",
+    "subject": "労働者災害補償保険法",
+    "qno": "問2",
+    "theme": "第三者行為災害",
+    "mockType": "single",
+    "answer": "B",
+    "prompt": "第三者行為災害に関する次の記述のうち、誤っているものはどれか。",
+    "choices": [
+      {
+        "label": "A",
+        "correct": true,
+        "text": "保険給付の原因である事故が第三者の行為によって生じたときは、保険給付を受けるべき者は、その事実、第三者の氏名及び住所(第三者の氏名及び住所がわからないときは、その旨)並びに被害の状況を、遅滞なく、所轄労働基準監督署長に届け出なければならない。",
+        "explanation": "本肢のとおりである(則22条)。"
+      },
+      {
+        "label": "B",
+        "correct": false,
+        "text": "事業主に民事損害賠償責任があり、かつ、企業内労災補償制度を定めている労働協約、就業規則その他の規程の文面上保険給付相当分を含むことが明らか、すなわち保険給付と重複するものとして定められていることが明らかである場合であっても、保険給付の支給調整は行われない。",
+        "explanation": "事業主に民事損害賠償責任があり、かつ、企業内労災補償制度を定めている労働協約、就業規則その他の規程の文面上保険給付相当分を含むことが明らか、すなわち保険給付と重複するものとして定められていることが明らかである場合には、損害のてん補が重複して行われることとなるので、保険給付に相当する額の範囲で「保険給付の支給調整が行われる」(昭56.10.30 基発696号)。"
+      },
+      {
+        "label": "C",
+        "correct": true,
+        "text": "中小事業主等の特別加入をしている者について発生した業務災害が、第1種特別加入保険料が滞納されている期間中に生じた場合において、当該業務災害が第三者の行為によって発生したものであるときは、まず第1種特別加入保険料が滞納されている場合の特別加入者に係る支給制限を定めた労災保険法第34条第1項第4号が適用され、その結果減額された保険給付について、第三者行為災害があった場合の求償及び保険給付の調整を定めた同法第12条の4の規定が適用される。",
+        "explanation": "本肢のとおりである(労災保険法(以下問7まで「法」とする)12条の4、法34条1項)。〔ここもチェック〕中小事業主等の特別加入者の事故が第1種特別加入保険料が滞納されている期間中に生じたものであるとき又は業務災害の原因である事故が事業主の故意又は重大な過失によって生じたものであるときは、政府は、当該事故に係る保険給付の全部又は一部を行わないことができる。"
+      },
+      {
+        "label": "D",
+        "correct": true,
+        "text": "第三者行為による業務災害が発生した場合において、受給権者と第三者との間で示談が行われている場合において、当該示談が真正に成立したものであり、かつ、当該示談の内容が、受給権者の第三者に対して有する損害賠償請求権(保険給付と同一の事由に基づくものに限る。)の全部の填補を目的としているものであるときは、当該業務災害に関して保険給付は行われない。",
+        "explanation": "本肢のとおりである(昭38.6.17 基発687号)。"
+      },
+      {
+        "label": "E",
+        "correct": true,
+        "text": "労働者又はその遺族が、当該労働者を使用している事業主又は使用していた事業主から損害賠償を受けることができる場合であって、保険給付を受けるべきときに、同一の事由について、損害賠償(当該保険給付によって填補される損害を填補する部分に限る。)を受けたときは、政府は、労働政策審議会の議を経て厚生労働大臣が定める基準により、原則として、その価額の限度で、保険給付をしないことができる。",
+        "explanation": "本肢のとおりである(法附則64条2項)。"
+      }
+    ],
+    "createdAt": 0
+  },
+  {
+    "id": "mock_LEC2026F_rousai_q3",
+    "type": "mock",
+    "examName": "LEC_2026_ファイナル模試",
+    "subject": "労働者災害補償保険法",
+    "qno": "問3",
+    "theme": "心理的負荷による精神障害の認定基準",
+    "mockType": "count",
+    "answer": "3",
+    "prompt": "次に掲げる具体例のうち、厚生労働省労働基準局長通知(「心理的負荷による精神障害の認定基準について」令和5年9月1日付け基発第0901第2号)の別表1において、心理的負荷の強度を「強」と判断する具体例として示されているものはいくつあるか。",
+    "choices": [
+      {
+        "label": "ア",
+        "correct": false,
+        "text": "自分の勤務形態がテレワークになった。",
+        "explanation": "本肢の具体例は、心理的負荷の強度を『弱』と判断する具体例である(令5.9.1 基発0901第2号)。〔ここもチェック〕心理的負荷の強度を「強」とする具体例としては、「勤務形態が頻回の急な変更により著しく不規則となり、その予測も困難であって、生理的に必要な睡眠時間をまとまって確保できない状況となり、かつこれが継続した」が挙げられている。"
+      },
+      {
+        "label": "イ",
+        "correct": true,
+        "text": "胸や腰等への身体接触を含むセクシュアルハラスメントであって、行為は継続していないが、会社に相談しても適切な対応がなく、改善がなされなかった又は会社への相談等の後に職場の人間関係が悪化した。",
+        "explanation": "本肢の具体例は、心理的負荷の強度を「強」と判断する具体例である(令5.9.1 基発0901第2号)。"
+      },
+      {
+        "label": "ウ",
+        "correct": false,
+        "text": "良好な関係にあった上司、同僚等が異動・退職した。",
+        "explanation": "本肢の具体例は、心理的負荷の強度を『弱』と判断する具体例である(令5.9.1 基発0901第2号)。"
+      },
+      {
+        "label": "エ",
+        "correct": true,
+        "text": "会社の経営に影響するなどの重大な仕事上のミスとまではいえないが、その事後対応に多大な労力を費やした(懲戒処分、降格、月給額を超える賠償責任の追及等重いペナルティを課された、職場の人間関係が著しく悪化した等を含む。)。",
+        "explanation": "本肢の具体例は、心理的負荷の強度を「強」と判断する具体例である(令5.9.1 基発0901第2号)。"
+      },
+      {
+        "label": "オ",
+        "correct": true,
+        "text": "2週間以上にわたって連続勤務を行い、その間、連日、深夜時間帯に及ぶ時間外労働を行った(1日当たりの労働時間が特に短い場合を除く。)。",
+        "explanation": "本肢の具体例は、心理的負荷の強度を「強」と判断する具体例である(令5.9.1 基発0901第2号)。"
+      }
+    ],
+    "answerOptions": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E"
+    ],
+    "countChoiceLabels": {
+      "A": "一つ",
+      "B": "二つ",
+      "C": "三つ",
+      "D": "四つ",
+      "E": "五つ"
+    },
+    "explanationOverall": "本問アからオまでのそれぞれの記述の正誤は以下のとおりである。したがって、心理的負荷の強度を「強」と判断する具体例はイ、エ及びオの3つであり、Cが解答となる。",
+    "createdAt": 0
+  },
+  {
+    "id": "mock_LEC2026F_rousai_q4",
+    "type": "mock",
+    "examName": "LEC_2026_ファイナル模試",
+    "subject": "労働者災害補償保険法",
+    "qno": "問4",
+    "theme": "特別加入",
+    "mockType": "single",
+    "answer": "C",
+    "prompt": "特別加入に関する次の記述のうち、正しいものはどれか。",
+    "choices": [
+      {
+        "label": "A",
+        "correct": false,
+        "text": "特別加入者が業務上の事由による負傷又は疾病が治った結果、障害等級に該当する所定の障害が残った場合であっても、障害特別支給金は支給されない。",
+        "explanation": "特別加入者であっても、所定の要件を満たす限り、「障害特別支給金が支給される」(支給金則16条〜19条)。"
+      },
+      {
+        "label": "B",
+        "correct": false,
+        "text": "中小事業主等の特別加入者の給付基礎日額のうち、最大のものの額は、3万円である。",
+        "explanation": "特別加入者の給付基礎日額のうち、最大のものの額は、「2万5千円」である(則46条の20)。"
+      },
+      {
+        "label": "C",
+        "correct": true,
+        "text": "労働組合法第2条及び同法第5条第2項の規定に適合する労働組合その他これに準ずるものであって厚生労働大臣が定めるもの(常時労働者を使用するものを除く。以下本問において「労働組合等」という。)の常勤の役員が行う集会の運営、団体交渉その他の当該労働組合等の活動に係る作業であって、当該労働組合等の事務所、事業場、集会場又は道路、公園その他の公共の用に供する施設におけるもの(当該作業に必要な移動を含む。)は、一人親方等の特別加入の対象となる労災保険法第33条第5号の「厚生労働省令で定める種類の作業」に該当する。",
+        "explanation": "本肢のとおりである(則46条の18)。"
+      },
+      {
+        "label": "D",
+        "correct": false,
+        "text": "労災保険の任意加入の申請と中小事業主等の特別加入の申請は同時に行うことができないため、労災保険に係る保険関係が成立していない労災保険暫定任意適用事業の事業主は、まず労災保険の任意加入の申請を行い、任意加入に係る厚生労働大臣の認可があった後に特別加入の申請をしなければならない。",
+        "explanation": "暫定任意適用事業の事業主については、労災保険の任意加入の申請と特別加入の申請とを「同時に行うことができる」(昭40.11.1 基発1454号)。"
+      },
+      {
+        "label": "E",
+        "correct": false,
+        "text": "中小事業主等の特別加入者が休業補償給付の支給を受けるためには、療養のために厚生労働省令で定める額以上の所得を喪失する見込みであることが必要とされる。",
+        "explanation": "特別加入者に対する休業補償給付については、「賃金や所得喪失の要件は問われない」(昭40.11.1 基発1454号)。"
+      }
+    ],
+    "createdAt": 0
+  }
+];
+
 
 
 function switchTab(name){
