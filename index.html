@@ -3157,6 +3157,7 @@
     <nav class="tabs">
       <button class="tab-btn active" data-tab="quiz">択一</button>
       <button class="tab-btn" data-tab="select">選択</button>
+      <button class="tab-btn" data-tab="mock">模試</button>
       <button class="tab-btn" data-tab="case">事例</button>
       <button class="tab-btn" data-tab="articles">条解</button>
       <button class="tab-btn" data-tab="whys">5why</button>
@@ -3455,6 +3456,128 @@
   <!-- ===== PROGRESS VIEW ===== -->
   <main id="view-progress" style="display:none;grid-column:1/-1">
     <div id="progress-content"></div>
+  </main>
+
+
+  <!-- ===== 改修V02_31: 模試モードのスタイル ===== -->
+  <style>
+  .mk-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 12px}
+  .mk-tab{background:var(--paper);border:1px solid var(--line);border-radius:7px;padding:7px 13px;
+    font-size:13px;color:var(--ink-soft);cursor:pointer}
+  .mk-tab.active{background:var(--ink);border-color:var(--ink);color:#fff}
+  .mk-badge.run{margin-left:6px;background:var(--accent);color:#fff;border-radius:99px;padding:1px 7px;font-size:10.5px}
+
+  .mk-resume{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:12px 16px;
+    border-left:4px solid var(--accent)}
+  .mk-resume-act{display:flex;gap:8px;flex-wrap:wrap}
+
+  .mk-exam-grid{display:grid;gap:12px;grid-template-columns:1fr}
+  @media(min-width:760px){.mk-exam-grid{grid-template-columns:1fr 1fr}}
+  .mk-exam-card{border:1px solid var(--line);border-left:4px solid var(--line);border-radius:9px;padding:12px 14px;background:var(--paper)}
+  .mk-exam-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .mk-exam-name{font-weight:700;font-size:14.5px}
+  .mk-exam-meta{font-size:11.5px;color:var(--ink-muted)}
+  .mk-exam-stats{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px}
+  .mk-stat{font-size:11.5px;color:var(--ink-soft);background:var(--line-soft);border-radius:5px;padding:2px 8px}
+  .mk-stat.none{color:var(--ink-muted)}
+  .mk-pass{font-size:11.5px;border-radius:5px;padding:2px 8px;font-weight:700}
+  .mk-pass.ok{background:#E3EDE6;color:#2F5C3E}
+  .mk-pass.ng{background:#F6E3E1;color:#9A3126}
+  .mk-exam-act{display:flex;gap:8px;flex-wrap:wrap}
+
+  .mk-run-head{padding:12px 16px}
+  .mk-run-title{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:15px}
+  .mk-run-sub{font-size:12px;color:var(--ink-muted);font-weight:400}
+  .mk-run-progress{font-size:12.5px;color:var(--ink-soft);margin-top:4px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .mk-dots{display:flex;gap:5px;flex-wrap:wrap;margin:10px 0}
+  .mk-dot{width:30px;height:30px;border-radius:7px;border:1px solid var(--line);background:var(--paper);
+    font-size:12px;cursor:pointer;color:var(--ink-soft)}
+  .mk-dot.ok{background:#E3EDE6;border-color:#9DBFA9;color:#2F5C3E}
+  .mk-dot.ng{background:#F6E3E1;border-color:#D9A79F;color:#9A3126}
+  .mk-dot.cur{outline:2px solid var(--indigo);outline-offset:1px;font-weight:700;color:var(--ink)}
+  .mk-run-act{display:flex;gap:8px;flex-wrap:wrap}
+
+  .mk-q{padding:14px 16px}
+  .mk-q-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  .mk-q-no{font-size:16px;font-weight:700}
+  .mk-q-tag{font-size:11px;color:var(--ink-soft);background:var(--line-soft);border-radius:5px;padding:2px 8px}
+  .mk-q-tag.law{background:var(--indigo-soft);color:var(--indigo)}
+  .mk-q-inst{font-size:14.5px;line-height:1.85;margin-bottom:12px;font-weight:600}
+
+  .mk-choices{display:flex;flex-direction:column;gap:10px}
+  .mk-choice{border:1px solid var(--line-soft);border-radius:9px;padding:10px 12px;background:#FDFCFA;
+    display:grid;grid-template-columns:1fr;gap:10px}
+  @media(min-width:980px){.mk-choice.judged{grid-template-columns:1.35fr 1fr}}
+  .mk-choice-top{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:5px}
+  .mk-mark{font-size:15px;font-weight:700;min-width:20px}
+  .mk-judge{display:inline-flex;border:1px solid var(--line);border-radius:99px;overflow:hidden}
+  .mk-jb{border:none;background:#fff;width:36px;padding:3px 0;font-size:15px;cursor:pointer;line-height:1.3}
+  .mk-jb+.mk-jb{border-left:1px solid var(--line)}
+  .mk-jb.on-o{background:var(--green,#3D6E4C);color:#fff}
+  .mk-jb.on-x{background:var(--accent);color:#fff}
+  .mk-jb:disabled{opacity:.85;cursor:default}
+  .mk-jres{font-size:11.5px;border-radius:5px;padding:2px 8px;font-weight:600}
+  .mk-jres.ok{background:#E3EDE6;color:#2F5C3E}
+  .mk-jres.ng{background:#F6E3E1;color:#9A3126}
+  .mk-choice-text{font-size:14px;line-height:1.85}
+  .mk-exp{background:#fff;border:1px solid var(--line-soft);border-radius:8px;padding:9px 11px}
+  .mk-exp-h{font-size:11px;letter-spacing:.1em;color:var(--ink-muted);margin-bottom:4px}
+  .mk-exp-b{font-size:13px;line-height:1.8;color:var(--ink-soft)}
+
+  .mk-answer{margin-top:16px;border-top:1px dashed var(--line);padding-top:14px}
+  .mk-answer-h{font-size:12.5px;color:var(--ink-muted);margin-bottom:8px}
+  .mk-opts{display:flex;gap:8px;flex-wrap:wrap}
+  .mk-opt{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--paper);
+    border-radius:8px;padding:8px 14px;cursor:pointer;font-size:14px}
+  .mk-opt .mk-opt-mark{font-weight:700}
+  .mk-opt.sel{border-color:var(--indigo);background:var(--indigo-soft);color:var(--indigo)}
+  .mk-opt.correct{border-color:#3D6E4C;background:#E3EDE6;color:#2F5C3E;font-weight:700}
+  .mk-opt.wrong{border-color:var(--accent);background:#F6E3E1;color:#9A3126}
+  .mk-opt:disabled{cursor:default}
+  .mk-answer-act{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  .mk-hint{font-size:11.5px;color:var(--ink-muted)}
+  .mk-result{margin-top:12px;border-radius:8px;padding:9px 13px;font-size:13.5px}
+  .mk-result.ok{background:#E3EDE6;color:#2F5C3E}
+  .mk-result.ng{background:#F6E3E1;color:#9A3126}
+  .mk-point{margin-top:8px;font-size:13px;background:var(--line-soft);border-radius:7px;padding:8px 11px}
+  .mk-basis{margin-top:6px;font-size:11.5px;color:var(--ink-muted)}
+  .mk-nav{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:18px;
+    border-top:1px solid var(--line-soft);padding-top:12px}
+  .mk-nav-mid{font-size:12.5px;color:var(--ink-muted)}
+
+  .mk-result-card{padding:18px}
+  .mk-result-verdict{font-size:26px;font-weight:700;text-align:center;padding:10px;border-radius:10px}
+  .mk-result-verdict.ok{background:#E3EDE6;color:#2F5C3E}
+  .mk-result-verdict.ng{background:#F6E3E1;color:#9A3126}
+  .mk-result-name{text-align:center;margin-top:10px;font-size:15px}
+  .mk-result-name span{font-size:12px;color:var(--ink-muted)}
+  .mk-result-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}
+  @media(min-width:640px){.mk-result-grid{grid-template-columns:repeat(4,1fr)}}
+  .mk-rg{background:var(--line-soft);border-radius:9px;padding:10px;text-align:center}
+  .mk-rg .l{display:block;font-size:11px;color:var(--ink-muted)}
+  .mk-rg .v{display:block;font-size:22px;font-weight:700}
+  .mk-rg .v small{font-size:12px;font-weight:400;color:var(--ink-muted)}
+  .mk-result-dates{font-size:12.5px;color:var(--ink-soft);text-align:center;margin-bottom:14px}
+  .mk-result-table{overflow:auto}
+  .mk-result-table table,.mk-hist-table{border-collapse:collapse;width:100%;font-size:12.5px}
+  .mk-result-table th,.mk-result-table td,.mk-hist-table th,.mk-hist-table td{
+    border:1px solid var(--line);padding:5px 8px;text-align:left;white-space:nowrap}
+  .mk-result-table th,.mk-hist-table th{background:var(--line-soft);font-weight:600}
+  .mk-result-table td.ok,.mk-hist-table td.ok{color:#2F5C3E;font-weight:700}
+  .mk-result-table td.ng,.mk-hist-table td.ng{color:#9A3126;font-weight:700}
+  .mk-result-act{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:16px}
+
+  .mk-hist-group{border-left:4px solid var(--line);padding:10px 14px;margin-bottom:16px}
+  .mk-hist-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px}
+  .mk-hist-sub{font-size:11.5px;color:var(--ink-muted)}
+  .mk-hist-act{margin-top:8px}
+  .plan-badge.kindtag.mock{background:#EDE4F3;color:#5B3A78}
+  </style>
+
+  <!-- ===== MOCK VIEW (模試タブ) ─ 改修V02_31 =====
+       本試験形式(5肢×10問)の模試演習。科目別フレーム → 模試 → 演習 → 履歴。 -->
+  <main id="view-mock" style="display:none;grid-column:1/-1">
+    <div id="mock-content"></div>
   </main>
 
   <!-- ===== STATS VIEW (実績タブ) ─ 改修12 ===== -->
@@ -5472,7 +5595,10 @@ const EXT_SECTION_KEYS = [
   'selectSetHistory', // 改修V02_23: 選択式一括判定の実施記録
   'whys',             // 5why
   'articles',         // 条文・解説
-  'studySessions'     // タイパ(実績タイムテーブル)
+  'studySessions',    // タイパ(実績タイムテーブル)
+  'mockExams',        // 改修V02_31: 模試データ本体(5肢×10問)
+  'mockHistory',      // 改修V02_31: 模試の1問ごとの解答ログ
+  'mockRuns'          // 改修V02_31: 模試の実施記録(実施日・正答数・合否)
 ];
 const _extLegacyInLS = {};
 const _extSectionLastJson = {};
@@ -5848,6 +5974,24 @@ function loadState(){
       s.weakSession.questionType ||= 'takuitsu';
       s.weakSession.kindMode ||= 'both'; // 'past' | 'forecast' | 'both'
       s.weakSession.frameNo ??= ''; // 改修V02_18: 科目内フレーム絞り込み(未定義=すべて)
+      /* ===== 改修V02_31: 模試モード(本試験形式 5肢×10問) =====
+         mockExams   : 模試データ本体。1件 = 1模試 × 1科目(通常10問)
+         mockRuns    : 実施記録 { id, examId, subject, examName, attemptNo, dates:[],
+                                  total, correct, passLine, passed, startedAt, finishedAt, results:[] }
+         mockHistory : 1問=1レコードの解答ログ { ts, examId, subject, qno, correct, judgeCorrect, judgeTotal }
+                       → タイパの解答数計上・レゴの日別集計に使う
+         mockSession : 進行中の演習(1件だけ保持)
+         mockView    : 模試タブのビュー状態 */
+      s.mockExams   = Array.isArray(s.mockExams) ? s.mockExams : [];
+      s.mockRuns    = Array.isArray(s.mockRuns) ? s.mockRuns : [];
+      s.mockHistory = Array.isArray(s.mockHistory) ? s.mockHistory : [];
+      s.mockSession = (s.mockSession && typeof s.mockSession==='object') ? s.mockSession : null;
+      s.mockView    = (s.mockView && typeof s.mockView==='object') ? s.mockView : {tab:'list', subject:null};
+      s.mockView.tab ||= 'list';
+      if(!('subject' in s.mockView)) s.mockView.subject = null;
+      s.mockProgressView = (s.mockProgressView && typeof s.mockProgressView==='object')
+        ? s.mockProgressView : {mode:'subjects', subject:null};
+      s.mockProgressView.mode ||= 'subjects';
       // 図表機能の追加 (後方互換)
       s.figures ||= [];
       s.figuresView ||= {filterSubject:'',filterFrame:''};
@@ -6144,6 +6288,13 @@ function loadState(){
     selectSetSession: null,  // 進行中の一括演習セッション(演習画面の状態)
     selectProgressView: {mode:'subjects', subject:null, kindMode:'pastA'},
     weakSession: {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',frameNo:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu',kindMode:'both'},
+    // 改修V02_31: 模試モード
+    mockExams: [],
+    mockRuns: [],
+    mockHistory: [],
+    mockSession: null,
+    mockView: {tab:'list', subject:null},
+    mockProgressView: {mode:'subjects', subject:null},
     figures: [],
     figuresView: {filterSubject:'',filterFrame:''},
     studyPlans: {},
@@ -8003,6 +8154,10 @@ function doImport(){
     else if(parsed.text || parsed.problemText || parsed.caseText || Array.isArray(parsed.subQuestions)){
       arr = [parsed];
     }
+    // 改修V02_31: 模試(type:"mock-exam")の単一オブジェクトも配列化して受け入れる
+    else if(parsed.type === 'mock-exam' && Array.isArray(parsed.questions)){
+      arr = [parsed];
+    }
     // ケース2-C: 日本語フィールド名のJSON({"問題文":"...","選択肢":[...]} など)→ 分かりやすいエラー
     else if(parsed['問題文'] || parsed['選択肢'] || parsed['メタデータ'] || parsed['ポイント']){
       alert('このJSONは日本語のフィールド名(「問題文」「選択肢」「メタデータ」など)を使っています。\n\nこのアプリは英語フィールド名("text", "answer", "choices" など)のJSONを必要とします。\n\nClaudeに依頼するときは、必ず「JSON仕様書v3に従って」と指示してください。');
@@ -8018,8 +8173,15 @@ function doImport(){
     return;
   }
 
-  let addedTakuitsu=0, addedSelect=0, addedCase=0, addedArticleFrame=0, addedWhyFrame=0, skipped=0;
+  let addedTakuitsu=0, addedSelect=0, addedCase=0, addedArticleFrame=0, addedWhyFrame=0, addedMock=0, skipped=0;
   for(const q of arr){
+    // 改修V02_31: 模試判定: type:"mock-exam" + questions配列(最優先で判別する)
+    const isMockExam = q.type === 'mock-exam' && Array.isArray(q.questions);
+    if(isMockExam){
+      const r = importMockExam(q);
+      if(r) addedMock++; else skipped++;
+      continue;
+    }
     // 改修11: 5why フレーム判定: type:"why-frame" + law + frameNo + indices配列
     const isWhyFrame = q.type === 'why-frame' && q.law && q.frameNo != null && Array.isArray(q.indices);
     // 条文フレーム判定: type:"article-frame" + law + frameNo + indices配列
@@ -8151,12 +8313,17 @@ function doImport(){
   if(document.querySelector('.tab-btn.active')?.dataset.tab === 'whys'){
     renderWhys();
   }
+  // 改修V02_31: 模試タブが表示中なら再描画
+  if(document.querySelector('.tab-btn.active')?.dataset.tab === 'mock'){
+    renderMock();
+  }
   let msg = '';
   if(addedTakuitsu) msg += `択一: ${addedTakuitsu}問追加\n`;
   if(addedSelect) msg += `選択式: ${addedSelect}問追加\n`;
   if(addedCase) msg += `事例: ${addedCase}問追加\n`;
   if(addedArticleFrame) msg += `条文フレーム: ${addedArticleFrame}件追加\n`;
   if(addedWhyFrame) msg += `5whyフレーム: ${addedWhyFrame}件追加\n`;
+  if(addedMock) msg += `模試: ${addedMock}件追加\n`;
   if(skipped) msg += `(${skipped}件はスキップ ※重複ID・不完全データなど)`;
   alert(msg || '追加された問題はありませんでした。');
 }
@@ -8925,6 +9092,9 @@ function _mergeBackupsCore(oldD, newD){
     senbonHistory:{addedPaths:0},
     senbonDrafts:{addedPaths:0},
     senbonRuns:{addedPaths:0},
+    mockExams:{addedPaths:0},     // 改修V02_31
+    mockRuns:{addedPaths:0},      // 改修V02_31
+    mockHistory:{addedPaths:0},   // 改修V02_31
     conflicts:[]
   };
 
@@ -9206,6 +9376,51 @@ function _mergeBackupsCore(oldD, newD){
       }
     }
     result.senbonRuns.sort((a,b)=>(a&&a.ts||0)-(b&&b.ts||0));
+  }
+
+  /* 改修V02_31: 模試データのマージ
+     ・mockExams   … examId 基準の add-only(既にあるものは新側を優先して残す)
+     ・mockRuns    … id 基準の add-only(実施記録は消さない)
+     ・mockHistory … ts+examId+qno 基準の add-only(解答ログの重複を避ける) */
+  {
+    const oldEx = Array.isArray(oldD.mockExams) ? oldD.mockExams : [];
+    result.mockExams = Array.isArray(result.mockExams) ? result.mockExams : [];
+    const seenEx = new Set(result.mockExams.map(e=> e && e.examId).filter(Boolean));
+    stats.mockExams ||= {addedPaths:0};
+    for(const e of oldEx){
+      if(e && e.examId && !seenEx.has(e.examId)){
+        try{ result.mockExams.push(JSON.parse(JSON.stringify(e))); }catch(_){ result.mockExams.push(e); }
+        seenEx.add(e.examId);
+        stats.mockExams.addedPaths++;
+      }
+    }
+    const oldRuns = Array.isArray(oldD.mockRuns) ? oldD.mockRuns : [];
+    result.mockRuns = Array.isArray(result.mockRuns) ? result.mockRuns : [];
+    const seenRun = new Set(result.mockRuns.map(r=> r && r.id).filter(Boolean));
+    stats.mockRuns ||= {addedPaths:0};
+    for(const r of oldRuns){
+      if(r && r.id && !seenRun.has(r.id)){
+        try{ result.mockRuns.push(JSON.parse(JSON.stringify(r))); }catch(_){ result.mockRuns.push(r); }
+        seenRun.add(r.id);
+        stats.mockRuns.addedPaths++;
+      }
+    }
+    result.mockRuns.sort((a,b)=>((a&&a.finishedAt)||0)-((b&&b.finishedAt)||0));
+
+    const oldHist = Array.isArray(oldD.mockHistory) ? oldD.mockHistory : [];
+    result.mockHistory = Array.isArray(result.mockHistory) ? result.mockHistory : [];
+    const seenH = new Set(result.mockHistory.map(h=> h ? (h.ts+'|'+h.examId+'|'+h.qno) : '').filter(Boolean));
+    stats.mockHistory ||= {addedPaths:0};
+    for(const h of oldHist){
+      if(!h || !h.ts) continue;
+      const k = h.ts+'|'+h.examId+'|'+h.qno;
+      if(!seenH.has(k)){
+        try{ result.mockHistory.push(JSON.parse(JSON.stringify(h))); }catch(_){ result.mockHistory.push(h); }
+        seenH.add(k);
+        stats.mockHistory.addedPaths++;
+      }
+    }
+    result.mockHistory.sort((a,b)=>((a&&a.ts)||0)-((b&&b.ts)||0));
   }
 
   if(!result.whyIntro && oldD.whyIntro){
@@ -9674,6 +9889,13 @@ function restoreBackup(){
         state.senbonView ||= {mode:'subjects',subject:null,frameNo:null,tab:'list',weakSub:'weak'};
         state.studyPlans ||= {};
         state.planView ||= {date:null};
+        // 改修V02_31: 模試モード(後方互換)
+        state.mockExams = Array.isArray(state.mockExams) ? state.mockExams : [];
+        state.mockRuns = Array.isArray(state.mockRuns) ? state.mockRuns : [];
+        state.mockHistory = Array.isArray(state.mockHistory) ? state.mockHistory : [];
+        if(state.mockSession && typeof state.mockSession !== 'object') state.mockSession = null;
+        state.mockView ||= {tab:'list', subject:null};
+        state.mockProgressView ||= {mode:'subjects', subject:null};
         state.cases ||= [];
         state.caseHistory ||= [];
         state.caseView ||= {mode:'list', selectedCaseId:null, filterSubject:'', filterFrame:''};
@@ -14036,6 +14258,7 @@ function switchTab(name){
   document.getElementById('aside-quiz').style.display = name==='quiz'?'flex':'none';
   document.getElementById('view-select').style.display = name==='select'?'block':'none';
   document.getElementById('aside-select').style.display = name==='select'?'flex':'none';
+  document.getElementById('view-mock').style.display = name==='mock'?'block':'none';
   document.getElementById('view-case').style.display = name==='case'?'block':'none';
   document.getElementById('view-articles').style.display = name==='articles'?'block':'none';
   document.getElementById('view-whys').style.display = name==='whys'?'block':'none';
@@ -14048,6 +14271,12 @@ function switchTab(name){
   if(name==='manage') renderManage();
   if(name==='quiz') renderQuiz();
   if(name==='select') renderSelectView();
+  if(name==='mock'){
+    // 改修V02_31: 模試タブ。演習中なら演習画面、そうでなければ一覧から。
+    ensureMockState();
+    if(!state.mockSession) state.mockView.tab = (state.mockView.tab==='history') ? 'history' : 'list';
+    renderMock();
+  }
   if(name==='case'){
     // タブクリック時は一覧画面から開始
     if(!state.caseView || state.caseView.mode==='detail'){
@@ -16677,6 +16906,12 @@ function renderProgress(){
     renderSelectProgress(root);
     return;
   }
+  // 改修V02_31: 模試軸が選ばれていれば模試専用の進捗ビューへ委譲。
+  if(state.progressView.axis === 'mock' && _tab === 'kind'){
+    ensureMockState();
+    renderMockProgress(root);
+    return;
+  }
   // 改修28: tab(='gantt'|'kind')の初期化。既定は kind(従来動作)
   // 改修30: 'plan'(勉強の予定)を追加
   state.progressView.tab ||= 'kind';
@@ -16837,6 +17072,27 @@ function senbonPlanLabel(subject){
   return (!subject || subject === SENBON_PLAN_ALL) ? '全科目' : subject;
 }
 
+/* ============================================================
+   改修V02_31: 模試の予定/計測キー。
+   択一(planKey)・選択式(SEL::)・千本ノック(SBN::)と名前空間が衝突しないよう
+   接頭辞 "MSH::" を付ける。形式: "MSH::科目|模試ID"。
+   模試は「科目 × 模試1回分(10問)」が予定・実績の単位。
+   ============================================================ */
+function mockPlanKey(subject, examId){
+  return 'MSH::' + (subject||'') + '|' + (examId||'');
+}
+function isMockPlanKey(key){ return typeof key==='string' && key.indexOf('MSH::')===0; }
+function parseMockPlanKey(key){
+  const body = String(key||'').replace(/^MSH::/, '');
+  const parts = body.split('|');
+  return {subject: parts[0]||'', examId: parts[1]||''};
+}
+// 予定ボックス等での表示名(模試名。未登録なら模試IDをそのまま出す)
+function mockPlanLabel(examId){
+  const ex = (state.mockExams||[]).find(e=>e.examId===examId);
+  return ex ? (ex.examName||examId) : (examId||'模試');
+}
+
 function parseSelectPlanKey(key){
   const body = String(key||'').replace(/^SEL::/, '');
   const parts = body.split('|');
@@ -16851,12 +17107,18 @@ function splitPlanKey(key){
   //   frameRef は使わないため空文字。kind は 'senbon' 固定。
   if(typeof key==='string' && key.indexOf('SBN::')===0){
     const p = parseSenbonPlanKey(key);
-    return {subject: p.subject, frameRef: '', kind: 'senbon', isSelect: false, isSenbon: true, isAll: p.isAll};
+    return {subject: p.subject, frameRef: '', kind: 'senbon', isSelect: false, isSenbon: true, isMock: false, isAll: p.isAll};
+  }
+  // 改修V02_31: 模試の予定キー("MSH::科目|模試ID")に対応。
+  //   frameRef には模試IDを入れる(フレーム番号ではない)。kind は 'mock' 固定。
+  if(typeof key==='string' && key.indexOf('MSH::')===0){
+    const p = parseMockPlanKey(key);
+    return {subject: p.subject, frameRef: p.examId, kind: 'mock', isSelect: false, isSenbon: false, isMock: true};
   }
   // 改修V02_23: 選択式の予定キー("SEL::科目|年度|kind")に対応。
   if(typeof key==='string' && key.indexOf('SEL::')===0){
     const p = parseSelectPlanKey(key);
-    return {subject: p.subject, frameRef: p.year, kind: p.kind, isSelect: true, isSenbon: false};
+    return {subject: p.subject, frameRef: p.year, kind: p.kind, isSelect: true, isSenbon: false, isMock: false};
   }
   const parts = String(key).split('|');
   if(parts.length < 2) return null;
@@ -16870,7 +17132,7 @@ function splitPlanKey(key){
   }else{
     frameRef = parts.slice(1).join('|');
   }
-  return {subject: parts[0], frameRef, kind, isSelect: false, isSenbon: false};
+  return {subject: parts[0], frameRef, kind, isSelect: false, isSenbon: false, isMock: false};
 }
 
 // 並び順用: 親フレーム番号と中分類番号(なければ0)を返す
@@ -17033,6 +17295,7 @@ function getPlanOccurrencesForDate(dateKey){
         key, subject: sp.subject, frameRef: sp.frameRef, kind: sp.kind,
         isSelect: !!sp.isSelect,
         isSenbon: !!sp.isSenbon,   // 改修V02_27: 千本ノック予定の目印
+        isMock: !!sp.isMock,       // 改修V02_31: 模試予定の目印
         isAll: !!sp.isAll,         // 改修V02_27: 全科目まとめての予定か
         startTime: plan.startTime || '',
         endTime: plan.endTime || '',
@@ -17057,6 +17320,11 @@ function getPlanOccurrencesForDate(dateKey){
       if(a.isSenbon && b.isSenbon) return 0;
       return a.isSenbon ? 1 : -1;
     }
+    // 改修V02_31: 模試予定も frameRef が模試IDのため planSortIndex を通さない。
+    if(a.isMock || b.isMock){
+      if(a.isMock && b.isMock) return 0;
+      return a.isMock ? 1 : -1;
+    }
     const ia = planSortIndex(a.subject, a.frameRef); const ib = planSortIndex(b.subject, b.frameRef);
     if(ia.fno !== ib.fno) return ia.fno - ib.fno;
     return ia.sub - ib.sub;
@@ -17077,7 +17345,7 @@ function getOverduePlanOccurrences(beforeDateKey){
       if(occ.dateKey >= beforeDateKey) continue; // 当日以降は遅れではない
       const done = !!(plan.done && plan.done[occ.dateKey]);
       if(done) continue;
-      out.push({key, subject: sp.subject, frameRef: sp.frameRef, kind: sp.kind, isSelect: !!sp.isSelect, isSenbon: !!sp.isSenbon, isAll: !!sp.isAll, dateKey:occ.dateKey, kindOcc:occ.kind, offset:occ.offset, startTime: plan.startTime||''});
+      out.push({key, subject: sp.subject, frameRef: sp.frameRef, kind: sp.kind, isSelect: !!sp.isSelect, isSenbon: !!sp.isSenbon, isMock: !!sp.isMock, isAll: !!sp.isAll, dateKey:occ.dateKey, kindOcc:occ.kind, offset:occ.offset, startTime: plan.startTime||''});
     }
   }
   out.sort((a,b)=> a.dateKey < b.dateKey ? 1 : (a.dateKey > b.dateKey ? -1 : 0));
@@ -17261,7 +17529,9 @@ function sessionAnswerStats(sess, nowTs){
     ? (state.selectHistory || [])
     : (sess.qtype === 'senbon')
       ? (state.senbonHistory || [])
-      : (state.history || []);
+      : (sess.qtype === 'mock')
+        ? (state.mockHistory || [])   // 改修V02_31: 模試は mockHistory を集計
+        : (state.history || []);
   // 改修V02_27: 科目単位の千本ノック予定("SBN::雇用保険法" 等)では、
   //   その科目の解答のみを実績に計上する(全科目予定 "SBN::__ALL__" は全件対象)。
   const senbonSubjFilter = (sess.qtype === 'senbon' && sess.subject && sess.subject !== SENBON_PLAN_ALL)
@@ -17495,11 +17765,15 @@ function getSessionsForDate(dateKey){
 let _planEditKey = null;
 // 改修V02_17: kind('pastA'|'forecast')を受けて、過去問A/予想問それぞれの予定を編集できる。
 // 改修V02_23: isSelect=true で選択式の予定(科目×年度)を編集できる。
-function openPlanEditModal(subject, frameRef, kind, isSelect, isSenbon){
+function openPlanEditModal(subject, frameRef, kind, isSelect, isSenbon, isMock){
   // frameRef は数値・数字文字列("4")または中分類キー("2.1")、選択式では年度("R7")
   // 改修V02_27: isSenbon=true で千本ノックの予定(科目 or 全科目)を編集できる。
   let kd;
-  if(isSenbon || kind === 'senbon'){
+  if(isMock || kind === 'mock'){
+    // 改修V02_31: 模試の予定(科目 × 模試1回分)
+    kd = 'mock';
+    _planEditKey = mockPlanKey(subject, frameRef);
+  }else if(isSenbon || kind === 'senbon'){
     kd = 'senbon';
     _planEditKey = senbonPlanKey(subject);
   }else if(isSelect){
@@ -17513,14 +17787,21 @@ function openPlanEditModal(subject, frameRef, kind, isSelect, isSenbon){
   const plan = (state.studyPlans && state.studyPlans[_planEditKey]) || {};
   const titleEl = document.getElementById('plan-edit-title');
   const descEl = document.getElementById('plan-edit-desc');
-  const kindLabel = (kd==='senbon')
+  const kindLabel = (kd==='mock')
+    ? '📝 模試'
+    : (kd==='senbon')
     ? '🔫 千本ノック'
     : (isSelect
       ? ('選択式・' + ((kd==='forecast')?'🎯 予想問':(kd==='pastB'?'📖 過去問B':'📚 過去問A')))
       : ((kd==='forecast') ? '🎯 予想問' : (kd==='pastB') ? '過去問B' : '過去問A'));
   if(titleEl) titleEl.textContent = `学習予定の設定（${kindLabel}）`;
   if(descEl){
-    if(kd==='senbon'){
+    if(kd==='mock'){
+      // 改修V02_31: 模試は「科目 × 模試1回分(通常10問)」が単位。
+      const ex = (state.mockExams||[]).find(e=>e.examId===frameRef);
+      const cnt = ex ? (ex.questions||[]).length : 0;
+      descEl.textContent = `${subject}　${mockPlanLabel(frameRef)}（${kindLabel}／${cnt}問・5肢択一）`;
+    }else if(kd==='senbon'){
       // 改修V02_27: 千本ノックは科目 or 全科目単位。フレームは対象外。
       const cnt = senbonPlanQuestionCount(subject);
       descEl.textContent = `${senbonPlanLabel(subject)}（${kindLabel}／対象 ${cnt}問・ランダム演習）`;
@@ -17646,14 +17927,16 @@ function renderProgressPlan(root){
     for(const o of shown){
       const lbl = o.kindOcc==='review' ? `復習(${o.offset}日後)` : '初回';
       const col = statsSubjectColor(o.subject);
-      const kindTag = o.isSenbon ? `<span class="plan-badge kindtag senbon">🔫 千本ノック</span>`
+      const kindTag = o.isMock ? `<span class="plan-badge kindtag mock">📝 模試</span>`
+        : o.isSenbon ? `<span class="plan-badge kindtag senbon">🔫 千本ノック</span>`
         : (o.kind==='forecast' ? `<span class="plan-badge kindtag forecast">予想問</span>` : (o.kind==='pastB' ? `<span class="plan-badge kindtag pastb">過去問B</span>` : ''));
       // 改修V02_27: 千本ノックはフレームを持たないためラベルを分岐
-      const odLabel = o.isSenbon ? '' : frameOrSubFrameLabel(o.subject, o.frameRef);
+      // 改修V02_31: 模試は frameRef が模試IDのため模試名を出す
+      const odLabel = o.isMock ? mockPlanLabel(o.frameRef) : (o.isSenbon ? '' : frameOrSubFrameLabel(o.subject, o.frameRef));
       html += `<div class="plan-overdue-item">
         <span style="color:var(--accent);font-weight:600">${planDateLabel(o.dateKey)}</span>
         <span class="plan-subj-dot" style="background:${col}"></span>
-        ${escapeHtml(o.isSenbon ? senbonPlanLabel(o.subject) : o.subject)}　${escapeHtml(odLabel)}${kindTag}
+        ${escapeHtml((o.isSenbon && !o.isMock) ? senbonPlanLabel(o.subject) : o.subject)}　${escapeHtml(odLabel)}${kindTag}
         <span class="plan-badge ${o.kindOcc==='review'?'review':'first'}">${lbl}</span>
       </div>`;
     }
@@ -17673,18 +17956,24 @@ function renderProgressPlan(root){
     for(let i=0;i<occs.length;i++){
       const o = occs[i];
       // 改修V02_27: 千本ノック予定はフレームを持たないため、ラベル生成を分岐する。
-      const label = o.isSenbon
+      const label = o.isMock
+        ? ('📝 ' + mockPlanLabel(o.frameRef))
+        : o.isSenbon
         ? ('🔫 千本ノック（' + senbonPlanLabel(o.subject) + '）')
         : frameOrSubFrameLabel(o.subject, o.frameRef);  // "F4 標準報酬" / "F2_1 国民健康保険法"
-      const content = o.isSenbon
+      const content = o.isMock
+        ? '本試験形式（5肢×10問）を通しで演習し、正答数で合否を判定します'
+        : o.isSenbon
         ? '一問一答をランダムに演習（何問やるかは自分で判断し、「完了」で確定）'
         : planLearningContent(o.subject, o.frameRef);
-      const subjCol = o.isSenbon && o.isAll ? '#1f2a5a' : statsSubjectColor(o.subject);  // 改修30b: 科目カラー
+      const subjCol = (o.isSenbon && o.isAll) ? '#1f2a5a' : statsSubjectColor(o.subject);  // 改修30b: 科目カラー
       const timeStr = o.startTime ? (o.endTime ? `${o.startTime}〜${o.endTime}` : `${o.startTime}〜`) : '時刻未設定';
       const durStr = (o.durationMin!=null && o.durationMin>0) ? `<span class="plan-box-dur">(見込み ${o.durationMin}分)</span>` : '';
       // 改修57_04 / 改修V02_17: 解答すべき問題数を表示。予定の kind(過去問A/予想問)基準。
       // 改修V02_27: 千本ノックは senbonPlanQuestionCount(科目 or 全科目)で算出。
-      const qCount = o.isSenbon
+      const qCount = o.isMock
+        ? mockPlanQuestionCount(o.frameRef)
+        : o.isSenbon
         ? senbonPlanQuestionCount(o.subject)
         : planFrameQuestionCount(o.subject, o.frameRef, o.kind);
       const qcountStr = qCount>0
@@ -17693,7 +17982,9 @@ function renderProgressPlan(root){
         ? `<span class="plan-badge review">復習 ${o.offset}日後</span>`
         : `<span class="plan-badge first">初回</span>`;
       // 改修V02_17 / 改修V02_24: 予定の種別タグ(過去問A・過去問B・予想問の3区分)
-      const kindTag = o.isSenbon
+      const kindTag = o.isMock
+        ? `<span class="plan-badge kindtag mock" title="模試の予定">📝 模試</span>`
+        : o.isSenbon
         ? `<span class="plan-badge kindtag senbon" title="千本ノックの予定">🔫 千本ノック</span>`
         : (o.kind==='forecast'
         ? `<span class="plan-badge kindtag forecast" title="予想問の予定">🎯 予想問</span>`
@@ -17704,11 +17995,17 @@ function renderProgressPlan(root){
       // 改修V02_27: 千本ノックは frameAttempts を持たない(完了は自己判断)。
       //   代わりに、この予定で完了した計測セッションの回数と累計解答数を出す。
       const senbonStat = o.isSenbon ? _senbonPlanStatus(o.subject) : null;
-      const pst = o.isSenbon
+      const mockStat = o.isMock ? _mockPlanStatus(o.frameRef) : null;
+      const pst = (o.isSenbon || o.isMock)
         ? {attemptNo:1, completedCount:0, inProgress:false, status:'ok', hasAttempt:false}
         : _planFrameStatus(o.subject, o.frameRef, o.kind);
       let attemptBadge = '';
-      if(o.isSenbon){
+      if(o.isMock){
+        // 改修V02_31: 模試は「実施回数・直近の正答数・合否」を出す
+        attemptBadge = mockStat.runCount > 0
+          ? `<span class="plan-badge attempt" title="${mockStat.runCount}回実施 / 直近 ${mockStat.lastCorrect}問正解">${mockStat.runCount}回実施・直近${mockStat.lastCorrect}/${mockStat.lastTotal}${mockStat.lastPassed?'〇':'×'}</span>`
+          : `<span class="plan-badge attempt none" title="まだ実施していません">未着手</span>`;
+      }else if(o.isSenbon){
         attemptBadge = senbonStat.runCount > 0
           ? `<span class="plan-badge attempt" title="この予定で ${senbonStat.runCount}回実施 / 累計 ${senbonStat.answeredTotal}問">${senbonStat.runCount}回実施・累計${senbonStat.answeredTotal}問</span>`
           : `<span class="plan-badge attempt none" title="まだ実施していません">未着手</span>`;
@@ -17769,7 +18066,7 @@ function renderProgressPlan(root){
           ? 'このフレームは「一旦終了(途中)」の記録があります。続きを計測できます'
           : '学習を始めるときに押すと、時間と解答数を自動で計測します';
         timerHtml = `<div class="plan-timer is-idle">
-          <button class="plan-timer-btn start" data-sessstart-subj="${escapeHtml(o.subject)}" data-sessstart-fref="${escapeHtml(String(o.frameRef))}" data-sessstart-date="${dateKey}" data-sessstart-kind="${escapeHtml(o.kind||'pastA')}" data-sessstart-select="${o.isSelect?'1':'0'}" data-sessstart-senbon="${o.isSenbon?'1':'0'}">${startLabel}</button>
+          <button class="plan-timer-btn start" data-sessstart-subj="${escapeHtml(o.subject)}" data-sessstart-fref="${escapeHtml(String(o.frameRef))}" data-sessstart-date="${dateKey}" data-sessstart-kind="${escapeHtml(o.kind||'pastA')}" data-sessstart-select="${o.isSelect?'1':'0'}" data-sessstart-senbon="${o.isSenbon?'1':'0'}" data-sessstart-mock="${o.isMock?'1':'0'}">${startLabel}</button>
           <span class="plan-timer-hint">${hint}</span>
         </div>`;
       }
@@ -17778,13 +18075,13 @@ function renderProgressPlan(root){
           <div class="plan-box-top">
             <span class="plan-box-time">🕒 ${timeStr}</span>${durStr}${qcountStr}${kindTag}${attemptBadge}${delayBadge}${badge}
           </div>
-          <div class="plan-box-title"><span class="plan-subj-dot" style="background:${subjCol}"></span>${escapeHtml(o.isSenbon ? senbonPlanLabel(o.subject) : o.subject)}　${escapeHtml(o.isSelect?('選択式 '+o.frameRef):label)}</div>
+          <div class="plan-box-title"><span class="plan-subj-dot" style="background:${subjCol}"></span>${escapeHtml((o.isSenbon && !o.isMock) ? senbonPlanLabel(o.subject) : o.subject)}　${escapeHtml(o.isSelect?('選択式 '+o.frameRef):label)}</div>
           ${itemsHtml}
           ${timerHtml}
         </div>
         <div class="plan-box-action">
           ${o.done?'<span class="plan-done-mark">✓ 完了</span>':''}
-          <button class="plan-edit-inline" data-planedit="1" data-subj="${escapeHtml(o.subject)}" data-fref="${escapeHtml(String(o.frameRef))}" data-kind="${escapeHtml(o.kind||'pastA')}" data-select="${o.isSelect?'1':'0'}" data-senbon="${o.isSenbon?'1':'0'}">編集</button>
+          <button class="plan-edit-inline" data-planedit="1" data-subj="${escapeHtml(o.subject)}" data-fref="${escapeHtml(String(o.frameRef))}" data-kind="${escapeHtml(o.kind||'pastA')}" data-select="${o.isSelect?'1':'0'}" data-senbon="${o.isSenbon?'1':'0'}" data-mock="${o.isMock?'1':'0'}">編集</button>
           <button class="plan-done-btn ${o.done?'is-done':''}" data-plankey="${escapeHtml(o.key)}" data-date="${dateKey}">${o.done?'完了を取消':'完了にする'}</button>
         </div>
       </div>`;
@@ -17807,6 +18104,8 @@ function renderProgressPlan(root){
       const kind = b.dataset.kind || 'pastA'; // 改修V02_17
       const isSel = b.dataset.select === '1';  // 改修V02_23
       const isSbn = b.dataset.senbon === '1';  // 改修V02_27
+      const isMsh = b.dataset.mock === '1';    // 改修V02_31
+      if(isMsh){ openPlanEditModal(subj, ref, 'mock', false, false, true); return; }
       if(isSbn){ openPlanEditModal(subj, '', 'senbon', false, true); return; }
       if(subj && ref) openPlanEditModal(subj, ref, kind, isSel);
     });
@@ -17815,7 +18114,10 @@ function renderProgressPlan(root){
   //   改修V02_23: 選択式予定は選択式演習(startSelectSet)を起動する。
   root.querySelectorAll('button[data-sessstart-subj]').forEach(b=>{
     b.addEventListener('click', ()=>{
-      if(b.dataset.sessstartSenbon === '1'){
+      if(b.dataset.sessstartMock === '1'){
+        // 改修V02_31: 模試の予定から演習を開始する
+        startMockExamSession(b.dataset.sessstartFref, b.dataset.sessstartDate);
+      }else if(b.dataset.sessstartSenbon === '1'){
         // 改修V02_27: 千本ノック予定 → 千本ノックの計測を開始し、弱点タブの千本ノックへ遷移
         startSenbonStudySession(b.dataset.sessstartSubj, b.dataset.sessstartDate);
       }else if(b.dataset.sessstartSelect === '1'){
@@ -18805,6 +19107,7 @@ function progressSubTabsHtml(currentKind){
   const axisToggle = `<div class="prog-axis-toggle" style="display:flex;gap:8px;margin-bottom:10px">
     <button class="prog-subtab ${axis==='takuitsu'?'active':''}" data-progaxis="takuitsu" style="font-weight:700">🅐 択一式</button>
     <button class="prog-subtab ${axis==='select'?'active':''}" data-progaxis="select" style="font-weight:700">🅑 選択式</button>
+    <button class="prog-subtab ${axis==='mock'?'active':''}" data-progaxis="mock" style="font-weight:700">🅒 模試</button>
   </div>`;
   return axisToggle + `<div class="prog-subtabs">
     <button class="prog-subtab ${ganttActive?'active':''}" data-tab="gantt">📊 進捗管理</button>
@@ -18819,8 +19122,15 @@ function progressSubTabsHtml(currentKind){
 /* 改修V02_23: 進捗サブタブUIの配線(_wireProgSubTabs 内)から呼ぶ、択一/選択式トグルのハンドラ */
 function _handleProgAxisClick(t){
   const axis = t.dataset.progaxis;
-  if(axis !== 'takuitsu' && axis !== 'select') return;
+  if(axis !== 'takuitsu' && axis !== 'select' && axis !== 'mock') return;
   state.progressView.axis = axis;
+  // 改修V02_31: 模試軸に切り替えたら kind タブへ戻し、科目一覧から始める
+  if(axis === 'mock'){
+    state.progressView.tab = 'kind';
+    state.mockProgressView ||= {mode:'subjects', subject:null};
+    state.mockProgressView.mode = 'subjects';
+    state.mockProgressView.subject = null;
+  }
   // 択一/選択式を切り替えたら kind タブへ戻す(gantt/plan は択一専用のため)
   if(axis === 'select'){
     state.progressView.tab = 'kind';
@@ -19722,6 +20032,7 @@ function statsKindLabel(km){
   if(km === 'forecast') return '予想問';
   if(km === 'pastB') return '過去問B';
   if(km === 'senbon') return '千本ノック';   // 改修V02_28(改修事項04)
+  if(km === 'mock') return '模試';           // 改修V02_31
   return '過去問A';
 }
 
@@ -19841,7 +20152,9 @@ function renderStats(){
 
   // 集計
   // 改修V02_28(改修事項04): 千本ノックは senbonHistory から専用集計する。
-  const byDay = (kindMode === 'senbon') ? buildSenbonStatsByDay() : buildStatsByDay(kindMode);
+  const byDay = (kindMode === 'senbon') ? buildSenbonStatsByDay()
+    : (kindMode === 'mock') ? buildMockStatsByDay()          // 改修V02_31
+    : buildStatsByDay(kindMode);
   const allDateKeys = Object.keys(byDay);
   const targetDateKeys = statsRangeDateKeys(range, allDateKeys);
 
@@ -19868,8 +20181,10 @@ function renderStats(){
   // イントロ + サブタブ + 期間切替
   html += `<div class="card stats-intro">
     ${subTabsHtml}
-    <h2 class="stats-h2">${LEGO_ICON_SVG} レゴ <span class="stats-sub">${kindMode==='senbon'?'千本ノックの日別・科目別解答数':'フレーム演習(進捗管理モード)の日別解答数'}</span></h2>
-    ${kindMode==='senbon'
+    <h2 class="stats-h2">${LEGO_ICON_SVG} レゴ <span class="stats-sub">${kindMode==='senbon'?'千本ノックの日別・科目別解答数':(kindMode==='mock'?'模試の日別・模試別解答数':'フレーム演習(進捗管理モード)の日別解答数')}</span></h2>
+    ${kindMode==='mock'
+      ? `<p class="stats-desc">📝 <strong>模試</strong>の日別・模試別の解答数と正答率です。本試験形式(5肢×10問)で解答した<strong>問題数</strong>を集計しています(肢ごとの自己採点ではなく、1問=1解答として数えます)。</p>`
+      : kindMode==='senbon'
       ? `<p class="stats-desc">🔫 <strong>千本ノック</strong>の日別・科目別の解答数と正答率です。演習した<strong>すべての千本ノック</strong>（予定演習・都度演習を問わず）を集計しています。<br><span style="font-size:11.5px">※ 「全科目」を対象に実施した回の棒は、科目横断であることを示す<strong>7色の縦じま</strong>で表示されます。</span></p>`
       : `<p class="stats-desc">科目の積み上がり具合を「レゴ」に見立てた日別の解答数グラフです。トップページの「今日の実績」は単発の択一演習も含みますが、こちらは<strong>進捗管理モードのフレーム演習のみ</strong>を集計しています。</p>`}
   </div>`;
@@ -19880,6 +20195,7 @@ function renderStats(){
     <button class="stats-kind-btn ${kindMode==='pastB'?'active':''}" data-kindmode="pastB">📖 過去問B</button>
     <button class="stats-kind-btn ${kindMode==='forecast'?'active':''}" data-kindmode="forecast">🎯 予想問</button>
     <button class="stats-kind-btn ${kindMode==='senbon'?'active':''}" data-kindmode="senbon">🔫 千本ノック</button>
+    <button class="stats-kind-btn ${kindMode==='mock'?'active':''}" data-kindmode="mock">📝 模試</button>
     <span style="flex:1"></span>
     <span class="stats-control-label">期間</span>
     <button class="stats-range-btn ${range==='7d'?'active':''}" data-range="7d">7日</button>
@@ -20181,9 +20497,10 @@ function renderTaipaTimetable(dateKey, plans, sessions, set){
     const h = Math.max(TAIPA_ROW_PX, ((e-s)/TAIPA_SLOT_MIN) * TAIPA_ROW_PX);
     // 改修V02_27: 千本ノックの予定はフレームを持たない。科目名・色・タグを専用表示にする。
     const pIsSbn = !!p.isSenbon;
+    const pIsMsh = !!p.isMock;   // 改修V02_31
     const col = (pIsSbn && p.isAll) ? '#1f2a5a' : statsSubjectColor(p.subject);
-    const lbl = pIsSbn ? '' : frameOrSubFrameLabel(p.subject, p.frameRef);
-    const subjDisp = pIsSbn ? senbonPlanLabel(p.subject) : shortSubject(p.subject);
+    const lbl = pIsMsh ? ('📝 ' + mockPlanLabel(p.frameRef)) : (pIsSbn ? '' : frameOrSubFrameLabel(p.subject, p.frameRef));
+    const subjDisp = (pIsSbn && !pIsMsh) ? senbonPlanLabel(p.subject) : shortSubject(p.subject);
     const kindB = p.kindOcc==='review' ? `<span class="taipa-mini-badge">復${p.offset}</span>` : `<span class="taipa-mini-badge first">初</span>`;
     // 改修V02_17 / 改修V02_24: 予想問「予」・過去問B「B」を小タグで区別
     // 改修V02_27: 千本ノックは「千」タグ
@@ -20298,6 +20615,11 @@ function _taipaSessSubj(ss){
   return ss.subject || '';
 }
 function _taipaFrameFull(subject, frameRef){
+  // 改修V02_31: 模試(frameRef=模試ID)は模試名で表示する。
+  if(typeof frameRef==='string' && frameRef && Array.isArray(state.mockExams)
+     && state.mockExams.some(e=>e.examId===frameRef)){
+    return '📝 ' + mockPlanLabel(frameRef);
+  }
   // 改修V02_27: 千本ノックは「🔫 千本ノック(科目名/全科目)」で表示する。
   if(frameRef === '' || frameRef == null){
     return '🔫 千本ノック（' + ((typeof senbonPlanLabel==='function') ? senbonPlanLabel(subject) : (subject||'全科目')) + '）';
@@ -21130,6 +21452,8 @@ function renderStatsChart(byDay, dateKeys){
       // 改修V02_28: 千本ノックはフレーム番号を持たないため表示を分岐
       const frLabel = (fr.kind === 'senbon')
         ? (isRainbow ? '(全科目まとめて実施)' : '千本ノック')
+        : (fr.kind === 'mock')
+        ? (mockPlanLabel(fr.frameRef) + ' ' + (att.attemptNo) + '回目')   // 改修V02_31
         : ('F' + fr.frameRef + ' ' + (att.attemptNo) + '回目' + (att.completed?'(完了)':'(演習中)'));
       segments.push({
         x: xLeft,
@@ -21396,11 +21720,14 @@ function renderStatsDayBody(day){
     // 改修V02_28(改修事項04): 千本ノックはフレームを持たないため表示を分岐。
     //   全科目まとめて実施した分は7色スウォッチ + 「全科目」表示にする。
     const isSbn = (fr.kind === 'senbon');
+    const isMsh = (fr.kind === 'mock');   // 改修V02_31
     const isRainbow = isSbn && fr.isAllSubject === true;
-    const stateLbl = isSbn ? '千本ノック' : (att.completed ? '完了' : '演習中');
+    const stateLbl = isSbn ? '千本ノック' : isMsh ? (att.completed ? ((att.passed?'合格':'不合格')) : '演習中') : (att.completed ? '完了' : '演習中');
     const stateCls = isSbn ? '' : (att.completed ? '' : 'in-progress');
     const fLabel = isSbn
       ? `${escapeHtml(fr.subject)}${isRainbow?'<span class="att-no">全科目まとめて</span>':''}`
+      : isMsh
+      ? `${escapeHtml(fr.subject)} ${escapeHtml(mockPlanLabel(fr.frameRef))}<span class="att-no">${att.attemptNo}回目</span>`
       : `${escapeHtml(fr.subject)} F${escapeHtml(fr.frameRef)}<span class="att-no">${att.attemptNo}回目</span>`;
     const swatchStyle = isRainbow
       ? 'background:linear-gradient(90deg,#E53935 0 14.28%,#FB8C00 14.28% 28.57%,#FDD835 28.57% 42.85%,#43A047 42.85% 57.14%,#1E88E5 57.14% 71.42%,#3949AB 71.42% 85.71%,#8E24AA 85.71% 100%)'
@@ -21796,6 +22123,945 @@ async function init(){  // 改修V2_02: IndexedDB 読み込みを await する�
     }, 1000);
   }
 }
+/* ============================================================================
+   改修V02_31: 模試モード(本試験形式 5肢×10問)
+   ----------------------------------------------------------------------------
+   ・1模試 × 1科目 = 1レコード(state.mockExams)。通常10問(5肢×10問=50肢)。
+   ・出題形式は3種類:
+       single … 5肢(A〜E)から正誤いずれか1つを選ぶ
+       combo  … ア〜オの組合せをA〜Eから選ぶ
+       count  … 該当するものの個数をA〜Eから選ぶ
+   ・判定は二段構え:
+       ① 本番同様の正誤(correctAnswer との一致)
+       ② 5肢それぞれの○×自己採点(choices[].judge との一致)
+     ①を解答するまで②の正誤は表示しない。
+   ・10問終了後に正答数を集計し、passLine(既定4)以上で合格「〇」。
+   ・実施日(複数日にまたがる場合は各日)・実施回数・正答数・合否を mockRuns に記録。
+   ============================================================================ */
+
+const MOCK_MARKS_AZ = ['A','B','C','D','E'];
+const MOCK_MARKS_IROHA = ['ア','イ','ウ','エ','オ'];
+const MOCK_COUNT_LABEL = ['一つ','二つ','三つ','四つ','五つ'];
+const MOCK_PASS_LINE_DEFAULT = 4;
+
+/* ---------- 状態の初期化 ---------- */
+function ensureMockState(){
+  state.mockExams   = Array.isArray(state.mockExams) ? state.mockExams : [];
+  state.mockRuns    = Array.isArray(state.mockRuns) ? state.mockRuns : [];
+  state.mockHistory = Array.isArray(state.mockHistory) ? state.mockHistory : [];
+  if(state.mockSession && typeof state.mockSession !== 'object') state.mockSession = null;
+  state.mockView = (state.mockView && typeof state.mockView==='object') ? state.mockView : {tab:'list', subject:null};
+  state.mockView.tab ||= 'list';
+  if(!('subject' in state.mockView)) state.mockView.subject = null;
+  state.mockProgressView = (state.mockProgressView && typeof state.mockProgressView==='object')
+    ? state.mockProgressView : {mode:'subjects', subject:null};
+  state.mockProgressView.mode ||= 'subjects';
+}
+
+/* ---------- 参照ヘルパー ---------- */
+function mockExamById(examId){
+  ensureMockState();
+  return state.mockExams.find(e=>e && e.examId===examId) || null;
+}
+function mockExamsOfSubject(subject){
+  ensureMockState();
+  return state.mockExams.filter(e=>e && e.subject===subject);
+}
+function mockSubjectsWithExams(){
+  ensureMockState();
+  const set = [];
+  for(const s of SUBJECTS_ORDER){ if(state.mockExams.some(e=>e.subject===s)) set.push(s); }
+  // SUBJECTS_ORDER に無い科目名(自由入力)も拾う
+  for(const e of state.mockExams){
+    if(e && e.subject && set.indexOf(e.subject)<0) set.push(e.subject);
+  }
+  return set;
+}
+function mockPlanQuestionCount(examId){
+  const ex = mockExamById(examId);
+  return ex ? (ex.questions||[]).length : 0;
+}
+function mockRunsOf(examId){
+  ensureMockState();
+  return state.mockRuns.filter(r=>r && r.examId===examId).sort((a,b)=>(a.finishedAt||0)-(b.finishedAt||0));
+}
+/* 予定タブ/進捗タブ用の実施状況サマリー */
+function _mockPlanStatus(examId){
+  const runs = mockRunsOf(examId);
+  const last = runs.length ? runs[runs.length-1] : null;
+  return {
+    runCount: runs.length,
+    lastCorrect: last ? last.correct : 0,
+    lastTotal: last ? last.total : 0,
+    lastPassed: last ? !!last.passed : false,
+    lastTs: last ? (last.finishedAt||0) : 0,
+    inProgress: !!(state.mockSession && state.mockSession.examId === examId)
+  };
+}
+
+/* ---------- 出題形式ヘルパー ---------- */
+function mockChoiceMarks(q){
+  return (q && q.format === 'single') ? MOCK_MARKS_AZ : MOCK_MARKS_IROHA;
+}
+/* 解答選択肢(A〜E)を返す。single は肢そのものが選択肢。 */
+function mockAnswerOptions(q){
+  if(!q) return [];
+  if(q.format === 'single'){
+    return (q.choices||[]).map((c,i)=>({mark: c.mark || MOCK_MARKS_AZ[i], text: ''}));
+  }
+  if(Array.isArray(q.options) && q.options.length){
+    return q.options.map((o,i)=>({mark: o.mark || MOCK_MARKS_AZ[i], text: o.text || ''}));
+  }
+  if(q.format === 'count'){
+    return MOCK_COUNT_LABEL.map((t,i)=>({mark: MOCK_MARKS_AZ[i], text: t}));
+  }
+  return MOCK_MARKS_AZ.map(m=>({mark:m, text:''}));
+}
+/* 正解記号。JSONに correctAnswer が無い場合は肢の judge から算出する。 */
+function mockDeriveAnswer(q){
+  if(!q) return null;
+  if(q.correctAnswer) return q.correctAnswer;
+  const want = (q.askType !== 'wrong');
+  const hit = (q.choices||[]).filter(c=>c.judge === want).map(c=>c.mark);
+  if(q.format === 'single') return hit.length===1 ? hit[0] : null;
+  if(q.format === 'count') return (hit.length>=1 && hit.length<=5) ? MOCK_MARKS_AZ[hit.length-1] : null;
+  const key = hit.slice().sort().join(',');
+  const o = (q.options||[]).find(op=>(op.marks||[]).slice().sort().join(',') === key);
+  return o ? o.mark : null;
+}
+function mockFormatLabel(f){
+  return f==='combo' ? '組合せ型' : (f==='count' ? '個数型' : '正誤型');
+}
+function mockAskLabel(q){
+  return (q && q.askType==='wrong') ? '誤っているもの' : '正しいもの';
+}
+
+/* ---------- JSON取り込み ---------- */
+function importMockExam(obj){
+  ensureMockState();
+  if(!obj || !Array.isArray(obj.questions) || !obj.questions.length) return false;
+  const examName = String(obj.examName||'').trim();
+  const subject  = String(obj.subject||'').trim();
+  if(!examName || !subject) return false;
+
+  const slug = s => String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+  const examId = String(obj.examId||'').trim() || slug(examName) || ('mock_'+Date.now().toString(36));
+
+  const questions = [];
+  obj.questions.forEach((raw, i)=>{
+    if(!raw || typeof raw !== 'object') return;
+    const fmt = (raw.format==='combo' || raw.format==='count') ? raw.format : 'single';
+    const marks = (fmt==='single') ? MOCK_MARKS_AZ : MOCK_MARKS_IROHA;
+    const choices = (Array.isArray(raw.choices) ? raw.choices : []).slice(0,5).map((c,j)=>({
+      mark: (c && c.mark) ? String(c.mark) : marks[j],
+      text: (c && c.text) ? String(c.text) : '',
+      judge: (c && typeof c.judge === 'boolean') ? c.judge : null,
+      explanation: (c && c.explanation) ? String(c.explanation) : ''
+    }));
+    if(!choices.length) return;
+    const q = {
+      id: raw.id || (examId + '_q' + (i+1)),
+      qno: raw.qno || ('問'+(i+1)),
+      law: raw.law || '',
+      category: raw.category || '',
+      format: fmt,
+      askType: (raw.askType === 'wrong') ? 'wrong' : 'correct',
+      instruction: raw.instruction || '',
+      choices,
+      point: raw.point || '',
+      legalBasis: raw.legalBasis || '',
+      difficulty: raw.difficulty || ''
+    };
+    if(fmt !== 'single'){
+      q.options = (Array.isArray(raw.options) ? raw.options : []).slice(0,5).map((o,j)=>({
+        mark: (o && o.mark) ? String(o.mark) : MOCK_MARKS_AZ[j],
+        text: (o && o.text) ? String(o.text) : (fmt==='count' ? MOCK_COUNT_LABEL[j] : ''),
+        marks: (o && Array.isArray(o.marks)) ? o.marks.slice() : [],
+        count: (o && o.count!=null) ? o.count : (fmt==='count' ? j+1 : undefined)
+      }));
+      if(!q.options.length){
+        q.options = (fmt==='count' ? MOCK_COUNT_LABEL : ['','','','','']).map((t,j)=>({
+          mark: MOCK_MARKS_AZ[j], text: t, marks: [], count: (fmt==='count'? j+1 : undefined)
+        }));
+      }
+    }
+    q.correctAnswer = raw.correctAnswer || mockDeriveAnswer(q) || '';
+    if(fmt==='count'){
+      q.correctCount = (raw.correctCount!=null) ? raw.correctCount
+        : (q.correctAnswer ? (MOCK_MARKS_AZ.indexOf(q.correctAnswer)+1) : null);
+    }
+    questions.push(q);
+  });
+  if(!questions.length) return false;
+
+  const exam = {
+    examId, examName, subject,
+    year: obj.year || '',
+    round: obj.round || '',
+    frameNo: (obj.frameNo!=null) ? Number(obj.frameNo) : 1,
+    passLine: (obj.passLine!=null) ? Number(obj.passLine) : MOCK_PASS_LINE_DEFAULT,
+    source: obj.source || '',
+    questions,
+    createdAt: Date.now()
+  };
+  const idx = state.mockExams.findIndex(e=>e && e.examId===examId);
+  if(idx >= 0){
+    // 同じ模試IDは上書き(実施記録 mockRuns は残す)
+    exam.createdAt = state.mockExams[idx].createdAt || Date.now();
+    state.mockExams[idx] = exam;
+  }else{
+    state.mockExams.push(exam);
+  }
+  return true;
+}
+
+/* ---------- 演習セッション ---------- */
+function _mockTodayKey(){
+  try{ return _gDateKey(new Date()); }catch(_){ return new Date().toISOString().slice(0,10); }
+}
+/* タイパ計測セッションを開始する(qtype:'mock')。 */
+function _startMockStudySession(exam, dateKey){
+  const prev = (typeof getActiveSession==='function') ? getActiveSession() : null;
+  if(prev){ try{ finishStudySession(prev.id, {silent:true}); }catch(_){ } }
+  const now = Date.now();
+  const sess = {
+    id: 'ss_' + now + '_' + Math.random().toString(36).slice(2,7),
+    planKey: mockPlanKey(exam.subject, exam.examId),
+    qtype: 'mock',
+    subject: exam.subject,
+    frameRef: exam.examId,
+    dateKey: dateKey || _mockTodayKey(),
+    kind: 'mock',
+    startTs: now, endTs: null,
+    segments: [{start: now, end: null, mode:'A'}],
+    status: 'running',
+    answered: 0, correct: 0
+  };
+  state.studySessions ||= [];
+  state.studySessions.push(sess);
+  state.activeSessionId = sess.id;
+  return sess.id;
+}
+
+/* 模試演習を開始する(進捗タブ・模試タブ・予定タブの共通入口)。 */
+function startMockExamSession(examId, dateKey){
+  ensureMockState();
+  const exam = mockExamById(examId);
+  if(!exam){ alert('この模試のデータが見つかりません。'); return false; }
+  if(!(exam.questions||[]).length){ alert('この模試には問題が登録されていません。'); return false; }
+
+  if(state.mockSession){
+    if(state.mockSession.examId === examId){
+      // 同じ模試の続き → そのまま再開
+      state.mockView.tab = 'run';
+      saveState();
+      switchTab('mock');
+      return true;
+    }
+    const nm = state.mockSession.examName || '別の模試';
+    if(!confirm(nm + ' の演習が進行中です。\n中断して新しい模試を開始しますか?\n(中断した回は記録されません)')) return false;
+    _mockFinishActiveStudySession('partial');
+    state.mockSession = null;
+  }
+
+  const runs = mockRunsOf(examId);
+  state.mockSession = {
+    examId,
+    subject: exam.subject,
+    examName: exam.examName,
+    passLine: (exam.passLine!=null ? exam.passLine : MOCK_PASS_LINE_DEFAULT),
+    attemptNo: runs.length + 1,
+    startedAt: Date.now(),
+    dates: [dateKey || _mockTodayKey()],
+    idx: 0,
+    answers: {},                 // { 問題index: {choice, judges:[5], judged, correct, ts} }
+    studySessionId: null
+  };
+  state.mockSession.studySessionId = _startMockStudySession(exam, dateKey);
+  state.mockView.tab = 'run';
+  saveState();
+  switchTab('mock');
+  return true;
+}
+
+/* 進行中のタイパ計測セッションを確定する */
+function _mockFinishActiveStudySession(outcome){
+  const ms = state.mockSession;
+  if(!ms || !ms.studySessionId) return;
+  const ss = (state.studySessions||[]).find(x=>x.id===ms.studySessionId);
+  if(ss && (ss.status==='running'||ss.status==='paused'||ss.status==='resting')){
+    try{ finishStudySession(ss.id, {outcome: outcome==='partial' ? 'partial' : 'done', silent:true}); }catch(_){ }
+  }
+}
+
+/* 実施日を記録(日をまたいで演習した場合、各日を残す) */
+function _mockTouchDate(){
+  const ms = state.mockSession;
+  if(!ms) return;
+  const dk = _mockTodayKey();
+  ms.dates = Array.isArray(ms.dates) ? ms.dates : [];
+  if(ms.dates.indexOf(dk) < 0) ms.dates.push(dk);
+}
+
+/* 現在の問題に解答する(本番同様の正誤判定) */
+function mockAnswerCurrent(){
+  const ms = state.mockSession;
+  if(!ms) return;
+  const exam = mockExamById(ms.examId);
+  if(!exam) return;
+  const q = exam.questions[ms.idx];
+  const a = ms.answers[ms.idx];
+  if(!a || !a.choice){ alert('解答(A〜E)を選んでください。'); return; }
+  if(a.judged) return;
+
+  const correctMark = mockDeriveAnswer(q);
+  a.judged = true;
+  a.correct = (correctMark != null && a.choice === correctMark);
+  a.ts = Date.now();
+  _mockTouchDate();
+
+  // 肢ごとの自己採点の正誤(judge が未設定の肢は判定対象外)
+  let jCorrect = 0, jTotal = 0;
+  (q.choices||[]).forEach((c,i)=>{
+    if(typeof c.judge !== 'boolean') return;
+    const my = a.judges ? a.judges[i] : null;
+    if(my === null || my === undefined) return;
+    jTotal++;
+    if(my === c.judge) jCorrect++;
+  });
+
+  // タイパ・レゴ用の解答ログ(1問=1レコード)
+  state.mockHistory ||= [];
+  state.mockHistory.push({
+    ts: a.ts,
+    examId: ms.examId,
+    subject: ms.subject,
+    qno: q.qno || ('問'+(ms.idx+1)),
+    correct: !!a.correct,
+    judgeCorrect: jCorrect,
+    judgeTotal: jTotal
+  });
+  saveState();
+  renderMock();
+}
+
+/* 採点して実施記録に残す */
+function mockFinishRun(){
+  const ms = state.mockSession;
+  if(!ms) return;
+  const exam = mockExamById(ms.examId);
+  if(!exam) return;
+  const qs = exam.questions || [];
+  const answered = qs.filter((q,i)=> ms.answers[i] && ms.answers[i].judged).length;
+  if(answered === 0){ alert('まだ1問も解答していません。'); return; }
+  if(answered < qs.length){
+    if(!confirm('未解答が ' + (qs.length - answered) + '問あります。\nこの内容で採点して記録しますか?')) return;
+  }
+  _mockTouchDate();
+
+  let correct = 0, jCorrect = 0, jTotal = 0;
+  const results = [];
+  qs.forEach((q,i)=>{
+    const a = ms.answers[i] || {};
+    const ok = !!(a.judged && a.correct);
+    if(ok) correct++;
+    const judges = [];
+    (q.choices||[]).forEach((c,ci)=>{
+      const my = (a.judges && a.judges[ci] !== undefined) ? a.judges[ci] : null;
+      let jr = null;
+      if(typeof c.judge === 'boolean' && my !== null){
+        jr = (my === c.judge);
+        jTotal++; if(jr) jCorrect++;
+      }
+      judges.push({my, ans: (typeof c.judge==='boolean'? c.judge : null), correct: jr});
+    });
+    results.push({
+      qno: q.qno || ('問'+(i+1)),
+      format: q.format,
+      answer: a.choice || null,
+      correctAnswer: mockDeriveAnswer(q),
+      correct: ok,
+      judges
+    });
+  });
+
+  const passLine = (ms.passLine!=null) ? ms.passLine : MOCK_PASS_LINE_DEFAULT;
+  const run = {
+    id: 'mr_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+    examId: ms.examId,
+    examName: ms.examName || (exam.examName||''),
+    subject: ms.subject,
+    attemptNo: ms.attemptNo || (mockRunsOf(ms.examId).length + 1),
+    dates: (ms.dates||[]).slice(),
+    total: qs.length,
+    answered,
+    correct,
+    passLine,
+    passed: (correct >= passLine),
+    judgeCorrect: jCorrect,
+    judgeTotal: jTotal,
+    startedAt: ms.startedAt || null,
+    finishedAt: Date.now(),
+    results
+  };
+  state.mockRuns ||= [];
+  state.mockRuns.push(run);
+
+  _mockFinishActiveStudySession('done');
+  state.mockSession = null;
+  state.mockView.tab = 'result';
+  state.mockView.lastRunId = run.id;
+  saveState();
+  renderMock();
+}
+
+/* 演習を中断(記録せずに破棄) */
+function mockAbortSession(){
+  if(!state.mockSession) return;
+  if(!confirm('この回の演習を中断します。\n解答内容は記録されません。よろしいですか?')) return;
+  _mockFinishActiveStudySession('partial');
+  state.mockSession = null;
+  state.mockView.tab = 'list';
+  saveState();
+  renderMock();
+}
+
+/* 模試データの削除 */
+function mockDeleteExam(examId){
+  ensureMockState();
+  const ex = mockExamById(examId);
+  if(!ex) return;
+  const runs = mockRunsOf(examId).length;
+  const msg = '「' + (ex.examName||examId) + '」を削除します。\n'
+    + (runs>0 ? ('※ 実施記録 ' + runs + '件も一緒に削除されます。\n') : '')
+    + 'よろしいですか?';
+  if(!confirm(msg)) return;
+  state.mockExams = state.mockExams.filter(e=>e.examId!==examId);
+  state.mockRuns = (state.mockRuns||[]).filter(r=>r.examId!==examId);
+  state.mockHistory = (state.mockHistory||[]).filter(h=>h.examId!==examId);
+  if(state.mockSession && state.mockSession.examId===examId){
+    _mockFinishActiveStudySession('partial');
+    state.mockSession = null;
+    state.mockView.tab = 'list';
+  }
+  saveState();
+  renderMock();
+}
+
+/* ============================================================
+   レゴ(実績)用: 模試の日別集計。
+   buildStatsByDay と同じ形 {dateKey:{date,total,correct,frames:[...]}} を返す。
+   frames[] は「模試」単位で1エントリ(frameRef に模試IDを入れる)。
+   ============================================================ */
+function buildMockStatsByDay(){
+  ensureMockState();
+  const days = {};
+  const hist = state.mockHistory || [];
+  if(!hist.length) return days;
+
+  const bucket = {}; // dateKey -> examId -> {answered, correct, subject}
+  for(const h of hist){
+    if(!h || !h.ts) continue;
+    const dk = statsDateKey(h.ts);
+    const eid = h.examId || '(不明)';
+    bucket[dk] ||= {};
+    bucket[dk][eid] ||= {answered:0, correct:0, subject: h.subject || '未分類'};
+    bucket[dk][eid].answered++;
+    if(h.correct) bucket[dk][eid].correct++;
+  }
+  for(const dk of Object.keys(bucket)){
+    const day = days[dk] = {date:dk, total:0, correct:0, frames:[]};
+    const examMap = bucket[dk];
+    const eids = Object.keys(examMap).sort((a,b)=>{
+      const sa = SUBJECTS_ORDER.indexOf(examMap[a].subject);
+      const sb = SUBJECTS_ORDER.indexOf(examMap[b].subject);
+      return (sa<0?999:sa)-(sb<0?999:sb);
+    });
+    for(const eid of eids){
+      const o = examMap[eid];
+      day.total += o.answered;
+      day.correct += o.correct;
+      // その日に確定した実施回があれば合否も添える
+      const run = (state.mockRuns||[]).filter(r=>r.examId===eid && Array.isArray(r.dates) && r.dates.indexOf(dk)>=0).pop();
+      day.frames.push({
+        subject: o.subject,
+        frameRef: eid,
+        kind: 'mock',
+        attempt: {
+          attemptNo: run ? run.attemptNo : (mockRunsOf(eid).length + 1),
+          answered: o.answered,
+          correct: o.correct,
+          completed: !!run,
+          passed: run ? !!run.passed : false,
+          startedAt: null,
+          completedAt: run ? run.finishedAt : null
+        }
+      });
+    }
+  }
+  return days;
+}
+
+/* ============================================================
+   模試タブの描画
+   ============================================================ */
+function renderMock(){
+  ensureMockState();
+  const root = document.getElementById('mock-content');
+  if(!root) return;
+  const tab = state.mockView.tab;
+  if(tab === 'run' && state.mockSession){ renderMockRun(root); return; }
+  if(tab === 'result'){ renderMockResult(root); return; }
+  if(tab === 'history'){ renderMockHistory(root); return; }
+  renderMockList(root);
+}
+
+function _mockTabsHtml(active){
+  const running = state.mockSession ? '<span class="mk-badge run">演習中</span>' : '';
+  return '<div class="mk-tabs">'
+    + '<button class="mk-tab '+(active==='list'?'active':'')+'" data-mktab="list">📚 模試一覧</button>'
+    + (state.mockSession ? '<button class="mk-tab '+(active==='run'?'active':'')+'" data-mktab="run">▶ 演習'+running+'</button>' : '')
+    + '<button class="mk-tab '+(active==='history'?'active':'')+'" data-mktab="history">🗂 演習履歴</button>'
+    + '</div>';
+}
+
+function _wireMockCommon(root){
+  root.querySelectorAll('[data-mktab]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const t = b.dataset.mktab;
+      if(t==='run' && !state.mockSession) return;
+      state.mockView.tab = t;
+      saveState(); renderMock();
+      window.scrollTo({top:0,behavior:'smooth'});
+    });
+  });
+}
+
+/* ---------- 一覧(科目別フレーム → 模試カード) ---------- */
+function renderMockList(root){
+  const subjects = mockSubjectsWithExams();
+  const totalExams = state.mockExams.length;
+  const totalQs = state.mockExams.reduce((n,e)=>n+((e.questions||[]).length),0);
+
+  let html = '<div class="card progress-intro">'
+    + '<h2 class="prog-h2">模試 <span class="prog-sub">本試験形式(5肢×10問)の実践演習</span></h2>'
+    + _mockTabsHtml('list')
+    + '<div class="diag-line">登録模試 <b>'+totalExams+'件</b>　問題 <b>'+totalQs+'問</b>（5肢×'+totalQs+'＝'+(totalQs*5)+'肢）</div>'
+    + '<p class="prog-desc">科目を選ぶと、その科目に登録した模試が表示されます。1回分（通常10問）を通しで解き、<strong>本番同様の正誤</strong>と<strong>5肢それぞれの○×自己採点</strong>の両方で振り返れます。'
+    + '<br><span style="color:var(--ink-muted)">※ 正答数が合格ライン以上なら「〇」。実施日・実施回数・正答数・合否は「演習履歴」に残ります。</span></p>'
+    + '</div>';
+
+  if(state.mockSession){
+    const ms = state.mockSession;
+    const ex = mockExamById(ms.examId);
+    const done = ex ? (ex.questions||[]).filter((q,i)=>ms.answers[i] && ms.answers[i].judged).length : 0;
+    const tot = ex ? (ex.questions||[]).length : 0;
+    html += '<div class="card mk-resume">'
+      + '<div class="mk-resume-txt"><b>'+escapeHtml(ms.examName||'')+'</b>（'+escapeHtml(ms.subject||'')+'）を演習中です　'+done+' / '+tot+'問 解答済</div>'
+      + '<div class="mk-resume-act">'
+      + '<button class="btn" data-mkresume="1">▶ 続きから</button>'
+      + '<button class="btn ghost" data-mkabort="1">中断して破棄</button>'
+      + '</div></div>';
+  }
+
+  if(!totalExams){
+    html += '<div class="card"><div class="empty" style="padding:28px"><div class="ico">―</div>'
+      + '模試がまだ登録されていません。<br>「管理」タブ →「JSONインポート」から <code>type:"mock-exam"</code> のJSONを取り込んでください。'
+      + '</div></div>';
+    root.innerHTML = html;
+    _wireMockCommon(root);
+    _wireMockList(root);
+    return;
+  }
+
+  const cur = state.mockView.subject;
+  if(!cur){
+    html += '<div class="card subjects-card"><div class="subjects-grid">';
+    for(const s of subjects){
+      const exams = mockExamsOfSubject(s);
+      let doneCnt = 0;
+      for(const e of exams){ if(mockRunsOf(e.examId).length) doneCnt++; }
+      const status = (exams.length && doneCnt===exams.length) ? 'done' : (doneCnt>0 ? 'partial' : 'fresh');
+      html += '<div class="subject-card '+status+'" data-mksubject="'+escapeHtml(s)+'">'
+        + '<div class="sc-name">'+escapeHtml(s)+'</div>'
+        + '<div class="sc-stats"><span class="sc-stat">'+exams.length+'模試 / '+doneCnt+'実施済</span></div>'
+        + '</div>';
+    }
+    html += '</div></div>';
+  }else{
+    html += '<div class="card subjects-card">'
+      + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">'
+      + '<button class="btn ghost" data-mkback="1">← 科目一覧</button>'
+      + '<b>'+escapeHtml(cur)+'</b></div>';
+    const exams = mockExamsOfSubject(cur);
+    if(!exams.length){
+      html += '<div class="empty" style="padding:20px"><div class="ico">―</div>この科目の模試はまだありません。</div>';
+    }else{
+      html += '<div class="mk-exam-grid">';
+      for(const e of exams) html += _mockExamCardHtml(e, true);
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  root.innerHTML = html;
+  _wireMockCommon(root);
+  _wireMockList(root);
+}
+
+function _mockExamCardHtml(e, withDelete){
+  const st = _mockPlanStatus(e.examId);
+  const n = (e.questions||[]).length;
+  const col = statsSubjectColor(e.subject);
+  const meta = [e.year, e.round].filter(Boolean).join(' ');
+  let statLine;
+  if(st.runCount){
+    statLine = '<span class="mk-stat">'+st.runCount+'回実施</span>'
+      + '<span class="mk-stat">直近 '+st.lastCorrect+' / '+st.lastTotal+'問</span>'
+      + '<span class="mk-pass '+(st.lastPassed?'ok':'ng')+'">'+(st.lastPassed?'〇 合格':'× 不合格')+'</span>';
+  }else{
+    statLine = '<span class="mk-stat none">未実施</span>';
+  }
+  return '<div class="mk-exam-card" style="border-left-color:'+col+'">'
+    + '<div class="mk-exam-head">'
+    + '<div class="mk-exam-name">'+escapeHtml(e.examName||e.examId)+'</div>'
+    + (meta ? '<div class="mk-exam-meta">'+escapeHtml(meta)+'</div>' : '')
+    + '</div>'
+    + '<div class="mk-exam-stats"><span class="mk-stat">'+n+'問（'+(n*5)+'肢）</span>'
+    + '<span class="mk-stat">合格ライン '+(e.passLine!=null?e.passLine:MOCK_PASS_LINE_DEFAULT)+'問</span>'
+    + statLine + '</div>'
+    + '<div class="mk-exam-act">'
+    + '<button class="btn" data-mkstart="'+escapeHtml(e.examId)+'">'+(st.inProgress?'▶ 続きから':'▶ 演習開始')+'</button>'
+    + '<button class="plan-edit-btn" data-mkplan="'+escapeHtml(e.examId)+'" data-subj="'+escapeHtml(e.subject)+'">📅 予定</button>'
+    + (withDelete ? '<button class="btn ghost danger" data-mkdel="'+escapeHtml(e.examId)+'">削除</button>' : '')
+    + '</div></div>';
+}
+
+function _wireMockList(root){
+  root.querySelectorAll('[data-mksubject]').forEach(el=>{
+    el.addEventListener('click', ()=>{ state.mockView.subject = el.dataset.mksubject; saveState(); renderMock(); });
+  });
+  root.querySelectorAll('[data-mkback]').forEach(el=>{
+    el.addEventListener('click', ()=>{ state.mockView.subject = null; saveState(); renderMock(); });
+  });
+  root.querySelectorAll('[data-mkstart]').forEach(el=>{
+    el.addEventListener('click', ()=> startMockExamSession(el.dataset.mkstart));
+  });
+  root.querySelectorAll('[data-mkdel]').forEach(el=>{
+    el.addEventListener('click', ()=> mockDeleteExam(el.dataset.mkdel));
+  });
+  root.querySelectorAll('[data-mkplan]').forEach(el=>{
+    el.addEventListener('click', ()=> openPlanEditModal(el.dataset.subj, el.dataset.mkplan, 'mock', false, false, true));
+  });
+  root.querySelectorAll('[data-mkresume]').forEach(el=>{
+    el.addEventListener('click', ()=>{ state.mockView.tab='run'; saveState(); renderMock(); });
+  });
+  root.querySelectorAll('[data-mkabort]').forEach(el=>{
+    el.addEventListener('click', ()=> mockAbortSession());
+  });
+}
+
+/* ---------- 演習画面 ---------- */
+function renderMockRun(root){
+  const ms = state.mockSession;
+  const exam = mockExamById(ms.examId);
+  if(!exam){ state.mockSession=null; state.mockView.tab='list'; saveState(); renderMock(); return; }
+  const qs = exam.questions || [];
+  if(ms.idx < 0) ms.idx = 0;
+  if(ms.idx > qs.length-1) ms.idx = qs.length-1;
+  const q = qs[ms.idx];
+  const a = ms.answers[ms.idx] = ms.answers[ms.idx] || {choice:null, judges:[null,null,null,null,null], judged:false, correct:false};
+  if(!Array.isArray(a.judges)) a.judges = [null,null,null,null,null];
+
+  const answeredCnt = qs.filter((x,i)=> ms.answers[i] && ms.answers[i].judged).length;
+  const correctCnt  = qs.filter((x,i)=> ms.answers[i] && ms.answers[i].judged && ms.answers[i].correct).length;
+
+  // ヘッダー
+  let html = '<div class="card mk-run-head">'
+    + '<div class="mk-run-title"><b>'+escapeHtml(exam.examName||'')+'</b>'
+    + '<span class="mk-run-sub">'+escapeHtml(exam.subject||'')+(exam.year?(' / '+escapeHtml(exam.year)):'')+'　'+ (ms.attemptNo||1) +'回目</span></div>'
+    + '<div class="mk-run-progress">解答 '+answeredCnt+' / '+qs.length+'　正答 '+correctCnt
+    + '　<span class="mk-pass '+(correctCnt>=ms.passLine?'ok':'ng')+'">合格ライン '+ms.passLine+'問</span></div>'
+    + '<div class="mk-dots">';
+  qs.forEach((x,i)=>{
+    const aa = ms.answers[i];
+    const cls = (i===ms.idx) ? 'cur' : (aa && aa.judged ? (aa.correct?'ok':'ng') : '');
+    html += '<button class="mk-dot '+cls+'" data-mkgo="'+i+'" title="'+escapeHtml(x.qno||('問'+(i+1)))+'">'+(i+1)+'</button>';
+  });
+  html += '</div>'
+    + '<div class="mk-run-act">'
+    + '<button class="btn ghost" data-mkabort="1">中断</button>'
+    + '<button class="btn primary" data-mkfinish="1">採点して記録する</button>'
+    + '</div></div>';
+
+  // 問題本体
+  const marks = mockChoiceMarks(q);
+  const opts = mockAnswerOptions(q);
+  const correctMark = mockDeriveAnswer(q);
+
+  html += '<div class="card mk-q">'
+    + '<div class="mk-q-head">'
+    + '<span class="mk-q-no">'+escapeHtml(q.qno || ('問'+(ms.idx+1)))+'</span>'
+    + '<span class="mk-q-tag">'+mockFormatLabel(q.format)+'</span>'
+    + (q.law ? '<span class="mk-q-tag law">'+escapeHtml(q.law)+'</span>' : '')
+    + (q.category ? '<span class="mk-q-tag">'+escapeHtml(q.category)+'</span>' : '')
+    + (q.difficulty ? '<span class="mk-q-tag">難易度 '+escapeHtml(q.difficulty)+'</span>' : '')
+    + '</div>'
+    + '<div class="mk-q-inst">'+escapeHtml(q.instruction||'')+'</div>';
+
+  // 5肢
+  html += '<div class="mk-choices">';
+  (q.choices||[]).forEach((c,i)=>{
+    const my = a.judges[i];
+    const jr = (a.judged && typeof c.judge==='boolean' && my!==null) ? (my===c.judge) : null;
+    html += '<div class="mk-choice '+(a.judged?'judged':'')+'">'
+      + '<div class="mk-choice-body">'
+      + '<div class="mk-choice-top">'
+      + '<span class="mk-mark">'+escapeHtml(c.mark||marks[i])+'</span>'
+      + '<span class="mk-judge">'
+      + '<button class="mk-jb '+(my===true?'on-o':'')+'" data-mkjudge="'+i+'" data-val="o" '+(a.judged?'disabled':'')+'>○</button>'
+      + '<button class="mk-jb '+(my===false?'on-x':'')+'" data-mkjudge="'+i+'" data-val="x" '+(a.judged?'disabled':'')+'>×</button>'
+      + '</span>'
+      + (jr===null ? '' : '<span class="mk-jres '+(jr?'ok':'ng')+'">'+(jr?'自己採点 ○':'自己採点 ×')+'（正 '+(c.judge?'○':'×')+'）</span>')
+      + '</div>'
+      + '<div class="mk-choice-text">'+escapeHtml(c.text||'')+'</div>'
+      + '</div>'
+      + (a.judged && c.explanation
+          ? '<div class="mk-exp"><div class="mk-exp-h">解説</div><div class="mk-exp-b">'+escapeHtml(c.explanation)+'</div></div>'
+          : '')
+      + '</div>';
+  });
+  html += '</div>';
+
+  // 解答欄
+  html += '<div class="mk-answer">'
+    + '<div class="mk-answer-h">解答（'+mockAskLabel(q)+(q.format==='count'?'はいくつあるか':'を選ぶ')+'）</div>'
+    + '<div class="mk-opts">';
+  opts.forEach(o=>{
+    const sel = (a.choice === o.mark);
+    let cls = 'mk-opt' + (sel?' sel':'');
+    if(a.judged){
+      if(o.mark === correctMark) cls += ' correct';
+      else if(sel) cls += ' wrong';
+    }
+    html += '<button class="'+cls+'" data-mkopt="'+escapeHtml(o.mark)+'" '+(a.judged?'disabled':'')+'>'
+      + '<span class="mk-opt-mark">'+escapeHtml(o.mark)+'</span>'
+      + (o.text ? '<span class="mk-opt-text">'+escapeHtml(o.text)+'</span>' : '')
+      + '</button>';
+  });
+  html += '</div>';
+
+  if(!a.judged){
+    html += '<div class="mk-answer-act"><button class="btn primary" data-mkdecide="1">この解答で判定する</button>'
+      + '<span class="mk-hint">判定するまで、5肢の○×の正誤は表示されません。</span></div>';
+  }else{
+    const okTxt = a.correct ? '正解' : '不正解';
+    html += '<div class="mk-result '+(a.correct?'ok':'ng')+'">'
+      + '<b>'+okTxt+'</b>　あなたの解答 '+escapeHtml(a.choice||'—')+' / 正解 '+escapeHtml(correctMark||'—')
+      + '</div>';
+    if(q.point) html += '<div class="mk-point"><b>ポイント</b>　'+escapeHtml(q.point)+'</div>';
+    if(q.legalBasis) html += '<div class="mk-basis">根拠：'+escapeHtml(q.legalBasis)+'</div>';
+  }
+  html += '</div>';
+
+  // ナビ
+  html += '<div class="mk-nav">'
+    + '<button class="btn ghost" data-mkprev="1" '+(ms.idx<=0?'disabled':'')+'>← 前の問題</button>'
+    + '<span class="mk-nav-mid">'+(ms.idx+1)+' / '+qs.length+'</span>'
+    + '<button class="btn" data-mknext="1" '+(ms.idx>=qs.length-1?'disabled':'')+'>次の問題 →</button>'
+    + '</div>';
+
+  html += '</div>';
+
+  root.innerHTML = _mockTabsHtml('run') + html;
+  _wireMockCommon(root);
+
+  root.querySelectorAll('[data-mkjudge]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const i = parseInt(b.dataset.mkjudge,10);
+      const v = (b.dataset.val === 'o');
+      a.judges[i] = (a.judges[i] === v) ? null : v;
+      saveState(); renderMock();
+    });
+  });
+  root.querySelectorAll('[data-mkopt]').forEach(b=>{
+    b.addEventListener('click', ()=>{ a.choice = b.dataset.mkopt; saveState(); renderMock(); });
+  });
+  root.querySelectorAll('[data-mkdecide]').forEach(b=> b.addEventListener('click', ()=> mockAnswerCurrent()));
+  root.querySelectorAll('[data-mkprev]').forEach(b=> b.addEventListener('click', ()=>{ ms.idx--; saveState(); renderMock(); window.scrollTo({top:0,behavior:'smooth'}); }));
+  root.querySelectorAll('[data-mknext]').forEach(b=> b.addEventListener('click', ()=>{ ms.idx++; saveState(); renderMock(); window.scrollTo({top:0,behavior:'smooth'}); }));
+  root.querySelectorAll('[data-mkgo]').forEach(b=> b.addEventListener('click', ()=>{ ms.idx = parseInt(b.dataset.mkgo,10); saveState(); renderMock(); window.scrollTo({top:0,behavior:'smooth'}); }));
+  root.querySelectorAll('[data-mkabort]').forEach(b=> b.addEventListener('click', ()=> mockAbortSession()));
+  root.querySelectorAll('[data-mkfinish]').forEach(b=> b.addEventListener('click', ()=> mockFinishRun()));
+}
+
+/* ---------- 結果画面 ---------- */
+function renderMockResult(root){
+  const run = (state.mockRuns||[]).find(r=>r.id === state.mockView.lastRunId);
+  if(!run){ state.mockView.tab='list'; renderMock(); return; }
+  const pct = run.total>0 ? Math.round(run.correct/run.total*100) : 0;
+  const jpct = run.judgeTotal>0 ? Math.round(run.judgeCorrect/run.judgeTotal*100) : null;
+
+  let html = '<div class="card mk-result-card">'
+    + '<div class="mk-result-verdict '+(run.passed?'ok':'ng')+'">'+(run.passed?'〇 合格':'× 不合格')+'</div>'
+    + '<div class="mk-result-name">'+escapeHtml(run.examName||'')+'　<span>'+escapeHtml(run.subject||'')+' / '+run.attemptNo+'回目</span></div>'
+    + '<div class="mk-result-grid">'
+    + '<div class="mk-rg"><span class="l">正答数</span><span class="v">'+run.correct+' <small>/ '+run.total+'</small></span></div>'
+    + '<div class="mk-rg"><span class="l">正答率</span><span class="v">'+pct+'<small>%</small></span></div>'
+    + '<div class="mk-rg"><span class="l">合格ライン</span><span class="v">'+run.passLine+' <small>問</small></span></div>'
+    + '<div class="mk-rg"><span class="l">肢別自己採点</span><span class="v">'+(jpct===null?'—':(jpct+'<small>%</small>'))+'</span></div>'
+    + '</div>'
+    + '<div class="mk-result-dates">実施日：'+escapeHtml((run.dates||[]).join(' / '))+'</div>'
+    + '<div class="mk-result-table"><table><thead><tr><th>問</th><th>解答</th><th>正解</th><th>判定</th><th>肢別自己採点</th></tr></thead><tbody>';
+  for(const r of (run.results||[])){
+    const j = (r.judges||[]).filter(x=>x.correct!==null);
+    const jok = j.filter(x=>x.correct).length;
+    html += '<tr>'
+      + '<td>'+escapeHtml(r.qno||'')+'</td>'
+      + '<td>'+escapeHtml(r.answer||'—')+'</td>'
+      + '<td>'+escapeHtml(r.correctAnswer||'—')+'</td>'
+      + '<td class="'+(r.correct?'ok':'ng')+'">'+(r.correct?'○':'×')+'</td>'
+      + '<td>'+(j.length? (jok+' / '+j.length) : '—')+'</td>'
+      + '</tr>';
+  }
+  html += '</tbody></table></div>'
+    + '<div class="mk-result-act">'
+    + '<button class="btn" data-mkagain="'+escapeHtml(run.examId)+'">もう一度この模試を解く</button>'
+    + '<button class="btn ghost" data-mktab="history">演習履歴を見る</button>'
+    + '<button class="btn ghost" data-mktab="list">模試一覧へ</button>'
+    + '</div></div>';
+
+  root.innerHTML = _mockTabsHtml('list') + html;
+  _wireMockCommon(root);
+  root.querySelectorAll('[data-mkagain]').forEach(b=> b.addEventListener('click', ()=> startMockExamSession(b.dataset.mkagain)));
+}
+
+/* ---------- 演習履歴 ---------- */
+function renderMockHistory(root){
+  ensureMockState();
+  const runs = (state.mockRuns||[]).slice().sort((a,b)=>(b.finishedAt||0)-(a.finishedAt||0));
+  let html = '<div class="card progress-intro">'
+    + '<h2 class="prog-h2">演習履歴 <span class="prog-sub">実施日・実施回数・正答数・合否</span></h2>'
+    + _mockTabsHtml('history')
+    + '<div class="diag-line">実施記録 <b>'+runs.length+'件</b>'
+    + (runs.length ? ('　合格 <b>'+runs.filter(r=>r.passed).length+'</b> / 不合格 <b>'+runs.filter(r=>!r.passed).length+'</b>') : '')
+    + '</div></div>';
+
+  if(!runs.length){
+    html += '<div class="card"><div class="empty" style="padding:28px"><div class="ico">―</div>まだ演習の記録がありません。</div></div>';
+    root.innerHTML = html; _wireMockCommon(root); return;
+  }
+
+  // 模試ごとにまとめる
+  const byExam = {};
+  for(const r of runs){ (byExam[r.examId] ||= []).push(r); }
+  html += '<div class="card">';
+  for(const eid of Object.keys(byExam)){
+    const list = byExam[eid].slice().sort((a,b)=>(a.attemptNo||0)-(b.attemptNo||0));
+    const head = list[list.length-1];
+    const col = statsSubjectColor(head.subject);
+    html += '<div class="mk-hist-group" style="border-left-color:'+col+'">'
+      + '<div class="mk-hist-head"><b>'+escapeHtml(head.examName||eid)+'</b>'
+      + '<span class="mk-hist-sub">'+escapeHtml(head.subject||'')+'　'+list.length+'回実施</span></div>'
+      + '<table class="mk-hist-table"><thead><tr><th>回</th><th>実施日</th><th>正答</th><th>正答率</th><th>肢別</th><th>合否</th></tr></thead><tbody>';
+    for(const r of list){
+      const pct = r.total>0 ? Math.round(r.correct/r.total*100)+'%' : '—';
+      const jp = r.judgeTotal>0 ? Math.round(r.judgeCorrect/r.judgeTotal*100)+'%' : '—';
+      html += '<tr>'
+        + '<td>'+(r.attemptNo||'')+'</td>'
+        + '<td>'+escapeHtml((r.dates||[]).join(' / '))+'</td>'
+        + '<td>'+r.correct+' / '+r.total+'</td>'
+        + '<td>'+pct+'</td>'
+        + '<td>'+jp+'</td>'
+        + '<td class="'+(r.passed?'ok':'ng')+'">'+(r.passed?'〇':'×')+'</td>'
+        + '</tr>';
+    }
+    html += '</tbody></table>'
+      + '<div class="mk-hist-act"><button class="btn" data-mkstart="'+escapeHtml(eid)+'">▶ もう一度解く</button></div>'
+      + '</div>';
+  }
+  html += '</div>';
+
+  root.innerHTML = html;
+  _wireMockCommon(root);
+  root.querySelectorAll('[data-mkstart]').forEach(el=> el.addEventListener('click', ()=> startMockExamSession(el.dataset.mkstart)));
+}
+
+/* ============================================================
+   進捗管理タブ(🅒 模試軸)の描画
+   科目一覧 → その科目の模試カード(演習開始 / 予定)
+   ============================================================ */
+function renderMockProgress(root){
+  ensureMockState();
+  const kindMode = normalizeProgressKindMode(state.progressView.kindMode || 'pastA');
+  const subjects = mockSubjectsWithExams();
+  let totalExams = state.mockExams.length, doneExams = 0;
+  for(const e of state.mockExams){ if(mockRunsOf(e.examId).length) doneExams++; }
+
+  const summary = '<div class="diag-line">登録模試 <b>'+totalExams+'件</b>（科目×模試1回分）　実施済 <b>'+doneExams+'</b>'
+    + (state.mockSession ? '　<span style="color:var(--accent)">進行中 1</span>' : '') + '</div>';
+
+  let html = '<div class="card progress-intro">'
+    + '<h2 class="prog-h2">進捗管理 <span class="prog-sub">模試・科目×模試1回分（5肢×10問）</span></h2>'
+    + progressSubTabsHtml(kindMode)
+    + summary
+    + '<p class="prog-desc">模試は<strong>科目ごと・模試ごとに1回分（通常10問）</strong>を1セットとして演習します。「演習開始」で本試験形式の演習に入り、「予定」で実施日と復習日を登録できます。'
+    + '<br><span style="color:var(--ink-muted)">※ 実績（タイパ・レゴ）には、模試で解答した問題数が「模試」種別で計上されます。</span></p>'
+    + '</div>';
+
+  if(!totalExams){
+    html += '<div class="card"><div class="empty" style="padding:24px"><div class="ico">―</div>模試がまだ登録されていません。「管理」タブ →「JSONインポート」から取り込んでください。</div></div>';
+    root.innerHTML = html;
+    root.querySelectorAll('.prog-subtab').forEach(t=>t.addEventListener('click',()=>_handleProgSubTabClick(t)));
+    return;
+  }
+
+  const cur = state.mockProgressView.subject;
+  if(state.mockProgressView.mode === 'exams' && cur){
+    html += '<div class="card subjects-card">'
+      + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">'
+      + '<button class="btn ghost" data-mkpback="1">← 科目一覧</button><b>'+escapeHtml(cur)+'</b></div>'
+      + '<div class="mk-exam-grid">';
+    for(const e of mockExamsOfSubject(cur)) html += _mockExamCardHtml(e, false);
+    html += '</div></div>';
+  }else{
+    html += '<div class="card subjects-card"><div class="subjects-grid">';
+    for(const s of subjects){
+      const exams = mockExamsOfSubject(s);
+      let done = 0;
+      for(const e of exams){ if(mockRunsOf(e.examId).length) done++; }
+      const status = (exams.length && done===exams.length) ? 'done' : (done>0 ? 'partial' : 'fresh');
+      html += '<div class="subject-card '+status+'" data-mkpsubject="'+escapeHtml(s)+'">'
+        + '<div class="sc-name">'+escapeHtml(s)+'</div>'
+        + '<div class="sc-stats"><span class="sc-stat">'+exams.length+'模試 / '+done+'実施済</span></div>'
+        + '</div>';
+    }
+    html += '</div></div>';
+  }
+
+  root.innerHTML = html;
+  root.querySelectorAll('.prog-subtab').forEach(t=>t.addEventListener('click',()=>_handleProgSubTabClick(t)));
+  root.querySelectorAll('[data-mkpsubject]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      state.mockProgressView.mode = 'exams';
+      state.mockProgressView.subject = el.dataset.mkpsubject;
+      saveState(); renderProgress();
+    });
+  });
+  root.querySelectorAll('[data-mkpback]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      state.mockProgressView.mode = 'subjects';
+      state.mockProgressView.subject = null;
+      saveState(); renderProgress();
+    });
+  });
+  root.querySelectorAll('[data-mkstart]').forEach(el=> el.addEventListener('click', ()=> startMockExamSession(el.dataset.mkstart)));
+  root.querySelectorAll('[data-mkplan]').forEach(el=>{
+    el.addEventListener('click', ()=> openPlanEditModal(el.dataset.subj, el.dataset.mkplan, 'mock', false, false, true));
+  });
+}
+
+
 init().catch(err=>console.error('init failed', err));
 </script>
 </body>
