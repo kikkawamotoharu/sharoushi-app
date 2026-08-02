@@ -5991,9 +5991,6 @@ function loadState(){
       if(!('examName' in s.mockView)) s.mockView.examName = null;
       if(!('subject' in s.mockView)) s.mockView.subject = null;
       s.mockSession = (s.mockSession && typeof s.mockSession==='object') ? s.mockSession : null;
-      // 模試の予定(模試モード内・独立)。studyPlans とは別物で既存予定に影響しない。
-      //   { "examName|subject": { dates:["YYYY-MM-DD",...], note:"" } }
-      s.mockPlans = (s.mockPlans && typeof s.mockPlans==='object') ? s.mockPlans : {};
       // 弱点問題の追加 (後方互換)
       s.weakSession ||= {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu'};
       s.weakSession.answered ||= false;
@@ -6304,7 +6301,6 @@ function loadState(){
     mockHistory: [],
     mockView: {mode:'exams', examName:null, subject:null},
     mockSession: null,
-    mockPlans: {},
     studyPlans: {},
     planView: {date:null},
     // 改修31: タイパ(実績タイムテーブル)
@@ -9879,7 +9875,6 @@ function restoreBackup(){
         state.mockHistory = Array.isArray(state.mockHistory) ? state.mockHistory : [];
         state.mockView = (state.mockView && typeof state.mockView==='object') ? state.mockView : {mode:'exams', examName:null, subject:null};
         state.mockSession = (state.mockSession && typeof state.mockSession==='object') ? state.mockSession : null;
-        state.mockPlans = (state.mockPlans && typeof state.mockPlans==='object') ? state.mockPlans : {};
         state.senbon = Array.isArray(state.senbon) ? state.senbon : [];
         state.senbonHistory = Array.isArray(state.senbonHistory) ? state.senbonHistory : [];
         state.senbonDrafts = Array.isArray(state.senbonDrafts) ? state.senbonDrafts : [];
@@ -14305,6 +14300,22 @@ function mockHistoryOf(examName, subject){
     .sort((a,b)=>b.ts-a.ts);
 }
 
+/* A案: 予定タブ/実績用。模試×科目の登録問題数 */
+function mockPlanQuestionCount(examName, subject){
+  return (state.mockExams||[]).filter(q=>q && q.examName===examName && q.subject===subject).length;
+}
+/* A案: 予定ボックスの実施状況(履歴ベース) */
+function _mockPlanStatus(examName, subject){
+  const hist = mockHistoryOf(examName, subject);
+  const last = hist[0] || null;
+  return {
+    runCount: hist.length,
+    lastCorrect: last ? last.correctCount : 0,
+    lastTotal: last ? last.total : 0,
+    lastPassed: last ? last.passed : null
+  };
+}
+
 /* ---------- 描画ルート ---------- */
 function renderMock(){
   const root = document.getElementById('mock-content');
@@ -14374,59 +14385,18 @@ function renderMockSubjects(root){
       else verdict = '<span style="color:var(--ink-muted)">合否対象外(10問未満)</span>';
       passLine = `<div class="mt-meta">直近: ${last.correctCount}/${last.total}問 　${verdict}</div>`;
     }
-    // 予定サマリ
-    const st = mockPlanStatus(exam, sub);
-    let planLine = '';
-    if(st.length){
-      const doneN = st.filter(o=>o.done).length;
-      const nextUndone = st.find(o=>!o.done);
-      planLine = `<div class="mt-meta" style="color:var(--accent)">📅 予定 ${st.length}日${nextUndone?`　次: ${escapeHtml(nextUndone.date)}`:'　全て実施済み'} (${doneN}/${st.length})</div>`;
-    }
-    html += `<div class="mock-tile-wrap" style="display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--paper)">
-      <div class="mock-tile" data-mock-subject="${escapeHtml(sub)}" style="border:none;border-radius:0;box-shadow:none">
-        <div class="mt-title">${escapeHtml(sub)}</div>
-        <div class="mt-sub">${metaLine}${runs?` ・ 実施${runs}回`:''}</div>
-        ${passLine}
-        ${planLine}
-      </div>
-      <div style="display:flex;border-top:1px solid var(--line-soft)">
-        <button data-mock-start="${escapeHtml(sub)}" style="flex:1;padding:9px;border:none;background:var(--accent);color:#fff;font-size:12.5px;font-weight:600;cursor:pointer">演習開始</button>
-        <button data-mock-plan="${escapeHtml(sub)}" style="flex:1;padding:9px;border:none;border-left:1px solid rgba(255,255,255,.25);background:var(--bg);color:var(--accent);font-size:12.5px;font-weight:600;cursor:pointer">📅 予定</button>
-      </div>
+    html += `<div class="mock-tile" data-mock-subject="${escapeHtml(sub)}">
+      <div class="mt-title">${escapeHtml(sub)}</div>
+      <div class="mt-sub">${metaLine}${runs?` ・ 実施${runs}回`:''}</div>
+      ${passLine}
     </div>`;
   }
   html += `</div>`;
 
-  // この模試の予定(全科目)を日付順に俯瞰
-  const planRows = [];
-  for(const sub of subs){
-    const st = mockPlanStatus(exam, sub);
-    for(const o of st) planRows.push({subject:sub, date:o.date, done:o.done});
-  }
-  planRows.sort((a,b)=> a.date.localeCompare(b.date) || a.subject.localeCompare(b.subject));
-  html += `<div style="height:24px"></div>`;
-  html += `<div class="mock-head"><h2 style="font-size:15px">📅 演習予定</h2></div>`;
-  if(!planRows.length){
-    html += `<div class="mock-hist-empty">まだ予定がありません。各科目の「📅 予定」ボタンから実施予定日を登録できます(数日にわたる実施も登録可)。</div>`;
-  }else{
-    const todayK = _todayKey();
-    html += `<div style="overflow-x:auto"><table class="mock-hist-table">
-      <thead><tr><th>予定日</th><th>科目</th><th>状態</th></tr></thead><tbody>`;
-    for(const r of planRows){
-      const isPast = r.date < todayK;
-      let stTxt, stCls;
-      if(r.done){ stTxt='✓ 実施済み'; stCls='pass'; }
-      else if(isPast){ stTxt='⚠ 未実施(過ぎています)'; stCls='fail'; }
-      else if(r.date===todayK){ stTxt='本日予定'; stCls=''; }
-      else { stTxt='予定'; stCls=''; }
-      html += `<tr>
-        <td>${escapeHtml(r.date)}</td>
-        <td>${escapeHtml(r.subject)}</td>
-        <td class="${stCls}">${stTxt}</td>
-      </tr>`;
-    }
-    html += `</tbody></table></div>`;
-  }
+  // 予定・実績の案内(A案: 予定は進捗タブ側で管理し、実績タイムテーブルに乗る)
+  html += `<div style="margin-top:14px;font-size:12px;color:var(--ink-muted);line-height:1.7">
+    📅 模試の学習予定は「進捗」タブ →「予定」で、科目ごとに開始日・時間帯・復習サイクルを設定できます(択一・選択式と同じ方式)。設定した予定は「実績」タブのタイムテーブルにも表示されます。
+  </div>`;
 
   // 演習履歴(この模試の全科目)
   const allHist = (state.mockHistory||[]).filter(h=>h.examName===exam).sort((a,b)=>b.ts-a.ts);
@@ -14454,13 +14424,6 @@ function renderMockSubjects(root){
 
   root.innerHTML = html;
   bindMockBack(root);
-  root.querySelectorAll('[data-mock-start]').forEach(el=>{
-    el.addEventListener('click',()=>{ startMockSession(exam, el.dataset.mockStart); });
-  });
-  root.querySelectorAll('[data-mock-plan]').forEach(el=>{
-    el.addEventListener('click',()=>{ openMockPlanEditor(exam, el.dataset.mockPlan); });
-  });
-  // タイル本体クリックでも演習開始(従来動作を維持)
   root.querySelectorAll('[data-mock-subject]').forEach(el=>{
     el.addEventListener('click',()=>{ startMockSession(exam, el.dataset.mockSubject); });
   });
@@ -14754,6 +14717,12 @@ function recordMockResult(examName, subject, qs, prog, correctCount, total, pass
   };
   state.mockHistory = state.mockHistory || [];
   state.mockHistory.push(rec);
+  // A案: 当日に該当する模試予定があれば「完了」を立てる(予定タブ/タイムテーブルと連動)
+  try{
+    const pk = mockPlanKey(examName, subject);
+    const plan = state.studyPlans && state.studyPlans[pk];
+    if(plan){ plan.done ||= {}; plan.done[dateKey] = true; }
+  }catch(_){}
   state.mockSession = null;
   state.mockView = {mode:'subjects', examName, subject:null};
   saveState();
@@ -14761,116 +14730,64 @@ function recordMockResult(examName, subject, qs, prog, correctCount, total, pass
   try{ if(typeof toast==='function') toast('演習履歴に記録しました'); }catch(_){}
 }
 
-/* ---------- 模試の予定(模試モード内・独立機能) ---------- */
-function mockPlanKey(examName, subject){ return examName + '|' + subject; }
-function getMockPlan(examName, subject){
-  state.mockPlans = state.mockPlans || {};
-  return state.mockPlans[mockPlanKey(examName, subject)] || null;
-}
-/* 予定日を追加(重複日は無視)。dates は昇順で保持。 */
-function addMockPlanDate(examName, subject, dateKey){
-  if(!dateKey) return;
-  state.mockPlans = state.mockPlans || {};
-  const k = mockPlanKey(examName, subject);
-  const p = state.mockPlans[k] || {dates:[], note:''};
-  if(!p.dates.includes(dateKey)) p.dates.push(dateKey);
-  p.dates.sort();
-  state.mockPlans[k] = p;
-  saveState();
-}
-function removeMockPlanDate(examName, subject, dateKey){
-  state.mockPlans = state.mockPlans || {};
-  const k = mockPlanKey(examName, subject);
-  const p = state.mockPlans[k];
-  if(!p) return;
-  p.dates = (p.dates||[]).filter(d=>d!==dateKey);
-  if(!p.dates.length && !(p.note||'').trim()) delete state.mockPlans[k];
-  else state.mockPlans[k] = p;
-  saveState();
-}
-/* その科目の予定日ごとに「実施済みか」を履歴と照合して返す。 */
-function mockPlanStatus(examName, subject){
-  const p = getMockPlan(examName, subject);
-  if(!p || !(p.dates||[]).length) return [];
-  const hist = (state.mockHistory||[]).filter(h=>h.examName===examName && h.subject===subject);
-  const doneDates = new Set(hist.map(h=>h.dateKey));
-  return p.dates.map(d=>({date:d, done:doneDates.has(d)}));
-}
-
-/* 予定編集モーダル(動的生成・模試専用) */
-function openMockPlanEditor(examName, subject){
-  // 既存モーダルがあれば除去
-  const old = document.getElementById('mock-plan-modal');
-  if(old) old.remove();
-  const p = getMockPlan(examName, subject) || {dates:[], note:''};
-  const todayKey = _todayKey();
-
-  const modal = document.createElement('div');
-  modal.id = 'mock-plan-modal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px';
-  modal.innerHTML = `
-    <div style="background:var(--paper);border-radius:16px;max-width:460px;width:100%;max-height:85vh;overflow:auto;padding:22px 22px 18px;box-shadow:0 10px 40px rgba(0,0,0,.25)">
-      <h3 style="margin:0 0 4px;font-size:16px;color:var(--ink)">模試の予定を設定</h3>
-      <div style="font-size:12.5px;color:var(--ink-muted);margin-bottom:16px">${escapeHtml(examName)} / ${escapeHtml(subject)}</div>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
-        <input type="date" id="mock-plan-date" value="${todayKey}" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px">
-        <button class="mock-judge-btn" id="mock-plan-add">この日を予定に追加</button>
-      </div>
-      <div style="font-size:11.5px;color:var(--ink-muted);margin-bottom:8px">数日にわたって実施する場合は、複数の日付を追加できます。</div>
-      <div id="mock-plan-list" style="margin-bottom:16px"></div>
-      <div style="margin-bottom:16px">
-        <label style="font-size:12px;color:var(--ink-muted);display:block;margin-bottom:5px">メモ(任意)</label>
-        <textarea id="mock-plan-note" rows="2" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;resize:vertical">${escapeHtml(p.note||'')}</textarea>
-      </div>
-      <div style="display:flex;gap:10px;justify-content:flex-end">
-        <button class="btn ghost" id="mock-plan-close">閉じる</button>
-      </div>
+/* A案: 予定タブに置く「模試の予定設定」セクションのHTML */
+function mockPlanSetupHtml(){
+  const exams = mockExamNames();
+  if(!exams.length){
+    return `<div class="card" style="margin-bottom:12px">
+      <div style="font-weight:600;font-size:13.5px;color:var(--ink);margin-bottom:6px">📝 模試の予定</div>
+      <div style="font-size:12px;color:var(--ink-muted)">まだ模試が登録されていません。「データ」タブから模試問題を取り込むと、ここで科目ごとに予定を設定できます。</div>
     </div>`;
-  document.body.appendChild(modal);
-
-  const renderList = ()=>{
-    const listEl = modal.querySelector('#mock-plan-list');
-    const cur = getMockPlan(examName, subject);
-    const dates = (cur && cur.dates) ? cur.dates : [];
-    if(!dates.length){
-      listEl.innerHTML = `<div style="font-size:12.5px;color:var(--ink-muted);padding:8px 0">まだ予定日がありません。</div>`;
-      return;
-    }
-    const st = mockPlanStatus(examName, subject);
-    listEl.innerHTML = st.map(o=>`
-      <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line-soft)">
-        <span style="font-variant-numeric:tabular-nums;font-size:13px;color:var(--ink)">${escapeHtml(o.date)}</span>
-        <span style="font-size:12px;font-weight:600;${o.done?'color:var(--green)':'color:var(--ink-muted)'}">${o.done?'✓ 実施済み':'未実施'}</span>
-        <button data-del-date="${escapeHtml(o.date)}" style="margin-left:auto;border:none;background:none;color:#c0392b;cursor:pointer;font-size:12px">削除</button>
-      </div>`).join('');
-    listEl.querySelectorAll('[data-del-date]').forEach(b=>{
-      b.addEventListener('click',()=>{ removeMockPlanDate(examName, subject, b.dataset.delDate); renderList(); });
-    });
+  }
+  const examOpts = exams.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+  const firstSubs = mockSubjectsOf(exams[0]);
+  const subOpts = firstSubs.map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+  return `<div class="card" style="margin-bottom:12px">
+    <div style="font-weight:600;font-size:13.5px;color:var(--ink);margin-bottom:8px">📝 模試の予定を設定</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select id="mock-plan-exam" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px">${examOpts}</select>
+      <select id="mock-plan-subject" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px">${subOpts}</select>
+      <button class="btn" id="mock-plan-setup-btn">開始日・時間帯・復習を設定</button>
+    </div>
+    <div style="font-size:11.5px;color:var(--ink-muted);margin-top:8px">択一・選択式と同じ予定設定です。設定すると下の予定ボックスと「実績」タイムテーブルに表示されます。</div>
+  </div>`;
+}
+/* 模試予定設定セクションの配線 */
+function _wireMockPlanSetup(root){
+  const examSel = root.querySelector('#mock-plan-exam');
+  const subSel = root.querySelector('#mock-plan-subject');
+  const btn = root.querySelector('#mock-plan-setup-btn');
+  if(!examSel || !subSel || !btn) return;
+  const refreshSubs = ()=>{
+    const subs = mockSubjectsOf(examSel.value);
+    subSel.innerHTML = subs.map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
   };
-  renderList();
-
-  modal.querySelector('#mock-plan-add').addEventListener('click',()=>{
-    const dv = modal.querySelector('#mock-plan-date').value;
-    if(!dv) return;
-    addMockPlanDate(examName, subject, dv);
-    renderList();
+  examSel.addEventListener('change', refreshSubs);
+  btn.addEventListener('click', ()=>{
+    const exam = examSel.value, sub = subSel.value;
+    if(!exam || !sub){ alert('模試と科目を選んでください。'); return; }
+    // 模試の予定編集モーダルを開く(isMock=true)
+    openPlanEditModal(sub, '', 'mock', false, false, true, exam);
   });
-  const saveNote = ()=>{
-    const note = modal.querySelector('#mock-plan-note').value;
-    state.mockPlans = state.mockPlans || {};
-    const k = mockPlanKey(examName, subject);
-    const cur = state.mockPlans[k] || {dates:[], note:''};
-    cur.note = note;
-    if(!(cur.dates||[]).length && !note.trim()) delete state.mockPlans[k];
-    else state.mockPlans[k] = cur;
-    saveState();
-  };
-  const close = ()=>{ saveNote(); modal.remove(); renderMock(); };
-  modal.querySelector('#mock-plan-close').addEventListener('click', close);
-  modal.addEventListener('click',(e)=>{ if(e.target===modal) close(); });
 }
 
-/* ---------- サンプル問題の注入(初回のみ) ---------- */
+/* ---------- 模試の予定(模試モード内・独立機能) ---------- 撤去済み。A案(studyPlans統合)へ移行。 */
+
+/* A案: 予定ボックスの「開始」から、模試タブへ遷移してその科目の演習を開始する */
+function startMockFromPlan(examName, subject){
+  if(!examName || !subject){ switchTab('mock'); return; }
+  const qs = mockQuestionsOf(examName, subject);
+  if(!qs.length){
+    switchTab('mock');
+    state.mockView = {mode:'subjects', examName, subject:null};
+    saveState(); renderMock();
+    alert('この模試科目にはまだ問題が登録されていません。');
+    return;
+  }
+  switchTab('mock');
+  startMockSession(examName, subject);
+}
+
 /* LEC_2026_ファイナル模試 / 労働者災害補償保険法 / 問1 */
 function ensureMockSampleSeed(){
   try{
@@ -17759,6 +17676,18 @@ function parseSelectPlanKey(key){
   return {subject:parts[0]||'', year:parts[1]||'', kind:parts[2]||'pastA'};
 }
 
+/* ===== 模試の予定キー(A案: studyPlans 統合) ===== */
+//   キー形式: "MCK::examName|subject"
+//   択一・選択式・千本と同じ studyPlans に格納し、予定タブ/実績タイムテーブルに乗せる。
+function mockPlanKey(examName, subject){ return 'MCK::' + examName + '|' + subject; }
+function isMockPlanKey(key){ return typeof key==='string' && key.indexOf('MCK::')===0; }
+function parseMockPlanKey(key){
+  const body = String(key||'').replace(/^MCK::/, '');
+  const parts = body.split('|');
+  return {examName: parts[0]||'', subject: parts.slice(1).join('|')||''};
+}
+function mockPlanLabel(examName, subject){ return `${subject}（${examName}）`; }
+
 // 予定キーを {subject, frameRef, kind} に分解
 //   改修V02_17: 末尾が "|forecast" のときは kind='forecast'、それ以外は 'pastA'。
 //   科目名・フレーム参照自体に "|" は含まれない前提(科目=先頭、frameRef=中間)。
@@ -17768,6 +17697,13 @@ function splitPlanKey(key){
   if(typeof key==='string' && key.indexOf('SBN::')===0){
     const p = parseSenbonPlanKey(key);
     return {subject: p.subject, frameRef: '', kind: 'senbon', isSelect: false, isSenbon: true, isAll: p.isAll};
+  }
+  // 模試の予定キー("MCK::examName|subject")に対応。
+  //   frameRef に subject を入れず、examName を kind 位置ではなく専用フィールドで持つ。
+  //   subject は科目、examName は模試名。isMock=true。
+  if(typeof key==='string' && key.indexOf('MCK::')===0){
+    const p = parseMockPlanKey(key);
+    return {subject: p.subject, frameRef: '', kind: 'mock', examName: p.examName, isSelect: false, isSenbon: false, isMock: true};
   }
   // 改修V02_23: 選択式の予定キー("SEL::科目|年度|kind")に対応。
   if(typeof key==='string' && key.indexOf('SEL::')===0){
@@ -17949,6 +17885,8 @@ function getPlanOccurrencesForDate(dateKey){
         key, subject: sp.subject, frameRef: sp.frameRef, kind: sp.kind,
         isSelect: !!sp.isSelect,
         isSenbon: !!sp.isSenbon,   // 改修V02_27: 千本ノック予定の目印
+        isMock: !!sp.isMock,       // 模試予定の目印(A案)
+        examName: sp.examName || '',
         isAll: !!sp.isAll,         // 改修V02_27: 全科目まとめての予定か
         startTime: plan.startTime || '',
         endTime: plan.endTime || '',
@@ -17968,10 +17906,12 @@ function getPlanOccurrencesForDate(dateKey){
     const sai = sa<0?999:sa; const sbi = sb<0?999:sb;
     if(sai !== sbi) return sai - sbi;
     // 改修V02_27: 千本ノック予定は frameRef を持たないため planSortIndex を通さない。
-    //   同時刻・同科目でバッティングした場合は、千本ノックを後ろに置く。
-    if(a.isSenbon || b.isSenbon){
-      if(a.isSenbon && b.isSenbon) return 0;
-      return a.isSenbon ? 1 : -1;
+    //   同時刻・同科目でバッティングした場合は、千本ノック・模試を後ろに置く。
+    if(a.isSenbon || b.isSenbon || a.isMock || b.isMock){
+      const aNo = (a.isSenbon || a.isMock);
+      const bNo = (b.isSenbon || b.isMock);
+      if(aNo && bNo) return 0;
+      return aNo ? 1 : -1;
     }
     const ia = planSortIndex(a.subject, a.frameRef); const ib = planSortIndex(b.subject, b.frameRef);
     if(ia.fno !== ib.fno) return ia.fno - ib.fno;
@@ -17993,7 +17933,7 @@ function getOverduePlanOccurrences(beforeDateKey){
       if(occ.dateKey >= beforeDateKey) continue; // 当日以降は遅れではない
       const done = !!(plan.done && plan.done[occ.dateKey]);
       if(done) continue;
-      out.push({key, subject: sp.subject, frameRef: sp.frameRef, kind: sp.kind, isSelect: !!sp.isSelect, isSenbon: !!sp.isSenbon, isAll: !!sp.isAll, dateKey:occ.dateKey, kindOcc:occ.kind, offset:occ.offset, startTime: plan.startTime||''});
+      out.push({key, subject: sp.subject, frameRef: sp.frameRef, kind: sp.kind, isSelect: !!sp.isSelect, isSenbon: !!sp.isSenbon, isMock: !!sp.isMock, examName: sp.examName||'', isAll: !!sp.isAll, dateKey:occ.dateKey, kindOcc:occ.kind, offset:occ.offset, startTime: plan.startTime||''});
     }
   }
   out.sort((a,b)=> a.dateKey < b.dateKey ? 1 : (a.dateKey > b.dateKey ? -1 : 0));
@@ -18411,11 +18351,15 @@ function getSessionsForDate(dateKey){
 let _planEditKey = null;
 // 改修V02_17: kind('pastA'|'forecast')を受けて、過去問A/予想問それぞれの予定を編集できる。
 // 改修V02_23: isSelect=true で選択式の予定(科目×年度)を編集できる。
-function openPlanEditModal(subject, frameRef, kind, isSelect, isSenbon){
+function openPlanEditModal(subject, frameRef, kind, isSelect, isSenbon, isMock, examName){
   // frameRef は数値・数字文字列("4")または中分類キー("2.1")、選択式では年度("R7")
   // 改修V02_27: isSenbon=true で千本ノックの予定(科目 or 全科目)を編集できる。
+  // A案: isMock=true で模試の予定(模試名×科目)を編集できる。
   let kd;
-  if(isSenbon || kind === 'senbon'){
+  if(isMock || kind === 'mock'){
+    kd = 'mock';
+    _planEditKey = mockPlanKey(examName, subject);
+  }else if(isSenbon || kind === 'senbon'){
     kd = 'senbon';
     _planEditKey = senbonPlanKey(subject);
   }else if(isSelect){
@@ -18429,14 +18373,19 @@ function openPlanEditModal(subject, frameRef, kind, isSelect, isSenbon){
   const plan = (state.studyPlans && state.studyPlans[_planEditKey]) || {};
   const titleEl = document.getElementById('plan-edit-title');
   const descEl = document.getElementById('plan-edit-desc');
-  const kindLabel = (kd==='senbon')
+  const kindLabel = (kd==='mock')
+    ? '📝 模試'
+    : (kd==='senbon')
     ? '🔫 千本ノック'
     : (isSelect
       ? ('選択式・' + ((kd==='forecast')?'🎯 予想問':(kd==='pastB'?'📖 過去問B':'📚 過去問A')))
       : ((kd==='forecast') ? '🎯 予想問' : (kd==='pastB') ? '過去問B' : '過去問A'));
   if(titleEl) titleEl.textContent = `学習予定の設定（${kindLabel}）`;
   if(descEl){
-    if(kd==='senbon'){
+    if(kd==='mock'){
+      const cnt = mockPlanQuestionCount(examName, subject);
+      descEl.textContent = `${mockPlanLabel(examName, subject)}（${kindLabel}／本番形式 ${cnt}問）`;
+    }else if(kd==='senbon'){
       // 改修V02_27: 千本ノックは科目 or 全科目単位。フレームは対象外。
       const cnt = senbonPlanQuestionCount(subject);
       descEl.textContent = `${senbonPlanLabel(subject)}（${kindLabel}／対象 ${cnt}問・ランダム演習）`;
@@ -18501,6 +18450,8 @@ function savePlanEdit(){
     kind: (spEdit ? spEdit.kind : 'pastA'),
     isSelect: !!(spEdit && spEdit.isSelect),   // 改修V02_23: 選択式予定の目印
     isSenbon: !!(spEdit && spEdit.isSenbon),   // 改修V02_27: 千本ノック予定の目印
+    isMock: !!(spEdit && spEdit.isMock),       // 模試予定の目印(A案)
+    examName: (spEdit && spEdit.examName) ? spEdit.examName : undefined,
     done: prev.done || {}
   };
   saveState();
@@ -18546,6 +18497,9 @@ function renderProgressPlan(root){
       <span class="plan-date-label">${planDateLabel(dateKey)}${isToday?' 〈今日〉':(isTomorrow?' 〈明日〉':'')}</span>
     </div>`;
 
+  // A案: 模試の予定設定セクション(模試名×科目を選んで予定を設定)
+  html += mockPlanSetupHtml();
+
   if(planCount===0){
     html += `<div class="plan-empty">まだ予定が設定されていません。<br>「過去問A」「過去問B」「予想問」タブを開き、各フレーム名の右にある <b>予定_編集</b> ボタンから設定してください。</div></div>`;
     root.innerHTML = html;
@@ -18562,14 +18516,16 @@ function renderProgressPlan(root){
     for(const o of shown){
       const lbl = o.kindOcc==='review' ? `復習(${o.offset}日後)` : '初回';
       const col = statsSubjectColor(o.subject);
-      const kindTag = o.isSenbon ? `<span class="plan-badge kindtag senbon">🔫 千本ノック</span>`
-        : (o.kind==='forecast' ? `<span class="plan-badge kindtag forecast">予想問</span>` : (o.kind==='pastB' ? `<span class="plan-badge kindtag pastb">過去問B</span>` : ''));
-      // 改修V02_27: 千本ノックはフレームを持たないためラベルを分岐
-      const odLabel = o.isSenbon ? '' : frameOrSubFrameLabel(o.subject, o.frameRef);
+      const kindTag = o.isMock ? `<span class="plan-badge kindtag" style="background:#5B3E8E;color:#fff">📝 模試</span>`
+        : (o.isSenbon ? `<span class="plan-badge kindtag senbon">🔫 千本ノック</span>`
+        : (o.kind==='forecast' ? `<span class="plan-badge kindtag forecast">予想問</span>` : (o.kind==='pastB' ? `<span class="plan-badge kindtag pastb">過去問B</span>` : '')));
+      // 改修V02_27: 千本ノック・模試はフレームを持たないためラベルを分岐
+      const odLabel = (o.isSenbon || o.isMock) ? '' : frameOrSubFrameLabel(o.subject, o.frameRef);
+      const odName = o.isMock ? mockPlanLabel(o.examName, o.subject) : (o.isSenbon ? senbonPlanLabel(o.subject) : o.subject);
       html += `<div class="plan-overdue-item">
         <span style="color:var(--accent);font-weight:600">${planDateLabel(o.dateKey)}</span>
         <span class="plan-subj-dot" style="background:${col}"></span>
-        ${escapeHtml(o.isSenbon ? senbonPlanLabel(o.subject) : o.subject)}　${escapeHtml(odLabel)}${kindTag}
+        ${escapeHtml(odName)}　${escapeHtml(odLabel)}${kindTag}
         <span class="plan-badge ${o.kindOcc==='review'?'review':'first'}">${lbl}</span>
       </div>`;
     }
@@ -18589,42 +18545,55 @@ function renderProgressPlan(root){
     for(let i=0;i<occs.length;i++){
       const o = occs[i];
       // 改修V02_27: 千本ノック予定はフレームを持たないため、ラベル生成を分岐する。
-      const label = o.isSenbon
+      const label = o.isMock
+        ? ('📝 模試（' + mockPlanLabel(o.examName, o.subject) + '）')
+        : (o.isSenbon
         ? ('🔫 千本ノック（' + senbonPlanLabel(o.subject) + '）')
-        : frameOrSubFrameLabel(o.subject, o.frameRef);  // "F4 標準報酬" / "F2_1 国民健康保険法"
-      const content = o.isSenbon
+        : frameOrSubFrameLabel(o.subject, o.frameRef));  // "F4 標準報酬" / "F2_1 国民健康保険法"
+      const content = o.isMock
+        ? `本番形式の5肢問題を通しで演習（全${mockPlanQuestionCount(o.examName, o.subject)}問）`
+        : (o.isSenbon
         ? '一問一答をランダムに演習（何問やるかは自分で判断し、「完了」で確定）'
-        : planLearningContent(o.subject, o.frameRef);
-      const subjCol = o.isSenbon && o.isAll ? '#1f2a5a' : statsSubjectColor(o.subject);  // 改修30b: 科目カラー
+        : planLearningContent(o.subject, o.frameRef));
+      const subjCol = (o.isSenbon && o.isAll) ? '#1f2a5a' : (o.isMock ? '#5B3E8E' : statsSubjectColor(o.subject));  // 改修30b: 科目カラー
       const timeStr = o.startTime ? (o.endTime ? `${o.startTime}〜${o.endTime}` : `${o.startTime}〜`) : '時刻未設定';
       const durStr = (o.durationMin!=null && o.durationMin>0) ? `<span class="plan-box-dur">(見込み ${o.durationMin}分)</span>` : '';
       // 改修57_04 / 改修V02_17: 解答すべき問題数を表示。予定の kind(過去問A/予想問)基準。
       // 改修V02_27: 千本ノックは senbonPlanQuestionCount(科目 or 全科目)で算出。
-      const qCount = o.isSenbon
+      const qCount = o.isMock
+        ? mockPlanQuestionCount(o.examName, o.subject)
+        : (o.isSenbon
         ? senbonPlanQuestionCount(o.subject)
-        : planFrameQuestionCount(o.subject, o.frameRef, o.kind);
+        : planFrameQuestionCount(o.subject, o.frameRef, o.kind));
       const qcountStr = qCount>0
         ? `<span class="plan-box-qcount">📝 ${qCount}問${o.isSenbon?'(母数)':''}</span>` : '';
       const badge = o.kindOcc==='review'
         ? `<span class="plan-badge review">復習 ${o.offset}日後</span>`
         : `<span class="plan-badge first">初回</span>`;
       // 改修V02_17 / 改修V02_24: 予定の種別タグ(過去問A・過去問B・予想問の3区分)
-      const kindTag = o.isSenbon
+      const kindTag = o.isMock
+        ? `<span class="plan-badge kindtag" style="background:#5B3E8E;color:#fff" title="模試の予定">📝 模試</span>`
+        : (o.isSenbon
         ? `<span class="plan-badge kindtag senbon" title="千本ノックの予定">🔫 千本ノック</span>`
         : (o.kind==='forecast'
         ? `<span class="plan-badge kindtag forecast" title="予想問の予定">🎯 予想問</span>`
         : (o.kind==='pastB'
           ? `<span class="plan-badge kindtag pastb" title="過去問Bの予定">過去問B</span>`
-          : `<span class="plan-badge kindtag pasta" title="過去問Aの予定">過去問A</span>`));
+          : `<span class="plan-badge kindtag pasta" title="過去問Aの予定">過去問A</span>`)));
       // 改修V02_13 / 改修V02_17: ガントと同基準の「演習回数」「遅延」バッジ。予定の kind 基準。
       // 改修V02_27: 千本ノックは frameAttempts を持たない(完了は自己判断)。
       //   代わりに、この予定で完了した計測セッションの回数と累計解答数を出す。
       const senbonStat = o.isSenbon ? _senbonPlanStatus(o.subject) : null;
-      const pst = o.isSenbon
+      const mockStat = o.isMock ? _mockPlanStatus(o.examName, o.subject) : null;
+      const pst = (o.isSenbon || o.isMock)
         ? {attemptNo:1, completedCount:0, inProgress:false, status:'ok', hasAttempt:false}
         : _planFrameStatus(o.subject, o.frameRef, o.kind);
       let attemptBadge = '';
-      if(o.isSenbon){
+      if(o.isMock){
+        attemptBadge = mockStat.runCount > 0
+          ? `<span class="plan-badge attempt" title="この模試科目を ${mockStat.runCount}回実施 / 直近正答 ${mockStat.lastCorrect}/${mockStat.lastTotal}">${mockStat.runCount}回実施</span>`
+          : `<span class="plan-badge attempt none" title="まだ実施していません">未着手</span>`;
+      }else if(o.isSenbon){
         attemptBadge = senbonStat.runCount > 0
           ? `<span class="plan-badge attempt" title="この予定で ${senbonStat.runCount}回実施 / 累計 ${senbonStat.answeredTotal}問">${senbonStat.runCount}回実施・累計${senbonStat.answeredTotal}問</span>`
           : `<span class="plan-badge attempt none" title="まだ実施していません">未着手</span>`;
@@ -18685,7 +18654,7 @@ function renderProgressPlan(root){
           ? 'このフレームは「一旦終了(途中)」の記録があります。続きを計測できます'
           : '学習を始めるときに押すと、時間と解答数を自動で計測します';
         timerHtml = `<div class="plan-timer is-idle">
-          <button class="plan-timer-btn start" data-sessstart-subj="${escapeHtml(o.subject)}" data-sessstart-fref="${escapeHtml(String(o.frameRef))}" data-sessstart-date="${dateKey}" data-sessstart-kind="${escapeHtml(o.kind||'pastA')}" data-sessstart-select="${o.isSelect?'1':'0'}" data-sessstart-senbon="${o.isSenbon?'1':'0'}">${startLabel}</button>
+          <button class="plan-timer-btn start" data-sessstart-subj="${escapeHtml(o.subject)}" data-sessstart-fref="${escapeHtml(String(o.frameRef))}" data-sessstart-date="${dateKey}" data-sessstart-kind="${escapeHtml(o.kind||'pastA')}" data-sessstart-select="${o.isSelect?'1':'0'}" data-sessstart-senbon="${o.isSenbon?'1':'0'}" data-sessstart-mock="${o.isMock?'1':'0'}" data-sessstart-exam="${escapeHtml(o.examName||'')}">${startLabel}</button>
           <span class="plan-timer-hint">${hint}</span>
         </div>`;
       }
@@ -18731,7 +18700,10 @@ function renderProgressPlan(root){
   //   改修V02_23: 選択式予定は選択式演習(startSelectSet)を起動する。
   root.querySelectorAll('button[data-sessstart-subj]').forEach(b=>{
     b.addEventListener('click', ()=>{
-      if(b.dataset.sessstartSenbon === '1'){
+      if(b.dataset.sessstartMock === '1'){
+        // 模試予定 → 模試モードへ遷移してその科目の演習を開始
+        startMockFromPlan(b.dataset.sessstartExam, b.dataset.sessstartSubj);
+      }else if(b.dataset.sessstartSenbon === '1'){
         // 改修V02_27: 千本ノック予定 → 千本ノックの計測を開始し、弱点タブの千本ノックへ遷移
         startSenbonStudySession(b.dataset.sessstartSubj, b.dataset.sessstartDate);
       }else if(b.dataset.sessstartSelect === '1'){
@@ -18792,6 +18764,8 @@ function _wirePlanCommon(root){
   root.querySelectorAll('.prog-subtab').forEach(t=>{
     t.addEventListener('click', ()=>_handleProgSubTabClick(t));
   });
+  // A案: 模試の予定設定セクションの配線
+  try{ _wireMockPlanSetup(root); }catch(e){ console.warn('mock plan setup wiring failed', e); }
   const todayKey = _gDateKey(_gTodayDate());
   const setDate = (dk)=>{ state.planView ||= {date:null}; state.planView.date = dk; saveState(); renderProgress(); };
   const cur = (state.planView && state.planView.date) || todayKey;
@@ -21096,23 +21070,28 @@ function renderTaipaTimetable(dateKey, plans, sessions, set){
     const top = ((s/TAIPA_SLOT_MIN) - startSlot) * TAIPA_ROW_PX;
     const h = Math.max(TAIPA_ROW_PX, ((e-s)/TAIPA_SLOT_MIN) * TAIPA_ROW_PX);
     // 改修V02_27: 千本ノックの予定はフレームを持たない。科目名・色・タグを専用表示にする。
+    // A案: 模試の予定もフレームを持たない。専用表示にする。
     const pIsSbn = !!p.isSenbon;
-    const col = (pIsSbn && p.isAll) ? '#1f2a5a' : statsSubjectColor(p.subject);
-    const lbl = pIsSbn ? '' : frameOrSubFrameLabel(p.subject, p.frameRef);
-    const subjDisp = pIsSbn ? senbonPlanLabel(p.subject) : shortSubject(p.subject);
+    const pIsMock = !!p.isMock;
+    const col = pIsMock ? '#5B3E8E' : ((pIsSbn && p.isAll) ? '#1f2a5a' : statsSubjectColor(p.subject));
+    const lbl = (pIsSbn || pIsMock) ? '' : frameOrSubFrameLabel(p.subject, p.frameRef);
+    const subjDisp = pIsMock ? shortSubject(p.subject) : (pIsSbn ? senbonPlanLabel(p.subject) : shortSubject(p.subject));
     const kindB = p.kindOcc==='review' ? `<span class="taipa-mini-badge">復${p.offset}</span>` : `<span class="taipa-mini-badge first">初</span>`;
     // 改修V02_17 / 改修V02_24: 予想問「予」・過去問B「B」を小タグで区別
-    // 改修V02_27: 千本ノックは「千」タグ
-    const kindTag = pIsSbn ? `<span class="taipa-mini-badge senbon">千</span>`
-      : (p.kind==='forecast' ? `<span class="taipa-mini-badge forecast">予</span>` : (p.kind==='pastB' ? `<span class="taipa-mini-badge pastb">B</span>` : ''));
+    // 改修V02_27: 千本ノックは「千」タグ / A案: 模試は「模」タグ
+    const kindTag = pIsMock ? `<span class="taipa-mini-badge" style="background:#5B3E8E;color:#fff">模</span>`
+      : (pIsSbn ? `<span class="taipa-mini-badge senbon">千</span>`
+      : (p.kind==='forecast' ? `<span class="taipa-mini-badge forecast">予</span>` : (p.kind==='pastB' ? `<span class="taipa-mini-badge pastb">B</span>` : '')));
     // 改修57_01②-3: 完了済みの予定には右端に【済】(黒・太字)を表示。
     //   従来の「薄く表示(.done)」は維持しつつ、完了を明確に分かるようにする。
     const doneB = p.done ? `<span class="taipa-done-badge">【済】</span>` : '';
+    // フレーム行: 模試は模試名、千本は空、それ以外はフレーム詳細
+    const frameRow = pIsMock ? mockPlanLabel(p.examName, p.subject) : _taipaFrameFull(p.subject, p.frameRef);
     planBlocks += `<div class="taipa-block plan ${p.done?'done':''}" data-plan-key="${escapeHtml(p.key)}" data-plan-start="${escapeHtml(p.startTime)}" data-plan-dur="${e-s}" style="top:${top}px;height:${h-2}px;border-left-color:${col};background:${_taipaTint(col,0.10)}" title="ドラッグで時間帯を移動(左右のタイムテーブル間でも移動可) / 上下の端で長さ変更">
       <div class="taipa-resize top"></div>
       ${doneB}
       <div class="taipa-block-sub">${escapeHtml(subjDisp)}${kindB}${kindTag}</div>
-      <div class="taipa-block-frame">${escapeHtml(_taipaFrameFull(p.subject,p.frameRef))}</div>
+      <div class="taipa-block-frame">${escapeHtml(frameRow)}</div>
       <div class="taipa-resize bottom"></div>
     </div>`;
   }
