@@ -5991,6 +5991,9 @@ function loadState(){
       if(!('examName' in s.mockView)) s.mockView.examName = null;
       if(!('subject' in s.mockView)) s.mockView.subject = null;
       s.mockSession = (s.mockSession && typeof s.mockSession==='object') ? s.mockSession : null;
+      // 模試の予定(模試モード内・独立)。studyPlans とは別物で既存予定に影響しない。
+      //   { "examName|subject": { dates:["YYYY-MM-DD",...], note:"" } }
+      s.mockPlans = (s.mockPlans && typeof s.mockPlans==='object') ? s.mockPlans : {};
       // 弱点問題の追加 (後方互換)
       s.weakSession ||= {missMin:1,missMax:99,dateFrom:'',dateTo:'',subject:'',lawSub:'',sortBy:'count-desc',currentIndex:0,answered:false,userAnswer:null,questionType:'takuitsu'};
       s.weakSession.answered ||= false;
@@ -6301,6 +6304,7 @@ function loadState(){
     mockHistory: [],
     mockView: {mode:'exams', examName:null, subject:null},
     mockSession: null,
+    mockPlans: {},
     studyPlans: {},
     planView: {date:null},
     // 改修31: タイパ(実績タイムテーブル)
@@ -9875,6 +9879,7 @@ function restoreBackup(){
         state.mockHistory = Array.isArray(state.mockHistory) ? state.mockHistory : [];
         state.mockView = (state.mockView && typeof state.mockView==='object') ? state.mockView : {mode:'exams', examName:null, subject:null};
         state.mockSession = (state.mockSession && typeof state.mockSession==='object') ? state.mockSession : null;
+        state.mockPlans = (state.mockPlans && typeof state.mockPlans==='object') ? state.mockPlans : {};
         state.senbon = Array.isArray(state.senbon) ? state.senbon : [];
         state.senbonHistory = Array.isArray(state.senbonHistory) ? state.senbonHistory : [];
         state.senbonDrafts = Array.isArray(state.senbonDrafts) ? state.senbonDrafts : [];
@@ -14246,7 +14251,15 @@ function findWhyBlockByCtx(ctx){
    ============================================================ */
 
 // 合格ライン(正答数の下限)。既定は本番の労災を想定し 4。
-const MOCK_PASS_LINE_DEFAULT = 4;
+// 合格ライン(正答数の下限)。本番は労災10問中4問で合格 → 4/10 = 0.4 を基準とし、
+// 登録問題数に比例して切り上げで算出する。10問なら4問。
+const MOCK_PASS_RATIO = 0.4;
+// 本番1セットの問題数(この数に達したときだけ合否判定を出す)
+const MOCK_FULL_SET_COUNT = 10;
+function mockPassLine(total){
+  if(!total || total<=0) return 0;
+  return Math.ceil(total * MOCK_PASS_RATIO);
+}
 
 // 出題形式ラベル
 const MOCK_TYPE_LABEL = {
@@ -14355,17 +14368,65 @@ function renderMockSubjects(root){
     let metaLine = `全${qs.length}問`;
     let passLine = '';
     if(last){
-      passLine = `<div class="mt-meta">直近: ${last.correctCount}/${last.total}問 　`
-        + (last.passed ? '<span style="color:var(--green);font-weight:700">合格</span>' : '<span style="color:#c0392b;font-weight:700">不合格</span>')
-        + `</div>`;
+      let verdict;
+      if(last.passed===true) verdict = '<span style="color:var(--green);font-weight:700">合格</span>';
+      else if(last.passed===false) verdict = '<span style="color:#c0392b;font-weight:700">不合格</span>';
+      else verdict = '<span style="color:var(--ink-muted)">合否対象外(10問未満)</span>';
+      passLine = `<div class="mt-meta">直近: ${last.correctCount}/${last.total}問 　${verdict}</div>`;
     }
-    html += `<div class="mock-tile" data-mock-subject="${escapeHtml(sub)}">
-      <div class="mt-title">${escapeHtml(sub)}</div>
-      <div class="mt-sub">${metaLine}${runs?` ・ 実施${runs}回`:''}</div>
-      ${passLine}
+    // 予定サマリ
+    const st = mockPlanStatus(exam, sub);
+    let planLine = '';
+    if(st.length){
+      const doneN = st.filter(o=>o.done).length;
+      const nextUndone = st.find(o=>!o.done);
+      planLine = `<div class="mt-meta" style="color:var(--accent)">📅 予定 ${st.length}日${nextUndone?`　次: ${escapeHtml(nextUndone.date)}`:'　全て実施済み'} (${doneN}/${st.length})</div>`;
+    }
+    html += `<div class="mock-tile-wrap" style="display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--paper)">
+      <div class="mock-tile" data-mock-subject="${escapeHtml(sub)}" style="border:none;border-radius:0;box-shadow:none">
+        <div class="mt-title">${escapeHtml(sub)}</div>
+        <div class="mt-sub">${metaLine}${runs?` ・ 実施${runs}回`:''}</div>
+        ${passLine}
+        ${planLine}
+      </div>
+      <div style="display:flex;border-top:1px solid var(--line-soft)">
+        <button data-mock-start="${escapeHtml(sub)}" style="flex:1;padding:9px;border:none;background:var(--accent);color:#fff;font-size:12.5px;font-weight:600;cursor:pointer">演習開始</button>
+        <button data-mock-plan="${escapeHtml(sub)}" style="flex:1;padding:9px;border:none;border-left:1px solid rgba(255,255,255,.25);background:var(--bg);color:var(--accent);font-size:12.5px;font-weight:600;cursor:pointer">📅 予定</button>
+      </div>
     </div>`;
   }
   html += `</div>`;
+
+  // この模試の予定(全科目)を日付順に俯瞰
+  const planRows = [];
+  for(const sub of subs){
+    const st = mockPlanStatus(exam, sub);
+    for(const o of st) planRows.push({subject:sub, date:o.date, done:o.done});
+  }
+  planRows.sort((a,b)=> a.date.localeCompare(b.date) || a.subject.localeCompare(b.subject));
+  html += `<div style="height:24px"></div>`;
+  html += `<div class="mock-head"><h2 style="font-size:15px">📅 演習予定</h2></div>`;
+  if(!planRows.length){
+    html += `<div class="mock-hist-empty">まだ予定がありません。各科目の「📅 予定」ボタンから実施予定日を登録できます(数日にわたる実施も登録可)。</div>`;
+  }else{
+    const todayK = _todayKey();
+    html += `<div style="overflow-x:auto"><table class="mock-hist-table">
+      <thead><tr><th>予定日</th><th>科目</th><th>状態</th></tr></thead><tbody>`;
+    for(const r of planRows){
+      const isPast = r.date < todayK;
+      let stTxt, stCls;
+      if(r.done){ stTxt='✓ 実施済み'; stCls='pass'; }
+      else if(isPast){ stTxt='⚠ 未実施(過ぎています)'; stCls='fail'; }
+      else if(r.date===todayK){ stTxt='本日予定'; stCls=''; }
+      else { stTxt='予定'; stCls=''; }
+      html += `<tr>
+        <td>${escapeHtml(r.date)}</td>
+        <td>${escapeHtml(r.subject)}</td>
+        <td class="${stCls}">${stTxt}</td>
+      </tr>`;
+    }
+    html += `</tbody></table></div>`;
+  }
 
   // 演習履歴(この模試の全科目)
   const allHist = (state.mockHistory||[]).filter(h=>h.examName===exam).sort((a,b)=>b.ts-a.ts);
@@ -14377,11 +14438,15 @@ function renderMockSubjects(root){
     html += `<div style="overflow-x:auto"><table class="mock-hist-table">
       <thead><tr><th>実施日</th><th>科目</th><th>正答</th><th>合否</th></tr></thead><tbody>`;
     for(const h of allHist){
+      let vCls, vTxt;
+      if(h.passed===true){ vCls='pass'; vTxt='○ 合格'; }
+      else if(h.passed===false){ vCls='fail'; vTxt='× 不合格'; }
+      else { vCls=''; vTxt='— (10問未満)'; }
       html += `<tr>
         <td>${escapeHtml(h.dateKey||'')}</td>
         <td>${escapeHtml(h.subject||'')}</td>
         <td>${h.correctCount}/${h.total}</td>
-        <td class="${h.passed?'pass':'fail'}">${h.passed?'○ 合格':'× 不合格'}</td>
+        <td class="${vCls}">${vTxt}</td>
       </tr>`;
     }
     html += `</tbody></table></div>`;
@@ -14389,10 +14454,15 @@ function renderMockSubjects(root){
 
   root.innerHTML = html;
   bindMockBack(root);
+  root.querySelectorAll('[data-mock-start]').forEach(el=>{
+    el.addEventListener('click',()=>{ startMockSession(exam, el.dataset.mockStart); });
+  });
+  root.querySelectorAll('[data-mock-plan]').forEach(el=>{
+    el.addEventListener('click',()=>{ openMockPlanEditor(exam, el.dataset.mockPlan); });
+  });
+  // タイル本体クリックでも演習開始(従来動作を維持)
   root.querySelectorAll('[data-mock-subject]').forEach(el=>{
-    el.addEventListener('click',()=>{
-      startMockSession(exam, el.dataset.mockSubject);
-    });
+    el.addEventListener('click',()=>{ startMockSession(exam, el.dataset.mockSubject); });
   });
 }
 
@@ -14431,7 +14501,10 @@ function renderMockRun(root){
   const exam = s.examName, subject = s.subject;
   const qs = s.qids.map(mockQById).filter(Boolean);
   const total = qs.length;
-  const passLine = MOCK_PASS_LINE_DEFAULT;
+  // 合格ラインは登録問題数に比例(10問なら4問)。10問未満のときは参考値。
+  const passLine = mockPassLine(total);
+  // 本番1セット(10問)に達しているか。達していれば合否判定を出す。
+  const isFullSet = total >= MOCK_FULL_SET_COUNT;
 
   // 現在の正答数(本番判定済みのもの)
   let correctCount = 0, judgedCount = 0;
@@ -14441,10 +14514,14 @@ function renderMockRun(root){
   });
   const allJudged = judgedCount===total;
 
+  const passLineText = isFullSet
+    ? `合格ライン ${passLine}問以上`
+    : `全${total}問(本番は10問。10問揃うと合否判定)`;
+
   let html = `<div class="mock-run-bar">
     <div>
       <div class="mrb-title">${escapeHtml(subject)}</div>
-      <div class="mrb-meta">${escapeHtml(exam)} ・ 全${total}問 ・ 合格ライン ${passLine}問以上</div>
+      <div class="mrb-meta">${escapeHtml(exam)} ・ ${passLineText}</div>
     </div>
     <div class="mrb-score">正答 ${correctCount} / 判定済 ${judgedCount} / ${total}</div>
   </div>`;
@@ -14454,21 +14531,28 @@ function renderMockRun(root){
     html += renderMockQuestion(q, i, s.prog[i]);
   });
 
-  // 合否サマリ(全問判定後)
+  // 採点結果(全問判定後)
   if(allJudged){
     const passed = correctCount>=passLine;
+    // 合否バッジは本番1セット(10問)に達したときだけ表示する。
+    const passBadge = isFullSet
+      ? `<div class="mock-pass-badge ${passed?'pass':'fail'}">${passed?'合格':'不合格'}</div>`
+      : `<div class="mock-sum-item"><div class="msi-num" style="font-size:15px;color:var(--ink-muted)">合否は10問で判定</div><div class="msi-lbl">現在 ${total}問登録</div></div>`;
+    const lineItem = isFullSet
+      ? `<div class="mock-sum-item"><div class="msi-num">${passLine}</div><div class="msi-lbl">合格ライン(以上)</div></div>`
+      : '';
     html += `<div class="mock-summary">
       <h3>採点結果</h3>
       <div class="mock-sum-grid">
         <div class="mock-sum-item"><div class="msi-num">${correctCount}/${total}</div><div class="msi-lbl">正答数</div></div>
-        <div class="mock-sum-item"><div class="msi-num">${passLine}</div><div class="msi-lbl">合格ライン(以上)</div></div>
-        <div class="mock-pass-badge ${passed?'pass':'fail'}">${passed?'合格':'不合格'}</div>
+        ${lineItem}
+        ${passBadge}
       </div>
       <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
         <button class="mock-judge-btn" id="mock-record-btn">この結果を履歴に記録</button>
         <button class="btn ghost" id="mock-exit-btn">終了して一覧へ</button>
       </div>
-      <div class="mock-hint">記録すると実施日・正答数・合否が演習履歴に残ります。同じ結果を二重に記録しないようご注意ください。</div>
+      <div class="mock-hint">記録すると実施日・正答数${isFullSet?'・合否':''}が演習履歴に残ります。同じ結果を二重に記録しないようご注意ください。</div>
     </div>`;
   }else{
     html += `<div style="margin:8px 0 24px"><button class="btn ghost" id="mock-exit-btn">中断して一覧へ戻る</button></div>`;
@@ -14481,7 +14565,7 @@ function renderMockRun(root){
 
   const recBtn = root.querySelector('#mock-record-btn');
   if(recBtn) recBtn.addEventListener('click',()=>{
-    recordMockResult(exam, subject, qs, s.prog, correctCount, total, passLine);
+    recordMockResult(exam, subject, qs, s.prog, correctCount, total, passLine, isFullSet);
   });
   const exitBtn = root.querySelector('#mock-exit-btn');
   if(exitBtn) exitBtn.addEventListener('click',()=>{
@@ -14653,13 +14737,14 @@ function bindMockQuestion(root, q, idx){
 }
 
 /* 結果を履歴に記録 */
-function recordMockResult(examName, subject, qs, prog, correctCount, total, passLine){
-  const passed = correctCount>=passLine;
+function recordMockResult(examName, subject, qs, prog, correctCount, total, passLine, isFullSet){
+  // 合否は本番1セット(10問)に達したときのみ確定。未満は null(合否対象外)。
+  const passed = isFullSet ? (correctCount>=passLine) : null;
   const dateKey = _todayKey();
   const rec = {
     id: 'mockh_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
     examName, subject, dateKey, ts: Date.now(),
-    total, correctCount, passLine, passed,
+    total, correctCount, passLine, passed, isFullSet: !!isFullSet,
     detail: qs.map((q,i)=>({
       qid: q.id,
       qResult: mockIsQCorrect(q, prog[i].picked) ? 'o' : 'x',
@@ -14674,6 +14759,115 @@ function recordMockResult(examName, subject, qs, prog, correctCount, total, pass
   saveState();
   renderMock();
   try{ if(typeof toast==='function') toast('演習履歴に記録しました'); }catch(_){}
+}
+
+/* ---------- 模試の予定(模試モード内・独立機能) ---------- */
+function mockPlanKey(examName, subject){ return examName + '|' + subject; }
+function getMockPlan(examName, subject){
+  state.mockPlans = state.mockPlans || {};
+  return state.mockPlans[mockPlanKey(examName, subject)] || null;
+}
+/* 予定日を追加(重複日は無視)。dates は昇順で保持。 */
+function addMockPlanDate(examName, subject, dateKey){
+  if(!dateKey) return;
+  state.mockPlans = state.mockPlans || {};
+  const k = mockPlanKey(examName, subject);
+  const p = state.mockPlans[k] || {dates:[], note:''};
+  if(!p.dates.includes(dateKey)) p.dates.push(dateKey);
+  p.dates.sort();
+  state.mockPlans[k] = p;
+  saveState();
+}
+function removeMockPlanDate(examName, subject, dateKey){
+  state.mockPlans = state.mockPlans || {};
+  const k = mockPlanKey(examName, subject);
+  const p = state.mockPlans[k];
+  if(!p) return;
+  p.dates = (p.dates||[]).filter(d=>d!==dateKey);
+  if(!p.dates.length && !(p.note||'').trim()) delete state.mockPlans[k];
+  else state.mockPlans[k] = p;
+  saveState();
+}
+/* その科目の予定日ごとに「実施済みか」を履歴と照合して返す。 */
+function mockPlanStatus(examName, subject){
+  const p = getMockPlan(examName, subject);
+  if(!p || !(p.dates||[]).length) return [];
+  const hist = (state.mockHistory||[]).filter(h=>h.examName===examName && h.subject===subject);
+  const doneDates = new Set(hist.map(h=>h.dateKey));
+  return p.dates.map(d=>({date:d, done:doneDates.has(d)}));
+}
+
+/* 予定編集モーダル(動的生成・模試専用) */
+function openMockPlanEditor(examName, subject){
+  // 既存モーダルがあれば除去
+  const old = document.getElementById('mock-plan-modal');
+  if(old) old.remove();
+  const p = getMockPlan(examName, subject) || {dates:[], note:''};
+  const todayKey = _todayKey();
+
+  const modal = document.createElement('div');
+  modal.id = 'mock-plan-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px';
+  modal.innerHTML = `
+    <div style="background:var(--paper);border-radius:16px;max-width:460px;width:100%;max-height:85vh;overflow:auto;padding:22px 22px 18px;box-shadow:0 10px 40px rgba(0,0,0,.25)">
+      <h3 style="margin:0 0 4px;font-size:16px;color:var(--ink)">模試の予定を設定</h3>
+      <div style="font-size:12.5px;color:var(--ink-muted);margin-bottom:16px">${escapeHtml(examName)} / ${escapeHtml(subject)}</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+        <input type="date" id="mock-plan-date" value="${todayKey}" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px">
+        <button class="mock-judge-btn" id="mock-plan-add">この日を予定に追加</button>
+      </div>
+      <div style="font-size:11.5px;color:var(--ink-muted);margin-bottom:8px">数日にわたって実施する場合は、複数の日付を追加できます。</div>
+      <div id="mock-plan-list" style="margin-bottom:16px"></div>
+      <div style="margin-bottom:16px">
+        <label style="font-size:12px;color:var(--ink-muted);display:block;margin-bottom:5px">メモ(任意)</label>
+        <textarea id="mock-plan-note" rows="2" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;resize:vertical">${escapeHtml(p.note||'')}</textarea>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn ghost" id="mock-plan-close">閉じる</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  const renderList = ()=>{
+    const listEl = modal.querySelector('#mock-plan-list');
+    const cur = getMockPlan(examName, subject);
+    const dates = (cur && cur.dates) ? cur.dates : [];
+    if(!dates.length){
+      listEl.innerHTML = `<div style="font-size:12.5px;color:var(--ink-muted);padding:8px 0">まだ予定日がありません。</div>`;
+      return;
+    }
+    const st = mockPlanStatus(examName, subject);
+    listEl.innerHTML = st.map(o=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line-soft)">
+        <span style="font-variant-numeric:tabular-nums;font-size:13px;color:var(--ink)">${escapeHtml(o.date)}</span>
+        <span style="font-size:12px;font-weight:600;${o.done?'color:var(--green)':'color:var(--ink-muted)'}">${o.done?'✓ 実施済み':'未実施'}</span>
+        <button data-del-date="${escapeHtml(o.date)}" style="margin-left:auto;border:none;background:none;color:#c0392b;cursor:pointer;font-size:12px">削除</button>
+      </div>`).join('');
+    listEl.querySelectorAll('[data-del-date]').forEach(b=>{
+      b.addEventListener('click',()=>{ removeMockPlanDate(examName, subject, b.dataset.delDate); renderList(); });
+    });
+  };
+  renderList();
+
+  modal.querySelector('#mock-plan-add').addEventListener('click',()=>{
+    const dv = modal.querySelector('#mock-plan-date').value;
+    if(!dv) return;
+    addMockPlanDate(examName, subject, dv);
+    renderList();
+  });
+  const saveNote = ()=>{
+    const note = modal.querySelector('#mock-plan-note').value;
+    state.mockPlans = state.mockPlans || {};
+    const k = mockPlanKey(examName, subject);
+    const cur = state.mockPlans[k] || {dates:[], note:''};
+    cur.note = note;
+    if(!(cur.dates||[]).length && !note.trim()) delete state.mockPlans[k];
+    else state.mockPlans[k] = cur;
+    saveState();
+  };
+  const close = ()=>{ saveNote(); modal.remove(); renderMock(); };
+  modal.querySelector('#mock-plan-close').addEventListener('click', close);
+  modal.addEventListener('click',(e)=>{ if(e.target===modal) close(); });
 }
 
 /* ---------- サンプル問題の注入(初回のみ) ---------- */
