@@ -4666,14 +4666,27 @@ const WEAK_THRESHOLD = 3;
    進捗ドット表示は max(10, 完了数+1) を本定数でクランプして動的に並べる。 */
 const MAX_FRAME_ATTEMPTS = 20;
 
+/* 改修V02_37: 「過去問A」だけフレーム演習の上限を 30 回に引き上げる。
+   過去問B・予想問は従来どおり 20 回のまま。
+   種別(kind)は 'pastA'|'pastB'|'forecast' のいずれか(旧 'past' は 'pastA' 扱い)。
+   表示スロットのクランプ上限は、どの種別でも 30 まで許容する
+   (実データの完了数に追随するため、過去問B/予想問が勝手に 30 個並ぶことはない)。 */
+const MAX_FRAME_ATTEMPTS_PASTA = 30;
+const FRAME_SLOT_CLAMP_MAX = 30;
+function maxFrameAttempts(kind){
+  let k = kind || 'pastA';
+  if(k === 'past') k = 'pastA';
+  return (k === 'pastA') ? MAX_FRAME_ATTEMPTS_PASTA : MAX_FRAME_ATTEMPTS;
+}
+
 /* 改修V02_09: 進捗ドット(スロット)の表示個数を決める。
    10 回までは従来どおり 10 個。11 回以上は「完了数(＋進行中の1)」だけ
-   並べ、MAX_FRAME_ATTEMPTS(20) でクランプする。これでガント図が
-   無駄に横長にならず、かつ 11〜20 回も表示できる。 */
+   並べ、上限でクランプする。これでガント図が無駄に横長にならず、
+   かつ 11〜30 回も表示できる(改修V02_37: 上限 20→30)。 */
 function frameSlotCount(completed, hasCurrent){
   let n = (completed || 0) + (hasCurrent ? 1 : 0);
   if(n < 10) n = 10;
-  if(n > MAX_FRAME_ATTEMPTS) n = MAX_FRAME_ATTEMPTS;
+  if(n > FRAME_SLOT_CLAMP_MAX) n = FRAME_SLOT_CLAMP_MAX;
   return n;
 }
 
@@ -5985,6 +5998,14 @@ function loadState(){
       //   mockView: ビュー状態 { mode:'exams'|'subjects'|'run', examName, subject }
       //   mockSession: 進行中の演習セッション
       s.mockExams = Array.isArray(s.mockExams) ? s.mockExams : [];
+      // 改修(countTarget対応・後方互換): 個数問題(count)の countTarget を正規化。
+      //   未設定・不正値は 'correct'(=正しい肢を数える。従来動作)に補完する。
+      //   これにより旧バックアップ(countTarget 無し)を復元しても既存の挙動が変わらない。
+      s.mockExams.forEach(q=>{
+        if(q && q.type==='count'){
+          q.countTarget = (String(q.countTarget||'').toLowerCase()==='incorrect') ? 'incorrect' : 'correct';
+        }
+      });
       s.mockHistory = Array.isArray(s.mockHistory) ? s.mockHistory : [];
       s.mockView = (s.mockView && typeof s.mockView==='object') ? s.mockView : {mode:'exams', examName:null, subject:null};
       s.mockView.mode ||= 'exams';
@@ -7472,8 +7493,9 @@ function startFrameAttempt(subject, frameRef, kind){
     // 中止して新規
     fa.current = null;
   }
-  if(fa.history.length >= MAX_FRAME_ATTEMPTS){
-    if(!confirm(`このフレーム(${kindLbl})は既に${MAX_FRAME_ATTEMPTS}回完了しています。さらに演習を始めますか?\n(履歴は最新${MAX_FRAME_ATTEMPTS}件まで保持されます)`)) return false;
+  const _maxAtt = maxFrameAttempts(kind); // 改修V02_37: 過去問Aは30、他は20
+  if(fa.history.length >= _maxAtt){
+    if(!confirm(`このフレーム(${kindLbl})は既に${_maxAtt}回完了しています。さらに演習を始めますか?\n(履歴は最新${_maxAtt}件まで保持されます)`)) return false;
   }
   // 該当フレームに属する問題のIDを取得(科目=章 + kind + サブフレーム法律でフィルタ)
   // 改修8: getKind(q) で q.kind を 'pastA'|'pastB'|'forecast' に正規化したものと比較
@@ -7799,7 +7821,7 @@ function _checkFrameCompleteImpl(){
       collectSenbonDraftsFromFrame(required, subject, frameNo, fm.subFrameKey || null, fmKind);
     }catch(e){ /* 収集失敗は完了処理を妨げない */ }
     fa.history.push(fa.current);
-    if(fa.history.length > MAX_FRAME_ATTEMPTS) fa.history.shift(); // 最新N件保持(改修V02_09: 10→20)
+    if(fa.history.length > maxFrameAttempts(fmKind)) fa.history.shift(); // 最新N件保持(改修V02_09: 10→20 / V02_37: 過去問Aは30)
     fa.current = null;
     // フレーム完了フラグを設定(frameModeはまだ維持 → 最終問の解説を引き続き表示)
     state.session.frameCompleted = {
@@ -8348,6 +8370,11 @@ function importMockQuestion(q){
       comboOptions: Array.isArray(q.comboOptions) ? q.comboOptions.map(String) : undefined,
       answerOptions: Array.isArray(q.answerOptions) ? q.answerOptions.map(String) : undefined,
       countChoiceLabels: (q.countChoiceLabels && typeof q.countChoiceLabels==='object') ? q.countChoiceLabels : undefined,
+      // 改修: 個数問題(count)で「何を数えるか」の方向。
+      //   'correct'  … 「正しいものはいくつあるか」→ 数える対象=正しい肢(c.correct===true)
+      //   'incorrect'… 「誤っているものはいくつあるか」→ 数える対象=誤り肢(c.correct===false)
+      //   未指定は 'correct'(従来動作=正しい肢を数える)にフォールバック。
+      countTarget: (String(q.countTarget||'').toLowerCase()==='incorrect') ? 'incorrect' : 'correct',
       explanationOverall: q.explanationOverall!=null ? String(q.explanationOverall) : undefined,
       choices: q.choices.map(c=>({
         label: String(c.label!=null?c.label:''),
@@ -8359,6 +8386,16 @@ function importMockQuestion(q){
     };
     // type の正規化(single/combo/count のみ許可、それ以外は single)
     if(!['single','combo','count'].includes(rec.type)) rec.type='single';
+    // 改修(countTarget対応): count は countTarget 方向で数えた対象数と answer の整合を検証。
+    //   不一致でも取り込みは通す(自動修正はしない)が、コンソールに警告して投入ミスに気づけるようにする。
+    if(rec.type==='count'){
+      const targetN = rec.choices.filter(c =>
+        rec.countTarget==='incorrect' ? !c.correct : !!c.correct
+      ).length;
+      if(String(rec.answer) !== String(targetN)){
+        console.warn(`[mock count整合警告] id=${rec.id}: countTarget=${rec.countTarget} で数えた対象数=${targetN} だが answer="${rec.answer}"。answer か各肢 correct / countTarget を見直してください。`);
+      }
+    }
     state.mockExams = state.mockExams || [];
     const i = state.mockExams.findIndex(x=>x.id===rec.id);
     if(i>=0) state.mockExams[i] = rec;
@@ -9875,6 +9912,12 @@ function restoreBackup(){
         state.figuresView ||= {filterSubject:'',filterFrame:''};
         // 模試モード(後方互換: 模試機能追加前の古いバックアップにも対応)
         state.mockExams = Array.isArray(state.mockExams) ? state.mockExams : [];
+        // 改修(countTarget対応): 復元した count 問題の countTarget を正規化(未設定は correct)。
+        state.mockExams.forEach(q=>{
+          if(q && q.type==='count'){
+            q.countTarget = (String(q.countTarget||'').toLowerCase()==='incorrect') ? 'incorrect' : 'correct';
+          }
+        });
         state.mockHistory = Array.isArray(state.mockHistory) ? state.mockHistory : [];
         state.mockView = (state.mockView && typeof state.mockView==='object') ? state.mockView : {mode:'exams', examName:null, subject:null};
         state.mockSession = (state.mockSession && typeof state.mockSession==='object') ? state.mockSession : null;
@@ -14570,28 +14613,46 @@ function renderMockQuestion(q, idx, prog){
   </div>`;
   h += `<div class="mock-q-body">`;
   if(q.prompt) h += `<div class="mock-prompt">${escapeHtml(q.prompt)}</div>`;
+  // 改修(countTarget対応): 個数問題は各肢○×の意味が問いの方向で変わるため、案内を明示する。
+  if(type==='count'){
+    const ctIncorrect = (q.countTarget==='incorrect');
+    const guide = ctIncorrect
+      ? '各肢について「誤り」と思うものに ○ を付けてください（誤っている肢の数を答える問題です）。'
+      : '各肢について「正しい」と思うものに ○ を付けてください（正しい肢の数を答える問題です）。';
+    h += `<div class="mock-count-guide" style="margin:0 0 12px;padding:8px 12px;background:var(--accent-soft,#eef3fb);border-left:3px solid var(--accent,#3a6ea5);border-radius:6px;font-size:12px;color:var(--ink,#333);line-height:1.6">${escapeHtml(guide)}</div>`;
+  }
   // 個数問題などの全体解説(判定後に表示)
   if(judged && q.explanationOverall){
     h += `<div style="margin:0 0 12px;padding:10px 12px;background:var(--bg);border-radius:8px;font-size:12.5px;color:var(--ink-muted);line-height:1.7">${escapeHtml(q.explanationOverall)}</div>`;
   }
 
+  // 改修(countTarget対応): 個数問題は「問いの方向」で各肢○×の意味が変わる。
+  //   ・countTarget==='correct'  … ○=「この肢は正しい」。数える対象=正しい肢。
+  //   ・countTarget==='incorrect'… ○=「この肢は誤り」。数える対象=誤り肢。
+  //   single/combo は従来どおり ○=「この肢は正しい」(数える対象=正しい肢と同義)。
+  const countTarget = (type==='count') ? (q.countTarget==='incorrect' ? 'incorrect' : 'correct') : 'correct';
   // 各肢
   (q.choices||[]).forEach(c=>{
     const expShown = judged; // 解説は本番判定後に開示
     const oxSel = prog && prog.oxMarks ? prog.oxMarks[c.label] : null;
-    const truthCorrect = !!c.correct; // その肢が「正しい」か
+    const factTrue = !!c.correct;                 // その肢が客観的に「正しい」か(事実)
+    // isTarget: この肢が「数える対象(=○を付けるべき肢)」に該当するか。
+    //   incorrect 方向では「誤り肢」が対象なので factTrue を反転する。
+    const isTarget = (countTarget==='incorrect') ? !factTrue : factTrue;
     // 各肢○×判定(本番判定後、かつ自分が○×入力していれば)
+    //   ○=「対象に該当する」と入力したとみなし、isTarget と一致すれば正解。
     let oxVerdict = '';
     if(judged && oxSel){
-      const userSaysTrue = (oxSel==='o');
-      const oxOk = (userSaysTrue===truthCorrect);
+      const userSaysTarget = (oxSel==='o');
+      const oxOk = (userSaysTarget===isTarget);
+      // 事実ラベルは常に客観的正誤(正しい/誤り)を示す。
       oxVerdict = `<div class="mc-verdict">
         <span class="vb ${oxOk?'ok':'ng'}">${oxOk?'○ 一致':'× 不一致'}</span>
-        <span class="vb-truth">正しくは この肢は「${truthCorrect?'正しい':'誤り'}」</span>
+        <span class="vb-truth">正しくは この肢は「${factTrue?'正しい':'誤り'}」</span>
       </div>`;
     }
     h += `<div class="mock-choice ${expShown?'has-exp':''}">
-      <div class="mc-left ${judged&&truthCorrect?'truth-correct':''}">
+      <div class="mc-left ${judged&&isTarget?'truth-correct':''}">
         <div class="mc-label-row">
           <div class="mc-label">${escapeHtml(c.label)}</div>
           <div class="mc-text">${escapeHtml(c.text)}</div>
@@ -14602,7 +14663,7 @@ function renderMockQuestion(q, idx, prog){
         </div>
         ${oxVerdict}
       </div>
-      ${expShown?`<div class="mc-right"><b>${truthCorrect?'正':'誤'}</b>　${escapeHtml(c.explanation||'')}</div>`:''}
+      ${expShown?`<div class="mc-right"><b>${factTrue?'正':'誤'}</b>　${escapeHtml(c.explanation||'')}</div>`:''}
     </div>`;
   });
 
@@ -14657,9 +14718,13 @@ function renderMockAnswerRow(q, idx, prog){
     }).join('') + `</div>`;
   }
 
+  // 改修(countTarget対応): count のラベルは問いの方向で「正しいもの/誤っているものの個数」を明示。
+  const countLabelText = (type==='count')
+    ? ((q.countTarget==='incorrect') ? '誤っているものの個数を選択：' : '正しいものの個数を選択：')
+    : '該当する個数を選択：';
   const labelText = (type==='single') ? '正解の肢を選択：'
                   : (type==='combo') ? '正しい組合せを選択：'
-                  : '該当する個数を選択：';
+                  : countLabelText;
 
   let row = `<div class="mock-answer-row">
     <span class="mar-label">${labelText}</span>
@@ -14823,6 +14888,10 @@ function ensureMockSampleSeed(){
           t = rec.mockType || rec.answerType || rec.subtype || 'single';
         }
         rec.type = ['single','combo','count'].includes(t) ? t : 'single';
+        // 改修(countTarget対応): count のサンプルは countTarget を正規化(未設定は correct)。
+        if(rec.type==='count'){
+          rec.countTarget = (String(rec.countTarget||'').toLowerCase()==='incorrect') ? 'incorrect' : 'correct';
+        }
         state.mockExams.push(rec);
         added++;
       }
@@ -14930,6 +14999,7 @@ const MOCK_SAMPLE_MORE = [
     "qno": "問3",
     "theme": "心理的負荷による精神障害の認定基準",
     "mockType": "count",
+    "countTarget": "correct",
     "answer": "3",
     "prompt": "次に掲げる具体例のうち、厚生労働省労働基準局長通知(「心理的負荷による精神障害の認定基準について」令和5年9月1日付け基発第0901第2号)の別表1において、心理的負荷の強度を「強」と判断する具体例として示されているものはいくつあるか。",
     "choices": [
@@ -19453,7 +19523,7 @@ function renderProgressGantt(root){
       <div class="gantt-scroll-top-inner" id="gantt-scroll-top-inner"></div>
     </div>
     <div class="gantt-scroll" id="gantt-scroll">
-      ${_gBuildGanttTableHtml(groups, dayDates, snap, ganttMode)}
+      ${_gBuildGanttTableHtml(groups, dayDates, snap, ganttMode, ganttKindMode)}
     </div>
   </div>`;
 
@@ -19616,7 +19686,7 @@ function _gBuildParentFrameRowData(subject, fr, kindMode, snap){
 /* 日付ヘッダ + データ行(grid 直接子要素方式)を組む
    改修28-2: 各日付セルを grid の直接子要素にして、進捗ハコの番号が日付セルに漏れる
             grid layout 破綻バグを修正。 */
-function _gBuildGanttTableHtml(groups, dayDates, snap, ganttMode){
+function _gBuildGanttTableHtml(groups, dayDates, snap, ganttMode, ganttKindMode){
   // 改修28-7: スマホ(画面幅 640px 以下)では大幅に圧縮してガントチャート本体に画面幅を譲る
   const isMobile = (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width:640px)').matches);
   const metaW  = isMobile ?  95 : (ganttMode === 'all' ? 140 : 160);
@@ -19629,7 +19699,7 @@ function _gBuildGanttTableHtml(groups, dayDates, snap, ganttMode){
 
   // ヘッダ行(grid の最初の N+2 要素)
   html += `<div class="gantt-h-meta">科目 / フレーム</div>`;
-  html += `<div class="gantt-h-slots">進捗(最大${MAX_FRAME_ATTEMPTS}回)</div>`;
+  html += `<div class="gantt-h-slots">進捗(最大${maxFrameAttempts(ganttKindMode)}回)</div>`;
   for(const d of dayDates){
     const dow = d.getDay(); // 0=Sun, 6=Sat
     const dowClass = dow===0 ? ' sun weekend' : (dow===6 ? ' sat weekend' : '');
